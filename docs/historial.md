@@ -205,10 +205,146 @@ Tablero de diagnóstico remoto de R2:
 **Estado al cerrar**: `tests/sync/` → 4 archivos, **0 fallos**, ~66 pruebas
 verdes, 31 `todo`. `tsc` limpio.
 
-### Limpieza
+### Limpieza y primer commit
 
-Eliminados ~11 archivos de 0 bytes con nombres basura en la raíz del repositorio,
-residuo de redirecciones de shell mal formadas durante la sesión.
+Eliminados ~12 archivos de 0 bytes con nombres basura en la raíz del repositorio,
+residuo de redirecciones de shell mal formadas. **Commit inicial del repo**
+(`9bc967d` en `main`): F0 + F1, 82 archivos. Sin `.env` / `backups/` /
+`node_modules/` (gitignore). Sin trailer `Co-Authored-By` (el proyecto no tiene
+`attribution.commit`).
+
+---
+
+## Sesión 5 — 2026-09-01 · Fase F2, slice 1: autenticación offline
+
+**Objetivo**: `src/auth/` — login sin red, sesiones y RBAC. Módulo de dominio
+probado contra Postgres real, como F1; sin capa HTTP todavía. Rama
+`f2-auth-offline`.
+
+- **Validación previa**: los MCP de ruflo no cargaron esta sesión (handshake
+  expiró al arrancar); el servidor en sí está sano. Se procede directo, como F1.
+- **Dependencia nueva**: `@node-rs/argon2` (binario `win32-x64-msvc`
+  precompilado, sin node-gyp).
+- **Migración `0016_auth_sesion_seleccion.sql`**: `auth_local.sesion.sucursal_id`
+  pasa a nullable + `CHECK` de coherencia con `sucursal_elegida_en`. El login
+  valida credenciales y el usuario elige sucursal en un segundo paso.
+- **`src/auth/`**:
+  - `passwords.ts` — wrapper Argon2id aislado (única pieza con dependencia
+    nativa).
+  - `rbac.ts` — `puede()` / `permisosDe()` contra `core.rol_permiso` (dato, no
+    `if`).
+  - `sesion.ts` — `abrirSesion`, `verificarSesion` (con vigencia del usuario
+    como defensa en profundidad), `seleccionarSucursal`, `cerrarSesion`,
+    `cerrarSesionesDe`. Token opaco = `auth_local.sesion.id`. TTL 12 h.
+  - `login.ts` — orquesta: rate-limit por email → credencial → Argon2id verify →
+    vigencia (contra `ahora` inyectable) → sucursal activa → stale-guard §1.5 →
+    abrir sesión. Cero llamadas a la nube. `estaDegradado()` lee el umbral de
+    `core.parametro`.
+- **Pruebas** (`tests/auth/`, 32, todas verdes): los 4 criterios de aceptación
+  de F2 (login sin red/nube caída; baja `effective_until` vencida bloquea;
+  baja recibida tarde surte efecto al instante; 73 h sin sync → bloqueo de
+  primer login, con override del gerente y excepción para usuario activo en 24 h)
+  más rate-limit, rutas de rechazo, y el `CHECK` de coherencia de la sesión.
+- Aprendizaje: `verbatimModuleSyntax` no deja importar el `const enum`
+  `Algorithm` de `@node-rs/argon2` → se usa el valor numérico (2). Y `pg` exige
+  castear (`$n::uuid`, `::citext`, `::inet`, `::timestamptz`) los parámetros que
+  pueden llegar `null`, o falla con "no se pudo determinar el tipo del parámetro".
+
+---
+
+## Sesión 6 — 2026-09-01 · Fase F2, slice 2: aplicador de configuración
+
+**Objetivo**: `src/config/` — materializar la vigencia de la configuración con el
+reloj local del nodo (03 §3). Misma rama `f2-auth-offline`.
+
+- **Principio** (§3.1): la configuración se propaga como un dato con fecha de
+  vigencia, no como un comando remoto. Un cambio con `effective_from` viaja como
+  cualquier fila y el nodo lo aplica solo con su reloj.
+- **`src/config/aplicador.ts`** — `aplicarConfiguracion(node, { ahora })`,
+  idempotente, sin transacción propia:
+  1. Cierra sesiones de usuarios cuya vigencia terminó (`cerrada_motivo =
+     'vigencia_usuario'`) — cubre la baja diferida vencida y la baja recibida
+     tarde (`effective_until` ya en el pasado).
+  2. Cierra sesiones cuya sucursal elegida dejó de estar asignada o vigente
+     (`'vigencia_sucursal'`).
+  3. Publica la época de configuración; `epocaCambio` avisa si hay caché que
+     invalidar.
+  - `ultimaPasadaAplicador(node)` para el tablero de salud.
+- **`src/config/epoca.ts`** — `epocaConfig(node)`: token derivado de
+  `max(modificado_en)` + `count` sobre las tablas de clase A (lista desde
+  `sync/clases.ts`). `modificado_en` viaja intacto desde el origen (0014), así
+  que refleja cuándo el administrador tocó la config, no cuándo bajó.
+- **Migración `0017_config_aplicado.sql`** — singleton `sync.config_aplicado`
+  (`ultima_pasada`, `ultima_epoca`, `sesiones_cerradas_total`). Un aplicador
+  detenido es tan grave como un sync detenido.
+- **`salud.ts`**: nuevo campo `ultimaPasadaAplicador` (lee `sync.config_aplicado`
+  directo, sin dependencia cruzada sync→config).
+- **Pruebas** (`tests/config/`, 12, todas verdes): criterios 2 y 3 de F2 desde el
+  lado del aplicador (baja normal, baja recibida tarde, usuario desactivado, no
+  toca a los vigentes, baja al futuro, idempotencia), sucursal retirada o
+  desactivada, sesión sin sucursal, marca de la pasada, y la época.
+- Fix del fixture `seedAuth`: el `codigo` de sucursal (char(1)) era fijo `'A'`/
+  `'B'` → colisión al sembrar dos usuarios en una prueba; ahora rota sobre un
+  alfabeto sin ambiguos.
+
+---
+
+## Sesión 7 — 2026-09-01 · Fase F2, slice 3: capa HTTP (Fastify) y CRUD
+
+**Objetivo**: `src/api/` — el servidor que la SPA consume por `localhost`.
+Dependencia nueva: `fastify` v5. Misma rama `f2-auth-offline`.
+
+- **Decisión de alcance**: el blueprint §4.1 es explícito — la API de la
+  terminal es "la única autoridad de escritura del dominio" pero **la config
+  (sucursales, usuarios, tarifas, impresora, ticket) es clase A**: la nube gana,
+  el nodo nunca la escribe. Se edita en el dashboard en nube (F8). Por eso:
+  - **`/clientes`** — CRUD completo (clase B, local, sube por outbox).
+  - **`/catalogos/*`** — SOLO LECTURA de la config clase A (sucursales,
+    usuarios, config-impresora, config-ticket, parámetros), desde las vistas
+    `v_*_vigente`.
+- **`src/api/`**:
+  - `server.ts` — `construirApp({ db, ahora?, logger? })`; `db` entra por
+    parámetro (un `Pool` en prod, un `Client` en transacción en pruebas), así
+    toda la capa se prueba con `app.inject()` sin puerto ni base dedicada.
+  - `errores.ts` — `ErrorHttp` + helpers; el error handler no filtra detalle de
+    PG (un SQLSTATE se vuelve 409 genérico).
+  - `autenticar.ts` — `exige({ conSucursal?, permiso? })`: preHandler que resuelve
+    el `Bearer` contra `auth_local.sesion`, exige sucursal elegida y el permiso
+    de `core.rol_permiso`.
+  - `rutas/auth.ts` — `POST /auth/login` (429 en rate-limit), `/auth/sucursal`,
+    `/auth/logout`, `GET /auth/me` (rol + sucursal + permisos).
+  - `rutas/clientes.ts` — GET (búsqueda por nombre y por teléfono normalizado),
+    GET/:id, POST (201, pone la sucursal de la sesión), PATCH parcial, DELETE
+    (baja lógica, 204).
+  - `rutas/catalogos.ts` — los 6 endpoints de lectura.
+  - `main.ts` — arranque con `Pool` + `listen` (script `npm run api`). Corre
+    como servicio de Windows (§4.2): no atado a una ventana.
+- **`src/db/consulta.ts`** — interfaz `Consultable` (`{ query }`) que cumplen
+  `Client`, `PoolClient` y `Pool`. `auth/*` pasa de pedir `Client` a pedir
+  `Consultable`, y así la API puede pasarles su `Pool` o su `Client` de prueba.
+- **Pruebas** (`tests/api/`, 24, todas verdes): `auth` (login ok / 401 / 429 /
+  400, elección de sucursal, `me`, logout, 401 sin token), `clientes` (CRUD,
+  404, outbox, 409 sin sucursal), `catalogos` (lectura + RBAC 403 vs 200,
+  impresora null vs configurada, parámetros).
+- Smoke: `npm run api` levanta en `127.0.0.1`, `/salud` y `/auth/login`
+  responden.
+
+### Semilla de admin para dev
+
+- **`scripts/sembrar-admin.ts`** (`npm run seed:admin`): crea, si faltan, una
+  agencia y una sucursal; el usuario `admin@donaji.local` (rol administrador);
+  su `auth_local.credencial` con hash Argon2id (password `donaji-admin` por
+  defecto, o `ADMIN_PASSWORD`); el vínculo a todas las sucursales; y fija
+  `sync.nodo.sucursal_id`. Idempotente. Acepta `--target nube`.
+- Verificado end-to-end: `npm run api` + login como admin → token, `/auth/me`
+  con los 21 permisos, `/catalogos/*` responden.
+- **Fix del fixture `seedAuth`**: rotar el `codigo` de sucursal (char(1) UNIQUE)
+  a ciegas chocaba con la sucursal ya sembrada en dev. Ahora pide a la base los
+  códigos LIBRES (`unnest` del alfabeto `EXCEPT` los usados). Robusto contra
+  cualquier dato ya commiteado.
+
+**F2 queda cerrada** salvo el dashboard en nube (F8), que es quien da de alta y
+baja la configuración de clase A.
 
 ---
 
