@@ -1,0 +1,38 @@
+{
+  "name": "donaji",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Sistema de venta de boletos y reservaciones — Donaji Travel Agency",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "printer:fake": "tsx src/printing/tools/fake-printer.ts",
+    "printer:poc": "tsx src/printing/tools/poc-ticket.ts",
+    "db:migrate": "tsx src/db/migrate.ts",
+    "db:status": "tsx src/db/migrate.ts --status",
+    "backup": "tsx src/backup/run.ts",
+    "backup:hourly": "tsx src/backup/run.ts --no-verify",
+    "backup:verify": "tsx src/backup/run.ts --verify-only",
+    "db:migrate:nube": "tsx src/db/migrate.ts --target nube",
+    "db:migrate:ambos": "tsx src/db/migrate.ts --target ambos",
+    "db:status:nube": "tsx src/db/migrate.ts --status --target nube",
+    "sync:poc": "tsx src/sync/poc.ts",
+    "printer:probe": "tsx src/printing/tools/probe.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@types/pg": "^8.23.1",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  },
+  "dependencies": {
+    "dotenv": "^17.4.2",
+    "pg": "^8.23.0"
+  }
+}

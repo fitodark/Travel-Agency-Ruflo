@@ -1,0 +1,245 @@
+# Historial de trabajo — Donaji
+
+Registro por sesión de lo construido, las decisiones tomadas y el estado en que
+quedó el proyecto. Complementa —no sustituye— a
+[`architecture/CHANGELOG.md`](architecture/CHANGELOG.md), que documenta la
+evolución del *blueprint* (v0.1 → v0.2), y a las notas de memoria del asistente.
+
+Base de reconstrucción: el *changelog* del blueprint, el ledger de migraciones
+(`public.schema_migration`), los archivos de prueba y las notas de estado de F0 y
+F1. El repositorio todavía no tiene commits, así que las fechas de las sesiones
+tempranas son las que registran esas fuentes, no `git log`.
+
+---
+
+## Sesión 1 — 2026-08-26 · Cierre de diseño (blueprint v0.2)
+
+**Objetivo**: responder las preguntas técnicas bloqueantes y pasar el diseño de
+"borrador con supuestos" a "diseño en firme".
+
+- **D-1 · Una sola PC por sucursal** (P1). Nodo y caja son la misma máquina. La
+  sincronización intra-sucursal desaparece; el problema de conflictos queda
+  **solo** en el plano inter-sucursal. Esa PC es SPOF total de la sucursal.
+- **D-2 · Respaldo local pasa a crítico y se adelanta de F5 a F0.** Con una sola
+  PC, el `pg_dump` a medio externo es la única defensa real (R2).
+- **D-3 · UPS deja de ser recomendación y pasa a requisito de instalación.**
+- **D-4 · Transporte de impresión abstracto (TCP | USB) desde F0.** Impresora
+  objetivo: Enduro 80 mm (USB + Ethernet). 48 columnas, fuente A.
+- **D-5 · El instalador configura el SO**: servicio con arranque automático,
+  **NTP activo** (pieza de la garantía anti-sobreventa, no cosmético), plan de
+  energía sin suspensión, Windows Update diferido.
+- **D-6 · Mapa real de asientos: 18 plazas, no 19** (`knowledge/esquema.JPG`).
+  Configuración 1+2. Los cupos se reparten en **bloques contiguos completos**,
+  nunca asientos sueltos.
+- **D-7 · Cadena conductor → unidad → tipo_unidad → esquema.** El mapa de una
+  `salida` se **congela por snapshot** al materializarla: un cambio de conductor
+  (evento cotidiano) no puede invalidar asientos ya vendidos.
+- **D-8 · Convivencia de esquemas N y N−1 medida en días.** Un humano actualiza 4
+  terminales por TeamViewer en la madrugada; una puede saltarse la noche.
+  Expand/contract endurecido: solo columnas *nullable*, *contract* una release
+  después. Dos canales separados: datos (automático, continuo) y binarios
+  (manual, por release).
+- **Stack cerrado**: TypeScript end-to-end (Node 22 + Fastify + React). Revertible
+  hasta F1, no después.
+- **Supabase**: cuenta del proveedor, plan Pro pagado por el cliente. Desbloquea
+  `btree_gist` → la garantía dura anti-sobreventa (`EXCLUDE USING gist`) es
+  viable.
+
+**Estado al cerrar**: diseño en firme; arranca F0 con migraciones versionadas.
+
+---
+
+## Sesión 2 — 2026-08-26 / madrugada del 27 · Fase F0 (descubrimiento y respaldo)
+
+**Objetivo**: PoCs de los tres frentes de riesgo técnico y respaldo local, todo
+verificado ejecutándolo.
+
+- **Esquema aplicado** en local y en Supabase: migraciones `0001`–`0011`.
+  - `0001`–`0007` — núcleo (`core`): organización, flota, rutas/salidas,
+    ventas/asientos, caja/folios, eventos/config. Columnas estándar de auditoría
+    y sync por trigger. HLC (`sync.hlc_estado`), identidad de nodo (`sync.nodo`).
+  - `0008` — infraestructura de sync: cursor, idempotencia de lotes, `cambio_log`,
+    cola de excepciones, `checksum_bloque`, tabla `sync.salud`.
+  - `0009` — vistas de auth local.
+  - `0010` — ingesta idempotente de lotes (`sync.ingest_batch` / `ingest_fila`).
+  - `0011` — vistas `core.v_config_*_vigente`: nadie lee las tablas base de
+    configuración directamente.
+- **Capa ESC/POS** con los tres transportes: TCP 9100, USB por cola RAW de
+  Windows, y captura en memoria para pruebas.
+- **Impresión por datos, no por código**: `src/printing/config.ts` arma
+  transporte y plantilla desde las vistas de config vigente. Cuando llegue la IP
+  de la impresora: `INSERT` en `core.config_impresora`, sin desplegar nada. Esa
+  tabla es clase A → baja desde la nube: el administrador puede corregir la IP de
+  una terminal a seis horas de distancia.
+- **Respaldo local** (`src/backup/`): `pg_dump` con verificación de restauración,
+  incluida la prueba de que detecta un dump truncado. Clavado a la base local,
+  no configurable. `pg-tools.ts` resuelve un binario `pg_dump` de versión ≥ a la
+  del servidor (la máquina de dev tiene `pg_dump` 9.5 en el PATH).
+- **PoC de sincronización**: 7 escenarios contra el Supabase real + dos terminales
+  locales desechables.
+- **47 pruebas en verde.**
+
+**Pendiente único de F0**: la impresora **Enduro 80 mm física** no estaba
+instalada (infraestructura la tenía en revisión). Faltan dos cosas que no se
+resuelven por ficha técnica: soporte de QR nativo `GS ( k` vs. fallback raster
+(ambos implementados), y qué página de códigos acepta para acentos (se asume
+CP858). El usuario confirmó el 2026-08-27 que sigue sin estar lista.
+
+**Hallazgos de entorno registrados** (ver nota de memoria "Entornos y bases"):
+- `DATABASE_URL` cambió de significado al crear el proyecto de Supabase — hoy
+  apunta a la nube. Por eso existe `src/db/connection.ts`, que resuelve el destino
+  explícitamente.
+- Supabase está en plan **Free** en dev: se pausa por inactividad y el límite de
+  conexiones es estrecho para 4 nodos. **Subir a Pro antes de instalar una
+  terminal real.**
+- Local es PostgreSQL 18.4 y la nube 17.6 — riesgo de "funciona en mi máquina".
+- TLS a Supabase con `rejectUnauthorized: false` (no se valida la cadena).
+
+---
+
+## Sesión 3 — 2026-08-27 · Fase F1 (motor de sincronización), primera parte
+
+**Objetivo**: construir el ciclo continuo de sync y la reconciliación.
+
+- **`src/sync/engine.ts`** — ciclo continuo: push 5 s, pull 30 s, backoff
+  exponencial con techo de 5 min + jitter ±20%, *stale-guard* a 72 h. No usa
+  `setInterval` (solaparía corridas); cada ciclo agenda el siguiente. Recuerda su
+  última sync exitosa entre reinicios leyendo `sync.salud`.
+- **`src/sync/clases.ts`** — clasificación A/B/C/D como dato ejecutable. Distingue
+  conflicto esperable (clase D, se arbitra) de síntoma de bug (clase B).
+- **`src/sync/reconcile.ts`** — checksum por tabla y día con re-push dirigido del
+  bloque divergente.
+- **Migraciones `0012`, `0013`, `0014`**:
+  - `0012` — clase A que faltaba.
+  - `0013` — parámetro de identidad.
+  - `0014` — **la corrección más importante de la fase.**
+    `core.trg_columnas_estandar` y `sync.trg_outbox` corrían también al aplicar
+    filas **replicadas**, no solo en escrituras locales. Encadenaba seis
+    defectos: la nube pisaba el `hlc_ts` del origen, con lo que la guarda
+    `WHERE EXCLUDED.hlc > almacenado` quedaba inerte y el comportamiento real era
+    "gana el último en llegar a la nube" — lo que el blueprint prohíbe. Además el
+    nodo reencolaba hacia arriba la configuración recién bajada y el eco se
+    realimentaba sin converger. Resuelto con la bandera transaccional
+    `donaji.replicando` que los triggers consultan vía `sync.replicando()`
+    (elegida sobre `session_replication_role` porque esa exige superusuario y el
+    rol de Supabase no lo es).
+
+**Estado al cerrar la sesión**:
+- **11 pruebas marcadas `DEFECTO VIGENTE`** en `tests/sync/`: escritas para
+  *pasar* documentando el comportamiento roto, con nota de cómo invertirlas al
+  corregir el motor. Como la `0014` corrigió esos defectos, ahora **fallan** — y
+  que fallen es la señal de éxito.
+- **Dos regresiones sin diagnosticar** (criterios de aceptación de F1 que pasaban
+  antes de la `0014`): criterio 1 (500 escrituras con 72 h de red caída deben
+  llegar al 100%; se rechazaban ~5) y criterio 5 (nodo N−1 contra nube N).
+- Falta `src/sync/salud.ts` — 41 pruebas en `todo` lo esperan.
+
+---
+
+## Sesión 4 — 2026-08-27 · Cierre de F1: regresiones, inversiones y `salud.ts`
+
+**Objetivo**: dejar la suite `tests/sync/` en verde y construir el tablero de
+salud.
+
+### Criterio 1 — resuelto (no era la guarda de HLC)
+
+`push.ts` y `pull.ts` hacían `SELECT seq::text … ORDER BY seq`. El `::text` crea
+una columna de salida llamada `seq` y `ORDER BY` se enlaza al **alias**, no a la
+columna: el lote se ordenaba **lexicográficamente** (`"10" < "2"`). Con 1000
+filas y `LIMIT 500` eso partía el lote entre una venta y su boleto → la nube
+rechazaba el boleto por clave foránea (se auto-reparaba al reintentar, pero
+`rechazadas` ya no era 0). `EXPLAIN` mostraba `Sort Key: ((outbox.seq)::text)`.
+La `0014` no introdujo el bug: quitó el eco de configuración que desplazaba los
+`seq` y lo tapaba. **Fix**: quitar `::text` de ambos `SELECT`.
+
+### Criterio 5 — era la prueba obsoleta, no una regresión
+
+La sub-prueba reingería una fila de `core.sucursal` que el nodo ya tenía con HLC
+idéntico → `ignorada_hlc`, que es correcto. La aserción `.toBe('aceptada')` se
+escribió cuando la guarda era inerte. Reescrita para subir `hlc_cnt`+1 y afirmar
+que el apply real ocurre y que la columna desconocida se filtra en silencio.
+
+### Las 11 pruebas `DEFECTO VIGENTE` — invertidas
+
+- **caos-perdida** (9): el HLC del origen se conserva; la guarda bloquea un
+  payload viejo; un ACK perdido no rompe el checksum; el cursor de pull se
+  **detiene** en una fila rechazada (no la pierde), abre `sync.excepcion` y
+  retoma cuando el bloqueo se resuelve; una transacción en otra base **no**
+  detiene el pull (filtro acotado a `current_database()`); el nodo no reencola lo
+  que baja; el eco no se realimenta (versión estable); la config bajada no queda
+  marcada como propiedad del nodo.
+- **caos-reintentos** (1): un reenvío tardío del corte abierto se ignora por HLC,
+  sin conflicto ni excepción.
+- **f1-criterios 3b** (1): el "día operativo" del checksum se fija en UTC en los
+  dos lados.
+
+**Patrón detectado**: toda prueba que publique un cambio de configuración a mano
+en `sync.cambio_log` debe subir el `hlc_ts`/`hlc_cnt` del payload (o hacer un
+`UPDATE` real sobre `core.*`, que dispara el trigger). Antes daba igual porque la
+guarda era inerte. Con eso se arregló también `NO se salta filas de transacciones
+todavía abiertas` (que no era `DEFECTO VIGENTE`).
+
+### `src/sync/salud.ts` — construido
+
+Tablero de diagnóstico remoto de R2:
+- `medirSalud(node, opts?)` — foto local completa **sin tocar la nube**: outbox
+  pendiente vs. atascado (rechazado o ≥5 intentos), antigüedad de lo más viejo
+  sin subir, versión de esquema/binario, excepciones abiertas por severidad,
+  último respaldo, último checksum, `degradado` a las 72 h (con `ahora()`
+  inyectable).
+- `clasificarDeriva(seg)` — puro. Umbrales 01b §4: ≤2 min `ok`, ≤5 `alerta`,
+  ≤15 `degradado`, `>15` `fuera_de_zona_muerta`.
+- `medirDeriva(node, cloud)` — reloj de pared nodo vs. nube, descontando media
+  latencia RTT.
+- `registrarDeriva(node, seg)` — persiste la medición y, fuera de zona muerta,
+  abre una excepción `deriva_reloj` deduplicada.
+- `reportarSalud(node, cloud)` — sube a `sync.salud` de la nube; **sobrevive a
+  que la nube esté caída** sin perder la medición local.
+- `registrarRespaldo(node, {...})` — lo llama `src/backup/run.ts` tras cada
+  respaldo.
+- **Migración `0015_sync_respaldo.sql`** — tabla `sync.respaldo` (solo-anexar, no
+  se replica). Aplicada a local; no hace falta en Supabase.
+- Los 10 `it.todo` de `salud.ts` en `motor-pendiente.test.ts` convertidos a
+  pruebas reales, todas verdes. Borrado el `namespace ContratoSalud`.
+
+**Estado al cerrar**: `tests/sync/` → 4 archivos, **0 fallos**, ~66 pruebas
+verdes, 31 `todo`. `tsc` limpio.
+
+### Limpieza
+
+Eliminados ~11 archivos de 0 bytes con nombres basura en la raíz del repositorio,
+residuo de redirecciones de shell mal formadas durante la sesión.
+
+---
+
+## Pendientes de F1
+
+- `src/sync/engine.ts` funciona pero no cumple el `ContratoEngine` propuesto en
+  `motor-pendiente.test.ts` (es la clase `SyncEngine`, no `crearMotor`).
+- `src/sync/reconcile.ts` no expone el arbitraje determinista como función pura.
+- Quedan 31 `it.todo` (engine 12 + reconcile 19).
+
+## Defectos conocidos aún vivos (con su prueba `DEFECTO VIGENTE` en verde)
+
+- `sync.hlc_observar` existe pero no la llama nadie: el reloj local no salta al
+  máximo observado en un pull.
+- `sync.hlc_estado` es fila única que serializa toda escritura de la base.
+- Una excursión del reloj deja el HLC adelantado para siempre (sin tope de
+  deriva).
+- `core.folio_secuencia` no se replica: una terminal reinstalada reinicia folios.
+- El seed de `tipo_unidad` no fija `id`: un nodo sembrado no puede hacer bootstrap.
+- Las FK de `core` no son `DEFERRABLE`: el `SET CONSTRAINTS ALL DEFERRED` del
+  bootstrap no difiere nada.
+
+## Decisiones abiertas para el arquitecto
+
+- Replicación de `core.asiento_ocupacion` hacia las sucursales (decidir antes de
+  F4).
+- P7 (mecanismo de acceso del sistema externo de reportes), P8 (umbrales de
+  sync), P12 (zona horaria de las 4 sucursales).
+- Fijar en el blueprint la región real de Supabase: `us-west-2`, no East US.
+
+## Deuda técnica registrada
+
+- Los archivos de `tests/sync/` miden 600–970 líneas, contra el límite de 500 de
+  `CLAUDE.md`. Hay que partirlos.

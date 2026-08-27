@@ -1,0 +1,25 @@
+# Ruflo local secrets and runtime data
+.env
+.env.local
+.env.*.local
+.claude-flow/data/
+.claude-flow/logs/
+.claude-flow/sessions/
+
+# Node
+node_modules/
+dist/
+*.tsbuildinfo
+
+# Respaldos locales y artefactos de impresión
+backups/
+*.bin
+
+# Runtime de ruflo y configuracion local de agentes (no forman parte del sistema)
+.agents/
+.claude/
+.claude-flow/
+.swarm/
+
+# Artefacto de runtime de ruflo (indice vectorial)
+ruvector.db
