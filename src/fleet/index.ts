@@ -6,3 +6,6 @@
 
 export { materializarHorario, materializarVigentes } from './materializar.js';
 export type { ResultadoMaterializacion, ResumenMaterializacion } from './materializar.js';
+
+export { repartirCupo, cupoDeSalida } from './cupo.js';
+export type { CupoSucursal } from './cupo.js';

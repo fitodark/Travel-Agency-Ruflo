@@ -379,8 +379,33 @@ salidas concretas del horizonte, con el mapa congelado. Rama `f3-flota`.
   commit y disparaba el guard de "migración modificada". Ahora normaliza a LF
   antes de hashear.
 
-**Falta de F3**: slice 2 (reparto de `cupo_offline` por bloques contiguos) y
-slice 3 (cambio de conductor, los 4 casos de 02 §5.3).
+---
+
+## Sesión 9 — 2026-09-01 · Fase F3, slice 2: reparto de cupo offline
+
+**Objetivo**: `core.repartir_cupo_offline` — repartir los asientos de cada salida
+en conjuntos disjuntos por bloques contiguos, para que la sobreventa offline sea
+imposible por construcción (01b §3). Rama `f3-flota`.
+
+- **Migración `0019`**: `core.repartir_cupo_offline(salida_id)`. Reparto v1
+  determinista (§3.3): cada parada intermedia recibe UNA fila completa (bloque de
+  3 asientos); el origen se queda con el resto, incluida la banca trasera de 4
+  (B5, el único bloque para un grupo familiar). `tramos = int4range(orden, n-1)`.
+  `vigente_hasta`: para las intermedias, su paso menos `horas_expiracion_cupo`
+  (SUPUESTO S5, T-4h); para el origen, su propio `cierre_venta_en`. Idempotente
+  (DELETE + INSERT). Rechaza cuando hay más paradas vendedoras que bloques
+  (límite documentado en 01b §3.5). `materializar_salidas` (`CREATE OR REPLACE`)
+  ahora llama al reparto por cada salida nueva (§6.1 paso 3).
+- **`src/fleet/cupo.ts`**: `repartirCupo(db, salidaId)` (recalcula, para el
+  cambio de conductor) y `cupoDeSalida(db, salidaId)` (lo inspecciona).
+- **Pruebas** (`tests/fleet/cupo.test.ts`, 8, verdes): la ruta S1→S2→S3→S4
+  reparte exactamente como el blueprint (B0,B1,B2,B5 → origen; B3 → S2; B4 → S3;
+  asientos 12/3/3, tramos `[0,3)`/`[1,3)`/`[2,3)`); disjuntos que suman 18; una
+  fila por intermedia; ruta sin intermedias deja los 6 bloques en el origen;
+  expiración T-4h vs. cierre de venta; idempotencia; el rechazo por exceso de
+  paradas; y que la materialización ya deja el cupo repartido.
+
+**Falta de F3**: slice 3 (cambio de conductor, los 4 casos de 02 §5.3).
 
 ---
 
