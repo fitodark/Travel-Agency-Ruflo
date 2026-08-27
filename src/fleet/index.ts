@@ -9,3 +9,6 @@ export type { ResultadoMaterializacion, ResumenMaterializacion } from './materia
 
 export { repartirCupo, cupoDeSalida } from './cupo.js';
 export type { CupoSucursal } from './cupo.js';
+
+export { cambiarConductor } from './conductor.js';
+export type { CasoCambio, CambiarConductorArgs, ResultadoCambioConductor } from './conductor.js';

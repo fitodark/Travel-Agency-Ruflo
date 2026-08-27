@@ -405,7 +405,40 @@ imposible por construcción (01b §3). Rama `f3-flota`.
   expiración T-4h vs. cierre de venta; idempotencia; el rechazo por exceso de
   paradas; y que la materialización ya deja el cupo repartido.
 
-**Falta de F3**: slice 3 (cambio de conductor, los 4 casos de 02 §5.3).
+---
+
+## Sesión 10 — 2026-09-01 · Fase F3, slice 3: cambio de conductor
+
+**Objetivo**: `core.cambiar_conductor` — los cuatro casos de la regla de
+compatibilidad de mapa (02 §5.3). Cierra F3. Rama `f3-flota`.
+
+- **Migración `0020`**: `core.cambiar_conductor(salida_id, conductor_nuevo,
+  usuario_id, con_conexion?, motivo?)`. El invariante NO es "mismo tipo de
+  unidad" sino `asientos_vendidos(salida) ⊆ asientos_vendibles(mapa_nuevo)` **y**
+  `bloques_repartidos(salida) ⊆ bloques(mapa_nuevo)`.
+  - **Caso 1 — compatible**: libre (permiso `conductor.cambiar.compatible`).
+    Solo cambia `conductor_id` y `conductor_nombre_snapshot`; NO toca el mapa ni
+    los cupos.
+  - **Caso 2 — incompatible**: bloqueado para `vendedor` (exige
+    `conductor.cambiar.incompatible`, es decir gerente/admin). **Sin conexión**
+    queda `cambio_conductor` `pendiente` sin tocar la salida. **Con conexión** se
+    fuerza: recalcula `mapa_snapshot` y cupos, marca los boletos huérfanos
+    `conflicto_sobreventa` y su ocupación `conflicto`, y abre `sync.excepcion`
+    `mapa_incompatible`/`critica` por sucursal emisora. La propuesta de asiento
+    nuevo es F4 (01b §7).
+  - **Caso 3 — sin boletos**: cambio libre; re-materializa `mapa_snapshot` y cupo.
+  - **Caso 4 — `en_ruta`/`finalizada`**: lanza; el conductor queda como dato
+    histórico.
+  Toda operación deja fila en `core.cambio_conductor` (clase C, append-only).
+- **`src/fleet/conductor.ts`**: `cambiarConductor(db, {...})`.
+- **Pruebas** (`tests/fleet/conductor.test.ts`, 8, verdes): los 4 casos, el
+  bloqueo a vendedor, `pendiente` sin conexión, huérfano vs. boleto que sí cabe,
+  excepción crítica, y la fila de auditoría.
+- Nota de proceso: al editar `0020` tras aplicarla hubo que resetear su fila en
+  `public.schema_migration` y `DROP FUNCTION` para re-aplicar (la migración no
+  estaba commiteada ni compartida).
+
+**F3 queda cerrada**: los 3 slices, los 4 criterios de aceptación.
 
 ---
 
