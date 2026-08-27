@@ -346,6 +346,42 @@ Dependencia nueva: `fastify` v5. Misma rama `f2-auth-offline`.
 **F2 queda cerrada** salvo el dashboard en nube (F8), que es quien da de alta y
 baja la configuración de clase A.
 
+### Merge
+
+F2 mergeada a `main` el 2026-09-01 (PR #1, merge commit `51edd1c`); rama
+`f2-auth-offline` eliminada.
+
+---
+
+## Sesión 8 — 2026-09-01 · Fase F3, slice 1: materialización de salidas
+
+**Objetivo**: `core.materializar_salidas` — convertir cada horario vigente en las
+salidas concretas del horizonte, con el mapa congelado. Rama `f3-flota`.
+
+- **Contexto**: todo el esquema de flota/rutas/salidas ya existe (migraciones
+  0003–0004). F3 es lógica, no tablas.
+- **Migración `0018`**: `core.materializar_salidas(horario_id, dias?, desde?)` —
+  job nocturno de la NUBE. Por cada día operativo del horizonte (según
+  `dias_semana` ISO, dentro de `vigente_desde/hasta`): crea `core.salida` con
+  `mapa_snapshot` **congelado** (copia de `conductor → tipo_unidad → mapa`, D-7) y
+  `conductor_nombre_snapshot`, y `core.salida_parada` (hora de paso en la zona
+  horaria de cada sucursal; cierre de venta a `minutos_cierre_venta` antes).
+  Idempotente por `UNIQUE (horario_id, fecha_operacion)`.
+- **`src/fleet/materializar.ts`**: `materializarHorario` y `materializarVigentes`
+  (procesa los `v_horario_vigente` con conductor, salta los sin). +
+  `scripts/materializar.ts` (`npm run materializar`, default `--target nube`).
+- **Pruebas** (`tests/fleet/`, 10, verdes): criterio 1 de F3 (salidas del
+  horizonte con mapa y paradas), idempotencia, filtro `dias_semana`, ventana
+  `vigente_desde/hasta`, zona horaria, horizonte por parámetro (91 días), y los
+  rechazos (sin conductor, horario de baja, inexistente).
+- **Fix `src/db/schema.ts`**: el checksum de migraciones hasheaba el SQL crudo;
+  `core.autocrlf` de Git en Windows convierte CRLF al hacer checkout tras un
+  commit y disparaba el guard de "migración modificada". Ahora normaliza a LF
+  antes de hashear.
+
+**Falta de F3**: slice 2 (reparto de `cupo_offline` por bloques contiguos) y
+slice 3 (cambio de conductor, los 4 casos de 02 §5.3).
+
 ---
 
 ## Pendientes de F1
