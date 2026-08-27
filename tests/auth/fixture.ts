@@ -26,11 +26,27 @@ export interface AuthFixture {
   email: string;
 }
 
-// `core.sucursal.codigo` es char(1) del alfabeto sin ambiguos (sin I, L, O, U).
-// Cada `seedAuth` consume dos letras; el contador evita colisiones cuando una
-// misma prueba siembra varios usuarios.
-const COD_POOL = 'ABCDEFGHJKMNPQRSTVWXYZ23456789';
+// `core.sucursal.codigo` es char(1) del alfabeto sin ambiguos (sin I, L, O, U) y
+// es UNIQUE en toda la tabla. Como sólo hay ~29 valores y las pruebas siembran
+// muchas sucursales, no se puede rotar a ciegas: se piden códigos que estén
+// LIBRES en la base ahora mismo (incluye lo ya sembrado en dev y lo de la propia
+// transacción).
+const COD_ALFABETO = 'ABCDEFGHJKMNPQRSTVWXYZ23456789';
 let n = 0;
+
+async function codigosLibres(client: Client, cuantos: number): Promise<string[]> {
+  const { rows } = await client.query<{ c: string }>(
+    `SELECT c FROM unnest(string_to_array($1, NULL)) AS c
+      WHERE c NOT IN (SELECT codigo FROM core.sucursal)
+      ORDER BY c
+      LIMIT $2`,
+    [COD_ALFABETO, cuantos],
+  );
+  if (rows.length < cuantos) {
+    throw new Error(`No quedan códigos de sucursal libres (se pidieron ${cuantos})`);
+  }
+  return rows.map((r) => r.c);
+}
 
 export interface SeedAuthOpts {
   rol?: Rol;
@@ -47,11 +63,11 @@ export interface SeedAuthOpts {
 /** Crea agencia + 2 sucursales + un usuario con credencial. Dentro de una tx abierta. */
 export async function seedAuth(client: Client, opts: SeedAuthOpts = {}): Promise<AuthFixture> {
   const rol = opts.rol ?? 'vendedor';
-  const i = n++;
-  const suf = `${Date.now().toString(36)}${i}`;
+  const suf = `${Date.now().toString(36)}${n++}`;
   const email = `u-${suf}@donaji.test`;
-  const codA = COD_POOL[(i * 2) % COD_POOL.length]!;
-  const codB = COD_POOL[(i * 2 + 1) % COD_POOL.length]!;
+  const libres = await codigosLibres(client, 2);
+  const codA = libres[0]!;
+  const codB = libres[1]!;
 
   const { rows: ag } = await client.query<{ id: string }>(
     `INSERT INTO core.agencia (id, nombre) VALUES (core.uuid_v7(), 'Donaji Auth Test') RETURNING id`,

@@ -329,9 +329,22 @@ Dependencia nueva: `fastify` v5. Misma rama `f2-auth-offline`.
 - Smoke: `npm run api` levanta en `127.0.0.1`, `/salud` y `/auth/login`
   responden.
 
-**Falta de F2**: sembrar un usuario administrador con credencial para poder
-entrar en dev (el hash se calcula en la nube; en local hace falta una semilla).
-Con eso F2 queda cerrada salvo el dashboard en nube, que es F8.
+### Semilla de admin para dev
+
+- **`scripts/sembrar-admin.ts`** (`npm run seed:admin`): crea, si faltan, una
+  agencia y una sucursal; el usuario `admin@donaji.local` (rol administrador);
+  su `auth_local.credencial` con hash Argon2id (password `donaji-admin` por
+  defecto, o `ADMIN_PASSWORD`); el vínculo a todas las sucursales; y fija
+  `sync.nodo.sucursal_id`. Idempotente. Acepta `--target nube`.
+- Verificado end-to-end: `npm run api` + login como admin → token, `/auth/me`
+  con los 21 permisos, `/catalogos/*` responden.
+- **Fix del fixture `seedAuth`**: rotar el `codigo` de sucursal (char(1) UNIQUE)
+  a ciegas chocaba con la sucursal ya sembrada en dev. Ahora pide a la base los
+  códigos LIBRES (`unnest` del alfabeto `EXCEPT` los usados). Robusto contra
+  cualquier dato ya commiteado.
+
+**F2 queda cerrada** salvo el dashboard en nube (F8), que es quien da de alta y
+baja la configuración de clase A.
 
 ---
 

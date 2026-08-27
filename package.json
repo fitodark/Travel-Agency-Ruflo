@@ -23,7 +23,8 @@
     "db:status:nube": "tsx src/db/migrate.ts --status --target nube",
     "sync:poc": "tsx src/sync/poc.ts",
     "printer:probe": "tsx src/printing/tools/probe.ts",
-    "api": "tsx src/api/main.ts"
+    "api": "tsx src/api/main.ts",
+    "seed:admin": "tsx scripts/sembrar-admin.ts"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
