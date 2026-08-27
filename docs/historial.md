@@ -440,6 +440,11 @@ compatibilidad de mapa (02 §5.3). Cierra F3. Rama `f3-flota`.
 
 **F3 queda cerrada**: los 3 slices, los 4 criterios de aceptación.
 
+### Merge
+
+F3 mergeada a `main` el 2026-09-01 (PR #2, merge commit `d664e3e`); rama
+`f3-flota` eliminada.
+
 ---
 
 ## Pendientes de F1
