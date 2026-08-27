@@ -22,7 +22,8 @@
     "db:migrate:ambos": "tsx src/db/migrate.ts --target ambos",
     "db:status:nube": "tsx src/db/migrate.ts --status --target nube",
     "sync:poc": "tsx src/sync/poc.ts",
-    "printer:probe": "tsx src/printing/tools/probe.ts"
+    "printer:probe": "tsx src/printing/tools/probe.ts",
+    "api": "tsx src/api/main.ts"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
@@ -34,6 +35,7 @@
   "dependencies": {
     "@node-rs/argon2": "^2.1.0",
     "dotenv": "^17.4.2",
+    "fastify": "^5.12.1",
     "pg": "^8.23.0"
   }
 }

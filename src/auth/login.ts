@@ -14,7 +14,7 @@
  * 03:00" y "73 h sin sync" no pueden exigir esperar horas.
  */
 
-import type { Client } from 'pg';
+import type { Consultable } from '../db/consulta.js';
 import { abrirSesion } from './sesion.js';
 import { verifyPassword } from './passwords.js';
 
@@ -56,7 +56,7 @@ export interface LoginOk {
 export type LoginResult = LoginOk | { ok: false; motivo: MotivoRechazo };
 
 export interface LoginArgs {
-  node: Client;
+  node: Consultable;
   email: string;
   password: string;
   /** Sucursal preseleccionada (p. ej. la SPA recuerda la última). Opcional. */
@@ -86,7 +86,7 @@ interface FilaCredencial {
  * Un nodo que NUNCA sincronizó (recién instalado) NO está degradado: no está
  * atrasado, está empezando. Mismo criterio que `engine.ts` y `salud.ts`.
  */
-export async function estaDegradado(node: Client, ahora: Date): Promise<boolean> {
+export async function estaDegradado(node: Consultable, ahora: Date): Promise<boolean> {
   const { rows: p } = await node.query<{ valor: unknown }>(
     `SELECT valor FROM core.parametro
       WHERE clave = 'umbral_sync_degradado_horas' AND effective_from <= $1::timestamptz
@@ -104,7 +104,7 @@ export async function estaDegradado(node: Client, ahora: Date): Promise<boolean>
 }
 
 async function registrarIntento(
-  node: Client, email: string, exito: boolean, ip: string | null, ahora: Date,
+  node: Consultable, email: string, exito: boolean, ip: string | null, ahora: Date,
 ): Promise<void> {
   await node.query(
     `INSERT INTO auth_local.intento (email, exito, ip, ocurrido_en)

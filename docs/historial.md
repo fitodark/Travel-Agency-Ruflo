@@ -287,9 +287,51 @@ reloj local del nodo (03 §3). Misma rama `f2-auth-offline`.
   `'B'` → colisión al sembrar dos usuarios en una prueba; ahora rota sobre un
   alfabeto sin ambiguos.
 
-**Falta de F2**: capa HTTP (Fastify) + `src/api/` y el CRUD de sucursales,
-usuarios, clientes y config de impresora/ticket. También sembrar un usuario
-administrador con credencial para poder entrar en dev.
+---
+
+## Sesión 7 — 2026-09-01 · Fase F2, slice 3: capa HTTP (Fastify) y CRUD
+
+**Objetivo**: `src/api/` — el servidor que la SPA consume por `localhost`.
+Dependencia nueva: `fastify` v5. Misma rama `f2-auth-offline`.
+
+- **Decisión de alcance**: el blueprint §4.1 es explícito — la API de la
+  terminal es "la única autoridad de escritura del dominio" pero **la config
+  (sucursales, usuarios, tarifas, impresora, ticket) es clase A**: la nube gana,
+  el nodo nunca la escribe. Se edita en el dashboard en nube (F8). Por eso:
+  - **`/clientes`** — CRUD completo (clase B, local, sube por outbox).
+  - **`/catalogos/*`** — SOLO LECTURA de la config clase A (sucursales,
+    usuarios, config-impresora, config-ticket, parámetros), desde las vistas
+    `v_*_vigente`.
+- **`src/api/`**:
+  - `server.ts` — `construirApp({ db, ahora?, logger? })`; `db` entra por
+    parámetro (un `Pool` en prod, un `Client` en transacción en pruebas), así
+    toda la capa se prueba con `app.inject()` sin puerto ni base dedicada.
+  - `errores.ts` — `ErrorHttp` + helpers; el error handler no filtra detalle de
+    PG (un SQLSTATE se vuelve 409 genérico).
+  - `autenticar.ts` — `exige({ conSucursal?, permiso? })`: preHandler que resuelve
+    el `Bearer` contra `auth_local.sesion`, exige sucursal elegida y el permiso
+    de `core.rol_permiso`.
+  - `rutas/auth.ts` — `POST /auth/login` (429 en rate-limit), `/auth/sucursal`,
+    `/auth/logout`, `GET /auth/me` (rol + sucursal + permisos).
+  - `rutas/clientes.ts` — GET (búsqueda por nombre y por teléfono normalizado),
+    GET/:id, POST (201, pone la sucursal de la sesión), PATCH parcial, DELETE
+    (baja lógica, 204).
+  - `rutas/catalogos.ts` — los 6 endpoints de lectura.
+  - `main.ts` — arranque con `Pool` + `listen` (script `npm run api`). Corre
+    como servicio de Windows (§4.2): no atado a una ventana.
+- **`src/db/consulta.ts`** — interfaz `Consultable` (`{ query }`) que cumplen
+  `Client`, `PoolClient` y `Pool`. `auth/*` pasa de pedir `Client` a pedir
+  `Consultable`, y así la API puede pasarles su `Pool` o su `Client` de prueba.
+- **Pruebas** (`tests/api/`, 24, todas verdes): `auth` (login ok / 401 / 429 /
+  400, elección de sucursal, `me`, logout, 401 sin token), `clientes` (CRUD,
+  404, outbox, 409 sin sucursal), `catalogos` (lectura + RBAC 403 vs 200,
+  impresora null vs configurada, parámetros).
+- Smoke: `npm run api` levanta en `127.0.0.1`, `/salud` y `/auth/login`
+  responden.
+
+**Falta de F2**: sembrar un usuario administrador con credencial para poder
+entrar en dev (el hash se calcula en la nube; en local hace falta una semilla).
+Con eso F2 queda cerrada salvo el dashboard en nube, que es F8.
 
 ---
 

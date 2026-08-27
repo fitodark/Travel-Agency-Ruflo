@@ -11,7 +11,7 @@
  * de login viaja para auditoría.
  */
 
-import type { Client } from 'pg';
+import type { Consultable } from '../db/consulta.js';
 
 /** Duración de la sesión. Blueprint §1.2. */
 export const TTL_HORAS = 12;
@@ -55,7 +55,7 @@ const mapear = (f: FilaSesion): Sesion => ({
  * solo se materializa la fila.
  */
 export async function abrirSesion(
-  node: Client,
+  node: Consultable,
   args: {
     usuarioId: string;
     sucursalId?: string | null;
@@ -94,7 +94,7 @@ export async function abrirSesion(
  * contra `ahora` (inyectable) para poder probar el paso del tiempo.
  */
 export async function verificarSesion(
-  node: Client,
+  node: Consultable,
   token: string,
   opts: { ahora?: () => Date } = {},
 ): Promise<Sesion | null> {
@@ -127,7 +127,7 @@ export type SeleccionResultado =
  * volver a entrar.
  */
 export async function seleccionarSucursal(
-  node: Client,
+  node: Consultable,
   args: { token: string; sucursalId: string; ahora?: () => Date },
 ): Promise<SeleccionResultado> {
   const ahora = args.ahora?.() ?? new Date();
@@ -157,7 +157,7 @@ export async function seleccionarSucursal(
 
 /** Cierra una sesión. Idempotente: cerrar una ya cerrada no hace nada. */
 export async function cerrarSesion(
-  node: Client,
+  node: Consultable,
   token: string,
   motivo = 'logout',
 ): Promise<void> {
@@ -175,7 +175,7 @@ export async function cerrarSesion(
  * Devuelve cuántas cerró.
  */
 export async function cerrarSesionesDe(
-  node: Client,
+  node: Consultable,
   usuarioId: string,
   motivo: string,
 ): Promise<number> {
