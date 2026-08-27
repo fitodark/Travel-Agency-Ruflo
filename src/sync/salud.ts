@@ -51,6 +51,12 @@ export interface Salud {
   ultimoRespaldoEn: Date | null;
   excepcionesAbiertas: Record<Severidad, number>;
   ultimoChecksum: { dia: string; coincide: boolean } | null;
+  /**
+   * Última pasada del aplicador de configuración (03 §3.3). Un aplicador detenido
+   * es tan grave como un sync detenido: una baja de usuario programada nunca
+   * surtiría efecto.
+   */
+  ultimaPasadaAplicador: Date | null;
   /** >72 h sin sync: banner de degradación y bloqueo de primer login (03 §1.5). */
   degradado: boolean;
 }
@@ -207,6 +213,11 @@ export async function medirSalud(node: Client, opts: SaludOptions = {}): Promise
     ? { dia: chkRows[0].dia, coincide: chkRows[0].coincide }
     : null;
 
+  const { rows: aplRows } = await node.query<{ ultima: Date | null }>(
+    `SELECT ultima_pasada AS ultima FROM sync.config_aplicado WHERE singleton`,
+  );
+  const ultimaPasadaAplicador = aplRows[0]?.ultima ?? null;
+
   // Un nodo que NUNCA sincronizó (recién instalado) no está degradado: está
   // empezando, no atrasado.
   const degradado =
@@ -226,6 +237,7 @@ export async function medirSalud(node: Client, opts: SaludOptions = {}): Promise
     ultimoRespaldoEn,
     excepcionesAbiertas,
     ultimoChecksum,
+    ultimaPasadaAplicador,
     degradado,
   };
 }

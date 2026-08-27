@@ -26,6 +26,10 @@ export interface AuthFixture {
   email: string;
 }
 
+// `core.sucursal.codigo` es char(1) del alfabeto sin ambiguos (sin I, L, O, U).
+// Cada `seedAuth` consume dos letras; el contador evita colisiones cuando una
+// misma prueba siembra varios usuarios.
+const COD_POOL = 'ABCDEFGHJKMNPQRSTVWXYZ23456789';
 let n = 0;
 
 export interface SeedAuthOpts {
@@ -43,8 +47,11 @@ export interface SeedAuthOpts {
 /** Crea agencia + 2 sucursales + un usuario con credencial. Dentro de una tx abierta. */
 export async function seedAuth(client: Client, opts: SeedAuthOpts = {}): Promise<AuthFixture> {
   const rol = opts.rol ?? 'vendedor';
-  const suf = `${Date.now().toString(36)}${n++}`;
+  const i = n++;
+  const suf = `${Date.now().toString(36)}${i}`;
   const email = `u-${suf}@donaji.test`;
+  const codA = COD_POOL[(i * 2) % COD_POOL.length]!;
+  const codB = COD_POOL[(i * 2 + 1) % COD_POOL.length]!;
 
   const { rows: ag } = await client.query<{ id: string }>(
     `INSERT INTO core.agencia (id, nombre) VALUES (core.uuid_v7(), 'Donaji Auth Test') RETURNING id`,
@@ -59,8 +66,8 @@ export async function seedAuth(client: Client, opts: SeedAuthOpts = {}): Promise
     );
     return rows[0]!.id;
   };
-  const sucursalAId = await sucursal('A', `Terminal A ${suf}`);
-  const sucursalBId = await sucursal('B', `Terminal B ${suf}`);
+  const sucursalAId = await sucursal(codA, `Terminal ${codA} ${suf}`);
+  const sucursalBId = await sucursal(codB, `Terminal ${codB} ${suf}`);
 
   const { rows: u } = await client.query<{ id: string }>(
     `INSERT INTO core.usuario (id, nombre, email, rol, effective_from, effective_until)

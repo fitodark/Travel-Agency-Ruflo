@@ -300,6 +300,10 @@ runSalud('src/sync/salud.ts — tablero de diagnóstico remoto', () => {
     await node.query(
       `TRUNCATE sync.outbox, sync.excepcion, sync.respaldo, sync.checksum_bloque, sync.salud`,
     );
+    await node.query(
+      `UPDATE sync.config_aplicado
+          SET ultima_pasada = NULL, ultima_epoca = NULL, sesiones_cerradas_total = 0`,
+    );
   });
 
   it('separa outbox pendiente de outbox atascado: hoy el operador no puede distinguirlos', async () => {
@@ -367,6 +371,17 @@ runSalud('src/sync/salud.ts — tablero de diagnóstico remoto', () => {
     const s = await medirSalud(node);
     expect(s.ultimoRespaldoEn, 'toma el más reciente').not.toBeNull();
     expect(Date.now() - s.ultimoRespaldoEn!.getTime(), 'y es de hace un instante').toBeLessThan(60_000);
+  });
+
+  it('reporta cuándo corrió el aplicador de configuración por última vez (03 §3.3)', async () => {
+    expect((await medirSalud(node)).ultimaPasadaAplicador, 'aún no ha corrido').toBeNull();
+
+    await node.query(
+      `UPDATE sync.config_aplicado SET ultima_pasada = now() WHERE singleton`,
+    );
+    const s = await medirSalud(node);
+    expect(s.ultimaPasadaAplicador).not.toBeNull();
+    expect(Date.now() - s.ultimaPasadaAplicador!.getTime()).toBeLessThan(60_000);
   });
 
   it('DERIVA · clasifica la deriva en ok/alerta/degradado/fuera_de_zona_muerta según 01b §4', () => {

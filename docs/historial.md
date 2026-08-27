@@ -250,9 +250,46 @@ probado contra Postgres real, como F1; sin capa HTTP todavía. Rama
   castear (`$n::uuid`, `::citext`, `::inet`, `::timestamptz`) los parámetros que
   pueden llegar `null`, o falla con "no se pudo determinar el tipo del parámetro".
 
-**Falta de F2**: `src/config/` (aplicador de `effective_from` + ventana
-nocturna), la capa HTTP (Fastify) y el CRUD de sucursales/usuarios/clientes/
-config de impresora y ticket.
+---
+
+## Sesión 6 — 2026-09-01 · Fase F2, slice 2: aplicador de configuración
+
+**Objetivo**: `src/config/` — materializar la vigencia de la configuración con el
+reloj local del nodo (03 §3). Misma rama `f2-auth-offline`.
+
+- **Principio** (§3.1): la configuración se propaga como un dato con fecha de
+  vigencia, no como un comando remoto. Un cambio con `effective_from` viaja como
+  cualquier fila y el nodo lo aplica solo con su reloj.
+- **`src/config/aplicador.ts`** — `aplicarConfiguracion(node, { ahora })`,
+  idempotente, sin transacción propia:
+  1. Cierra sesiones de usuarios cuya vigencia terminó (`cerrada_motivo =
+     'vigencia_usuario'`) — cubre la baja diferida vencida y la baja recibida
+     tarde (`effective_until` ya en el pasado).
+  2. Cierra sesiones cuya sucursal elegida dejó de estar asignada o vigente
+     (`'vigencia_sucursal'`).
+  3. Publica la época de configuración; `epocaCambio` avisa si hay caché que
+     invalidar.
+  - `ultimaPasadaAplicador(node)` para el tablero de salud.
+- **`src/config/epoca.ts`** — `epocaConfig(node)`: token derivado de
+  `max(modificado_en)` + `count` sobre las tablas de clase A (lista desde
+  `sync/clases.ts`). `modificado_en` viaja intacto desde el origen (0014), así
+  que refleja cuándo el administrador tocó la config, no cuándo bajó.
+- **Migración `0017_config_aplicado.sql`** — singleton `sync.config_aplicado`
+  (`ultima_pasada`, `ultima_epoca`, `sesiones_cerradas_total`). Un aplicador
+  detenido es tan grave como un sync detenido.
+- **`salud.ts`**: nuevo campo `ultimaPasadaAplicador` (lee `sync.config_aplicado`
+  directo, sin dependencia cruzada sync→config).
+- **Pruebas** (`tests/config/`, 12, todas verdes): criterios 2 y 3 de F2 desde el
+  lado del aplicador (baja normal, baja recibida tarde, usuario desactivado, no
+  toca a los vigentes, baja al futuro, idempotencia), sucursal retirada o
+  desactivada, sesión sin sucursal, marca de la pasada, y la época.
+- Fix del fixture `seedAuth`: el `codigo` de sucursal (char(1)) era fijo `'A'`/
+  `'B'` → colisión al sembrar dos usuarios en una prueba; ahora rota sobre un
+  alfabeto sin ambiguos.
+
+**Falta de F2**: capa HTTP (Fastify) + `src/api/` y el CRUD de sucursales,
+usuarios, clientes y config de impresora/ticket. También sembrar un usuario
+administrador con credencial para poder entrar en dev.
 
 ---
 
