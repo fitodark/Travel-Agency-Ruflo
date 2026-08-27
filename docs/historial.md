@@ -205,10 +205,54 @@ Tablero de diagnóstico remoto de R2:
 **Estado al cerrar**: `tests/sync/` → 4 archivos, **0 fallos**, ~66 pruebas
 verdes, 31 `todo`. `tsc` limpio.
 
-### Limpieza
+### Limpieza y primer commit
 
-Eliminados ~11 archivos de 0 bytes con nombres basura en la raíz del repositorio,
-residuo de redirecciones de shell mal formadas durante la sesión.
+Eliminados ~12 archivos de 0 bytes con nombres basura en la raíz del repositorio,
+residuo de redirecciones de shell mal formadas. **Commit inicial del repo**
+(`9bc967d` en `main`): F0 + F1, 82 archivos. Sin `.env` / `backups/` /
+`node_modules/` (gitignore). Sin trailer `Co-Authored-By` (el proyecto no tiene
+`attribution.commit`).
+
+---
+
+## Sesión 5 — 2026-09-01 · Fase F2, slice 1: autenticación offline
+
+**Objetivo**: `src/auth/` — login sin red, sesiones y RBAC. Módulo de dominio
+probado contra Postgres real, como F1; sin capa HTTP todavía. Rama
+`f2-auth-offline`.
+
+- **Validación previa**: los MCP de ruflo no cargaron esta sesión (handshake
+  expiró al arrancar); el servidor en sí está sano. Se procede directo, como F1.
+- **Dependencia nueva**: `@node-rs/argon2` (binario `win32-x64-msvc`
+  precompilado, sin node-gyp).
+- **Migración `0016_auth_sesion_seleccion.sql`**: `auth_local.sesion.sucursal_id`
+  pasa a nullable + `CHECK` de coherencia con `sucursal_elegida_en`. El login
+  valida credenciales y el usuario elige sucursal en un segundo paso.
+- **`src/auth/`**:
+  - `passwords.ts` — wrapper Argon2id aislado (única pieza con dependencia
+    nativa).
+  - `rbac.ts` — `puede()` / `permisosDe()` contra `core.rol_permiso` (dato, no
+    `if`).
+  - `sesion.ts` — `abrirSesion`, `verificarSesion` (con vigencia del usuario
+    como defensa en profundidad), `seleccionarSucursal`, `cerrarSesion`,
+    `cerrarSesionesDe`. Token opaco = `auth_local.sesion.id`. TTL 12 h.
+  - `login.ts` — orquesta: rate-limit por email → credencial → Argon2id verify →
+    vigencia (contra `ahora` inyectable) → sucursal activa → stale-guard §1.5 →
+    abrir sesión. Cero llamadas a la nube. `estaDegradado()` lee el umbral de
+    `core.parametro`.
+- **Pruebas** (`tests/auth/`, 32, todas verdes): los 4 criterios de aceptación
+  de F2 (login sin red/nube caída; baja `effective_until` vencida bloquea;
+  baja recibida tarde surte efecto al instante; 73 h sin sync → bloqueo de
+  primer login, con override del gerente y excepción para usuario activo en 24 h)
+  más rate-limit, rutas de rechazo, y el `CHECK` de coherencia de la sesión.
+- Aprendizaje: `verbatimModuleSyntax` no deja importar el `const enum`
+  `Algorithm` de `@node-rs/argon2` → se usa el valor numérico (2). Y `pg` exige
+  castear (`$n::uuid`, `::citext`, `::inet`, `::timestamptz`) los parámetros que
+  pueden llegar `null`, o falla con "no se pudo determinar el tipo del parámetro".
+
+**Falta de F2**: `src/config/` (aplicador de `effective_from` + ventana
+nocturna), la capa HTTP (Fastify) y el CRUD de sucursales/usuarios/clientes/
+config de impresora y ticket.
 
 ---
 

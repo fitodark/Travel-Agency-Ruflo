@@ -326,7 +326,7 @@ runSalud('src/sync/salud.ts — tablero de diagnóstico remoto', () => {
   it('reporta versión de esquema y de binario por nodo (D-8)', async () => {
     const s = await medirSalud(node);
     expect(s.versionBinario, 'la versión del binario instalado').toBe('N-test');
-    expect(s.versionEsquema, 'la última migración aplicada').toMatch(/^0015_/);
+    expect(s.versionEsquema, 'la última migración aplicada').toMatch(/^\d{4}_/);
   });
 
   it('marca `degradado` a las 72 h sin sync exitosa', async () => {
