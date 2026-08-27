@@ -47,12 +47,19 @@ export interface MigrationFile {
 
 const sha256 = (s: string): string => createHash('sha256').update(s).digest('hex').slice(0, 16);
 
+/**
+ * La identidad de una migración es su SQL, no su convención de fin de línea. Se
+ * normaliza a LF antes de hashear para que `core.autocrlf` de Git en Windows no
+ * dispare el guard de "migración modificada" al reconvertir CRLF en el checkout.
+ */
+const checksumDe = (sql: string): string => sha256(sql.replace(/\r\n/g, '\n'));
+
 export async function loadDir(dir: string): Promise<MigrationFile[]> {
   const names = (await readdir(dir)).filter((n) => n.endsWith('.sql')).sort();
   const out: MigrationFile[] = [];
   for (const file of names) {
     const sql = await readFile(path.join(dir, file), 'utf8');
-    out.push({ version: file.replace(/\.sql$/, ''), file, sql, checksum: sha256(sql) });
+    out.push({ version: file.replace(/\.sql$/, ''), file, sql, checksum: checksumDe(sql) });
   }
   return out;
 }

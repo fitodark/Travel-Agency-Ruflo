@@ -346,6 +346,100 @@ Dependencia nueva: `fastify` v5. Misma rama `f2-auth-offline`.
 **F2 queda cerrada** salvo el dashboard en nube (F8), que es quien da de alta y
 baja la configuración de clase A.
 
+### Merge
+
+F2 mergeada a `main` el 2026-09-01 (PR #1, merge commit `51edd1c`); rama
+`f2-auth-offline` eliminada.
+
+---
+
+## Sesión 8 — 2026-09-01 · Fase F3, slice 1: materialización de salidas
+
+**Objetivo**: `core.materializar_salidas` — convertir cada horario vigente en las
+salidas concretas del horizonte, con el mapa congelado. Rama `f3-flota`.
+
+- **Contexto**: todo el esquema de flota/rutas/salidas ya existe (migraciones
+  0003–0004). F3 es lógica, no tablas.
+- **Migración `0018`**: `core.materializar_salidas(horario_id, dias?, desde?)` —
+  job nocturno de la NUBE. Por cada día operativo del horizonte (según
+  `dias_semana` ISO, dentro de `vigente_desde/hasta`): crea `core.salida` con
+  `mapa_snapshot` **congelado** (copia de `conductor → tipo_unidad → mapa`, D-7) y
+  `conductor_nombre_snapshot`, y `core.salida_parada` (hora de paso en la zona
+  horaria de cada sucursal; cierre de venta a `minutos_cierre_venta` antes).
+  Idempotente por `UNIQUE (horario_id, fecha_operacion)`.
+- **`src/fleet/materializar.ts`**: `materializarHorario` y `materializarVigentes`
+  (procesa los `v_horario_vigente` con conductor, salta los sin). +
+  `scripts/materializar.ts` (`npm run materializar`, default `--target nube`).
+- **Pruebas** (`tests/fleet/`, 10, verdes): criterio 1 de F3 (salidas del
+  horizonte con mapa y paradas), idempotencia, filtro `dias_semana`, ventana
+  `vigente_desde/hasta`, zona horaria, horizonte por parámetro (91 días), y los
+  rechazos (sin conductor, horario de baja, inexistente).
+- **Fix `src/db/schema.ts`**: el checksum de migraciones hasheaba el SQL crudo;
+  `core.autocrlf` de Git en Windows convierte CRLF al hacer checkout tras un
+  commit y disparaba el guard de "migración modificada". Ahora normaliza a LF
+  antes de hashear.
+
+---
+
+## Sesión 9 — 2026-09-01 · Fase F3, slice 2: reparto de cupo offline
+
+**Objetivo**: `core.repartir_cupo_offline` — repartir los asientos de cada salida
+en conjuntos disjuntos por bloques contiguos, para que la sobreventa offline sea
+imposible por construcción (01b §3). Rama `f3-flota`.
+
+- **Migración `0019`**: `core.repartir_cupo_offline(salida_id)`. Reparto v1
+  determinista (§3.3): cada parada intermedia recibe UNA fila completa (bloque de
+  3 asientos); el origen se queda con el resto, incluida la banca trasera de 4
+  (B5, el único bloque para un grupo familiar). `tramos = int4range(orden, n-1)`.
+  `vigente_hasta`: para las intermedias, su paso menos `horas_expiracion_cupo`
+  (SUPUESTO S5, T-4h); para el origen, su propio `cierre_venta_en`. Idempotente
+  (DELETE + INSERT). Rechaza cuando hay más paradas vendedoras que bloques
+  (límite documentado en 01b §3.5). `materializar_salidas` (`CREATE OR REPLACE`)
+  ahora llama al reparto por cada salida nueva (§6.1 paso 3).
+- **`src/fleet/cupo.ts`**: `repartirCupo(db, salidaId)` (recalcula, para el
+  cambio de conductor) y `cupoDeSalida(db, salidaId)` (lo inspecciona).
+- **Pruebas** (`tests/fleet/cupo.test.ts`, 8, verdes): la ruta S1→S2→S3→S4
+  reparte exactamente como el blueprint (B0,B1,B2,B5 → origen; B3 → S2; B4 → S3;
+  asientos 12/3/3, tramos `[0,3)`/`[1,3)`/`[2,3)`); disjuntos que suman 18; una
+  fila por intermedia; ruta sin intermedias deja los 6 bloques en el origen;
+  expiración T-4h vs. cierre de venta; idempotencia; el rechazo por exceso de
+  paradas; y que la materialización ya deja el cupo repartido.
+
+---
+
+## Sesión 10 — 2026-09-01 · Fase F3, slice 3: cambio de conductor
+
+**Objetivo**: `core.cambiar_conductor` — los cuatro casos de la regla de
+compatibilidad de mapa (02 §5.3). Cierra F3. Rama `f3-flota`.
+
+- **Migración `0020`**: `core.cambiar_conductor(salida_id, conductor_nuevo,
+  usuario_id, con_conexion?, motivo?)`. El invariante NO es "mismo tipo de
+  unidad" sino `asientos_vendidos(salida) ⊆ asientos_vendibles(mapa_nuevo)` **y**
+  `bloques_repartidos(salida) ⊆ bloques(mapa_nuevo)`.
+  - **Caso 1 — compatible**: libre (permiso `conductor.cambiar.compatible`).
+    Solo cambia `conductor_id` y `conductor_nombre_snapshot`; NO toca el mapa ni
+    los cupos.
+  - **Caso 2 — incompatible**: bloqueado para `vendedor` (exige
+    `conductor.cambiar.incompatible`, es decir gerente/admin). **Sin conexión**
+    queda `cambio_conductor` `pendiente` sin tocar la salida. **Con conexión** se
+    fuerza: recalcula `mapa_snapshot` y cupos, marca los boletos huérfanos
+    `conflicto_sobreventa` y su ocupación `conflicto`, y abre `sync.excepcion`
+    `mapa_incompatible`/`critica` por sucursal emisora. La propuesta de asiento
+    nuevo es F4 (01b §7).
+  - **Caso 3 — sin boletos**: cambio libre; re-materializa `mapa_snapshot` y cupo.
+  - **Caso 4 — `en_ruta`/`finalizada`**: lanza; el conductor queda como dato
+    histórico.
+  Toda operación deja fila en `core.cambio_conductor` (clase C, append-only).
+- **`src/fleet/conductor.ts`**: `cambiarConductor(db, {...})`.
+- **Pruebas** (`tests/fleet/conductor.test.ts`, 8, verdes): los 4 casos, el
+  bloqueo a vendedor, `pendiente` sin conexión, huérfano vs. boleto que sí cabe,
+  excepción crítica, y la fila de auditoría.
+- Nota de proceso: al editar `0020` tras aplicarla hubo que resetear su fila en
+  `public.schema_migration` y `DROP FUNCTION` para re-aplicar (la migración no
+  estaba commiteada ni compartida).
+
+**F3 queda cerrada**: los 3 slices, los 4 criterios de aceptación.
+
 ---
 
 ## Pendientes de F1

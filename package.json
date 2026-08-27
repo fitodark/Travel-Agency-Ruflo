@@ -24,7 +24,8 @@
     "sync:poc": "tsx src/sync/poc.ts",
     "printer:probe": "tsx src/printing/tools/probe.ts",
     "api": "tsx src/api/main.ts",
-    "seed:admin": "tsx scripts/sembrar-admin.ts"
+    "seed:admin": "tsx scripts/sembrar-admin.ts",
+    "materializar": "tsx scripts/materializar.ts"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
