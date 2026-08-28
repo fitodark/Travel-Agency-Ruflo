@@ -8,7 +8,9 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 import 'dotenv/config';
 import { Client } from 'pg';
 import type { FastifyInstance } from 'fastify';
+import { randomBytes } from 'node:crypto';
 import { resolveConnection } from '../../src/db/connection.js';
+import { generarCodigo } from '../../src/auth/hotp.js';
 import { PASSWORD_OK, seedAuth } from '../auth/fixture.js';
 import { abrirApp, bearer, tokenDe } from './helpers.js';
 
@@ -142,5 +144,63 @@ run('API · /auth (PostgreSQL real)', () => {
     const r = await app.inject({ method: 'GET', url: '/salud' });
     expect(r.statusCode).toBe(200);
     expect(r.json().ok).toBe(true);
+  });
+
+  // -- capa 3 de revocación (§1.5) ----------------------------------------
+  const conSemilla = async (fx: Awaited<ReturnType<typeof seedAuth>>): Promise<Buffer> => {
+    const semilla = randomBytes(20);
+    await db.query(
+      `INSERT INTO auth_local.revocacion_hotp (sucursal_id, semilla) VALUES ($1, $2)`,
+      [fx.sucursalAId, semilla],
+    );
+    return semilla;
+  };
+
+  it('POST /auth/revocar: un gerente aplica el código y el usuario ya no entra', async () => {
+    const objetivo = await seedAuth(db);
+    const semilla = await conSemilla(objetivo);
+    const gerente = await seedAuth(db, { rol: 'gerente' });
+    // El gerente opera la misma terminal que el objetivo.
+    await db.query(`UPDATE sync.nodo SET sucursal_id = $1 WHERE singleton`, [objetivo.sucursalAId]);
+    await db.query(
+      `INSERT INTO core.usuario_sucursal (usuario_id, sucursal_id) VALUES ($1, $2)
+       ON CONFLICT DO NOTHING`, [gerente.usuarioId, objetivo.sucursalAId],
+    );
+    const token = await tokenDe(db, gerente.email, objetivo.sucursalAId, ahora);
+
+    const r = await app.inject({
+      method: 'POST', url: '/auth/revocar', headers: bearer(token),
+      payload: { codigo: generarCodigo(semilla, objetivo.usuarioId, 0), usuarioId: objetivo.usuarioId },
+    });
+    expect(r.statusCode, r.body).toBe(200);
+    expect(r.json().ok).toBe(true);
+
+    const login = await app.inject({
+      method: 'POST', url: '/auth/login',
+      payload: { email: objetivo.email, password: PASSWORD_OK },
+    });
+    expect(login.statusCode).toBe(401);
+    expect(login.json().error).toBe('revocado');
+  });
+
+  it('POST /auth/revocar: un vendedor no tiene el permiso (403)', async () => {
+    const fx = await seedAuth(db);
+    const token = await tokenDe(db, fx.email, fx.sucursalAId, ahora);
+    const r = await app.inject({
+      method: 'POST', url: '/auth/revocar', headers: bearer(token),
+      payload: { codigo: '12345678', usuarioId: fx.usuarioId },
+    });
+    expect(r.statusCode).toBe(403);
+  });
+
+  it('POST /auth/revocar: código inválido → 400', async () => {
+    const gerente = await seedAuth(db, { rol: 'gerente' });
+    await conSemilla(gerente);
+    const token = await tokenDe(db, gerente.email, gerente.sucursalAId, ahora);
+    const r = await app.inject({
+      method: 'POST', url: '/auth/revocar', headers: bearer(token),
+      payload: { codigo: '00000000', usuarioId: gerente.usuarioId },
+    });
+    expect(r.statusCode).toBe(400);
   });
 });

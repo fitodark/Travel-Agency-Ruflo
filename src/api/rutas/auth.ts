@@ -7,6 +7,7 @@
 import type { FastifyInstance } from 'fastify';
 import { login } from '../../auth/login.js';
 import { permisosDe } from '../../auth/rbac.js';
+import { aplicarCodigoRevocacion } from '../../auth/revocacion.js';
 import { cerrarSesion, seleccionarSucursal } from '../../auth/sesion.js';
 import { conflicto, entradaInvalida, noAutorizado } from '../errores.js';
 import { exige } from '../autenticar.js';
@@ -89,4 +90,36 @@ export async function rutasAuth(app: FastifyInstance): Promise<void> {
       permisos: await permisosDe(app.db, req.sesion.rol),
     };
   });
+
+  // Capa 3 de revocación (§1.5): el gerente captura el código que el
+  // administrador le dictó por teléfono. Se aplica a la sucursal de esta terminal.
+  app.post(
+    '/revocar',
+    {
+      preHandler: exige({ permiso: 'usuario.revocar' }),
+      schema: {
+        body: {
+          type: 'object',
+          required: ['codigo', 'usuarioId'],
+          properties: {
+            codigo: { type: 'string', minLength: 6, maxLength: 20 },
+            usuarioId: { type: 'string', format: 'uuid' },
+          },
+        },
+      },
+    },
+    async (req) => {
+      const b = req.body as { codigo: string; usuarioId: string };
+      const r = await aplicarCodigoRevocacion(app.db, {
+        codigo: b.codigo, usuarioId: b.usuarioId, ahora: app.ahora,
+      });
+      if (!r.ok) {
+        if (r.motivo === 'sin_semilla') {
+          throw conflicto('Esta terminal no tiene semilla de revocación configurada');
+        }
+        throw entradaInvalida('Código de revocación inválido o vencido');
+      }
+      return { ok: true, contador: r.contador, sesionesCerradas: r.sesionesCerradas };
+    },
+  );
 }
