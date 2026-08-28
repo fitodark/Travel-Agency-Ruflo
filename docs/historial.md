@@ -945,14 +945,42 @@ Quinta y última pantalla de dominio pendiente. Backend F8 (`src/dashboard/
 
 Suite backend: **378 verdes, 1 `it.todo`**. `web`: `tsc` + `vite build` verdes.
 
-### Pendiente de la SPA
+---
 
-- Las **5 pantallas de dominio están completas** (Vender, Caja, Viajes, Tablero,
-  Clientes) + Sincronización. QA tiene el lazo cerrado: vende → cobra → ve números.
+## Sesión 22 — 2026-08-28 · Tablero consolidado en nube (PR #16)
+
+El deliverable en nube de F8. Decisión (con el usuario, P7 sigue abierta): un
+**servicio HTTP de reportes** aparte, no PostgREST ni fotos del export.
+
+- **`src/dashboard/servidor.ts`** (`tests/dashboard/servidor.test.ts`, 7):
+  `construirServidorTablero({ db, token })` → Fastify. Reutiliza
+  `src/dashboard/{operacion,auditoria}.ts` SIN filtro de sucursal (las 4 juntas).
+  - `GET /reportes/{ventas,ingresos-caja,ventas-vs-caja,cortes,gastos}?desde=&hasta=`
+  - `GET /reportes/{salud,excepciones}`
+  - Auth: `Authorization: Bearer` contra `DASHBOARD_TOKEN` (compare en tiempo
+    constante). No hay sesiones ni RBAC — es de solo lectura y P7 aún no fija el
+    mecanismo formal (rol de Postgres / PostgREST).
+  - `GET /salud` sin auth (healthcheck); `GET /` sirve la página.
+- **`src/dashboard/tablero.html`** — página autónoma (HTML + JS vanilla, sin
+  build): login por token en `localStorage`, selector de rango, pestañas, tablas.
+- **`src/dashboard/main.ts`** — `npm run tablero:nube`: `Pool` a `DATABASE_URL`
+  (Supabase), `TABLERO_PUERTO`/`_HOST`, cierre con red de seguridad. Corre JUNTO
+  a la nube, NO en la terminal.
+- Verificado E2E contra el Supabase real (`/salud`, `/`, 401 sin token,
+  `/reportes/salud` con token).
+
+Distinción: el tablero de la SPA corre en cada terminal y ve su base LOCAL; este
+corre en la nube y ve las 4 sucursales consolidadas.
+
+Suite backend: **385 verdes, 1 `it.todo`**. `tsc --noEmit` limpio.
+
+### Pendiente de la SPA / reportes
+
+- Las 5 pantallas de dominio y el tablero en nube están completos.
 - El mapa visual de asientos sigue esperando el prototipo del cliente.
 - El manifiesto se previsualiza como JSON crudo; darle formato de papel es F5.
-- El tablero muestra solo la terminal local; el consolidado de las 4 sucursales
-  es el dashboard en nube (aún sin construir).
+- P7: falta cerrar el mecanismo de acceso formal del tablero/consumidor externo
+  (hoy: bearer compartido).
 
 ---
 
