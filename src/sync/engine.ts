@@ -16,6 +16,26 @@ import type { Client } from 'pg';
 import { push, outboxPendiente, type PushResult } from './push.js';
 import { pull, type PullResult } from './pull.js';
 
+/**
+ * Estado observable del motor, para la SPA y las pruebas.
+ *
+ * - `detenido`      nunca arrancó, o se detuvo sin haber corrido un ciclo.
+ * - `inactivo`      corriendo y al día: esperando el próximo tick.
+ * - `sincronizando` hay un push o un pull en vuelo ahora mismo.
+ * - `sin_red`       el último ciclo falló; está reintentando con backoff.
+ * - `degradado`     lleva más del umbral (72 h) sin una sync exitosa.
+ */
+export type EstadoMotor = 'detenido' | 'inactivo' | 'sincronizando' | 'sin_red' | 'degradado';
+
+export interface ResultadoCiclo {
+  push: PushResult | null;
+  pull: PullResult | null;
+  error: Error | null;
+  /** Espera calculada para el siguiente intento, en ms. */
+  proximoIntentoMs: number;
+  estado: EstadoMotor;
+}
+
 export interface EngineOptions {
   /** Cadencia de subida en operación normal. Blueprint: 5 s. */
   pushIntervalMs?: number;
@@ -101,7 +121,7 @@ export class SyncEngine {
     now: () => number;
   };
 
-  private estado: EngineState = {
+  private st: EngineState = {
     corriendo: false,
     ultimaSyncExitosa: null,
     outboxPendiente: 0,
@@ -156,13 +176,48 @@ export class SyncEngine {
   }
 
   get snapshot(): Readonly<EngineState> {
-    return { ...this.estado };
+    return { ...this.st };
+  }
+
+  /**
+   * Estado observable, derivado del interno. Lo consume la SPA (`/sync/estado`) y
+   * las pruebas: un solo valor en vez de cruzar `degradado`, `fallosConsecutivos`
+   * y los flags de "en curso" a mano.
+   */
+  get modo(): EstadoMotor {
+    if (this.st.degradado) return 'degradado';
+    if (this.st.fallosConsecutivos > 0) return 'sin_red';
+    if (this.pushEnCurso || this.pullEnCurso) return 'sincronizando';
+    if (!this.st.corriendo && this.st.ciclosPush === 0 && this.st.ciclosPull === 0) {
+      return 'detenido';
+    }
+    return 'inactivo';
+  }
+
+  /**
+   * Un ciclo completo AHORA: un push y un pull, en ese orden, y resuelve al
+   * terminar. Es lo que dispara una venta (§3.3) y lo que usan las pruebas para
+   * no depender de los timers.
+   *
+   * El push y el pull son independientes: que uno falle no impide el otro (por
+   * eso cada `ejecutar*` atrapa su propio error y devuelve `null`).
+   */
+  async ciclo(): Promise<ResultadoCiclo> {
+    const resPush = await this.ejecutarPush();
+    const resPull = await this.ejecutarPull();
+    return {
+      push: resPush,
+      pull: resPull,
+      error: this.st.ultimoError ? new Error(this.st.ultimoError) : null,
+      proximoIntentoMs: this.esperaSiguientePush(),
+      estado: this.modo,
+    };
   }
 
   /** Arranca los dos ciclos. Idempotente. */
   async iniciar(): Promise<void> {
-    if (this.estado.corriendo) return;
-    this.estado.corriendo = true;
+    if (this.st.corriendo) return;
+    this.st.corriendo = true;
 
     await this.recuperarUltimaSync();
     this.agendarPush(0);
@@ -171,7 +226,7 @@ export class SyncEngine {
 
   /** Detiene los ciclos. No cancela una corrida en vuelo; espera a que termine. */
   async detener(): Promise<void> {
-    this.estado.corriendo = false;
+    this.st.corriendo = false;
     if (this.timerPush) clearTimeout(this.timerPush);
     if (this.timerPull) clearTimeout(this.timerPull);
     this.timerPush = null;
@@ -206,15 +261,15 @@ export class SyncEngine {
         `SELECT ultima_sync_exitosa AS ts FROM sync.salud
           WHERE sucursal_id = sync.sucursal_local()`,
       );
-      this.estado.ultimaSyncExitosa = rows[0]?.ts ?? null;
+      this.st.ultimaSyncExitosa = rows[0]?.ts ?? null;
     } catch {
-      this.estado.ultimaSyncExitosa = null;
+      this.st.ultimaSyncExitosa = null;
     }
     this.evaluarDegradacion();
   }
 
   private agendarPush(esperaMs: number): void {
-    if (!this.estado.corriendo) return;
+    if (!this.st.corriendo) return;
     this.timerPush = setTimeout(() => {
       void this.ejecutarPush().finally(() => {
         this.agendarPush(this.esperaSiguientePush());
@@ -223,7 +278,7 @@ export class SyncEngine {
   }
 
   private agendarPull(esperaMs: number): void {
-    if (!this.estado.corriendo) return;
+    if (!this.st.corriendo) return;
     this.timerPull = setTimeout(() => {
       void this.ejecutarPull().finally(() => {
         this.agendarPull(this.esperaSiguientePull());
@@ -232,14 +287,14 @@ export class SyncEngine {
   }
 
   private esperaSiguientePush(): number {
-    return this.estado.fallosConsecutivos > 0
-      ? this.estado.esperaBackoffMs
+    return this.st.fallosConsecutivos > 0
+      ? this.st.esperaBackoffMs
       : this.opts.pushIntervalMs;
   }
 
   private esperaSiguientePull(): number {
-    return this.estado.fallosConsecutivos > 0
-      ? Math.max(this.estado.esperaBackoffMs, this.opts.pullIntervalMs)
+    return this.st.fallosConsecutivos > 0
+      ? Math.max(this.st.esperaBackoffMs, this.opts.pullIntervalMs)
       : this.opts.pullIntervalMs;
   }
 
@@ -252,8 +307,8 @@ export class SyncEngine {
       if (this.opts.versionNodo !== undefined) opts.versionNodo = this.opts.versionNodo;
 
       const resultado = await push(this.node, this.cloud, opts);
-      this.estado.ciclosPush++;
-      this.estado.outboxPendiente = await outboxPendiente(this.node);
+      this.st.ciclosPush++;
+      this.st.outboxPendiente = await outboxPendiente(this.node);
       this.registrarExito();
       this.emitir({ tipo: 'push_ok', resultado });
       return resultado;
@@ -271,7 +326,7 @@ export class SyncEngine {
 
     try {
       const resultado = await pull(this.node, this.cloud, { batchSize: this.opts.batchSize });
-      this.estado.ciclosPull++;
+      this.st.ciclosPull++;
       this.registrarExito();
       this.emitir({ tipo: 'pull_ok', resultado });
       return resultado;
@@ -284,12 +339,12 @@ export class SyncEngine {
   }
 
   private registrarExito(): void {
-    const veniaFallando = this.estado.fallosConsecutivos;
+    const veniaFallando = this.st.fallosConsecutivos;
 
-    this.estado.ultimaSyncExitosa = new Date(this.opts.now());
-    this.estado.fallosConsecutivos = 0;
-    this.estado.esperaBackoffMs = 0;
-    this.estado.ultimoError = null;
+    this.st.ultimaSyncExitosa = new Date(this.opts.now());
+    this.st.fallosConsecutivos = 0;
+    this.st.esperaBackoffMs = 0;
+    this.st.ultimoError = null;
 
     if (veniaFallando > 0) this.emitir({ tipo: 'recuperado', trasFallos: veniaFallando });
     this.evaluarDegradacion();
@@ -297,10 +352,10 @@ export class SyncEngine {
   }
 
   private registrarFallo(fase: 'push' | 'pull', err: unknown): void {
-    this.estado.fallosConsecutivos++;
-    this.estado.ultimoError = err instanceof Error ? err.message : String(err);
-    this.estado.esperaBackoffMs = calcularBackoff(
-      this.estado.fallosConsecutivos,
+    this.st.fallosConsecutivos++;
+    this.st.ultimoError = err instanceof Error ? err.message : String(err);
+    this.st.esperaBackoffMs = calcularBackoff(
+      this.st.fallosConsecutivos,
       this.opts.backoffBaseMs,
       this.opts.backoffMaxMs,
     );
@@ -309,8 +364,8 @@ export class SyncEngine {
     this.emitir({
       tipo: 'fallo',
       fase,
-      error: this.estado.ultimoError,
-      esperaMs: this.estado.esperaBackoffMs,
+      error: this.st.ultimoError,
+      esperaMs: this.st.esperaBackoffMs,
     });
   }
 
@@ -327,13 +382,13 @@ export class SyncEngine {
    * está atrasado, está empezando.
    */
   private evaluarDegradacion(): void {
-    const antes = this.estado.degradado;
-    const ultima = this.estado.ultimaSyncExitosa;
+    const antes = this.st.degradado;
+    const ultima = this.st.ultimaSyncExitosa;
 
-    this.estado.degradado =
+    this.st.degradado =
       ultima !== null && this.opts.now() - ultima.getTime() > this.opts.staleThresholdMs;
 
-    if (this.estado.degradado && !antes) {
+    if (this.st.degradado && !antes) {
       this.emitir({ tipo: 'degradado', desde: ultima });
     }
   }
@@ -359,7 +414,7 @@ export class SyncEngine {
                 outbox_pendiente    = EXCLUDED.outbox_pendiente,
                 version_binario     = EXCLUDED.version_binario,
                 reportado_en        = now()`,
-        [this.estado.ultimaSyncExitosa, this.estado.outboxPendiente, this.opts.versionNodo ?? null],
+        [this.st.ultimaSyncExitosa, this.st.outboxPendiente, this.opts.versionNodo ?? null],
       );
     } catch { /* la salud es observabilidad, no operación */ }
   }
