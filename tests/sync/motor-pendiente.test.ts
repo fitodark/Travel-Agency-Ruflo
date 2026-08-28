@@ -42,6 +42,10 @@ import {
   clasificarDeriva, medirDeriva, medirSalud, registrarDeriva, registrarRespaldo, reportarSalud,
 } from '../../src/sync/salud.js';
 import {
+  arbitrar, compararOcupaciones, prioridadDe, type Ocupacion,
+} from '../../src/sync/arbitraje.js';
+import { elegirAsientoReasignado, type MapaUnidad } from '../../src/sync/reasignacion.js';
+import {
   abrirAdmin, abrirLocal, construirIds, crearNodo, hayLocal, sembrarMaestros, soltarNodo, type Ids,
 } from './harness.js';
 
@@ -143,55 +147,15 @@ export namespace ContratoReconcile {
     opts: { sucursalId: string; dias: readonly string[]; rePush?: boolean },
   ) => Promise<ResultadoConciliacion>;
 
-  // ---- Arbitraje determinista (01b §6). PURO. Ver exigencia 2 de la cabecera. ----
-
-  /** Lo mínimo para calcular prioridad. Nada de esto puede depender de la nube. */
-  export interface Ocupacion {
-    id: string;
-    boletoId: string;
-    sucursalId: string;
-    salidaId: string;
-    asientoNum: number;
-    /** Reloj de quien emitió, no de quien recibe. */
-    emitidoEn: Date;
-    impreso: boolean;
-    pagado: boolean;
-    abonoParcial: boolean;
-  }
-
-  /** Niveles 1..4 del cuadro de 01b §6. Mayor gana. */
-  export type PrioridadDe = (o: Ocupacion) => 1 | 2 | 3 | 4;
-
-  /**
-   * Orden total determinista: prioridad, luego `emitidoEn` más antiguo, luego
-   * `sucursalId`, luego `boletoId`. Devuelve <0, 0 o >0 como un comparador.
-   * NUNCA debe mirar el orden de llegada a la nube.
-   */
-  export type Comparar = (a: Ocupacion, b: Ocupacion) => number;
-
-  export interface Arbitraje {
-    gana: Ocupacion;
-    pierden: Ocupacion[];
-  }
-  export type Arbitrar = (candidatas: readonly Ocupacion[]) => Arbitraje;
+  // ---- Arbitraje determinista (01b §6) ----
+  // ATERRIZÓ en `src/sync/arbitraje.ts` (`prioridadDe`, `compararOcupaciones`,
+  // `arbitrar`, `resolverConflictoAsiento`). Sus pruebas viven más abajo (las
+  // puras) y en `tests/sync/arbitraje.test.ts` (la aplicación a la base).
 
   // ---- Reasignación del perdedor (01b §7) ----
-
-  export type MotivoReasignacion = 'mismo_bloque' | 'adyacente_a_acompanante' | 'cualquiera';
-
-  export interface Reasignacion {
-    boletoId: string;
-    asientoAnterior: number;
-    asientoNuevo: number;
-    motivo: MotivoReasignacion;
-    /** El folio NO cambia: es lo que hace reversible una sobreventa ya impresa. */
-    folio: string;
-  }
-
-  /** `null` cuando la unidad va llena: ahí entra la cola de excepciones con severidad alta. */
-  export type ProponerReasignacion = (
-    c: Client, boletoId: string,
-  ) => Promise<Reasignacion | null>;
+  // ATERRIZÓ en `src/sync/reasignacion.ts` (`elegirAsientoReasignado` puro,
+  // `proponerReasignacion` y `reasignarPerdedores`). Pruebas puras abajo; la
+  // aplicación a la base en `tests/sync/reasignacion.test.ts`.
 }
 
 // `src/sync/salud.ts` ATERRIZÓ: sus tipos reales viven ahí y sus pruebas están
@@ -224,21 +188,145 @@ describe('src/sync/reconcile.ts — checksum y clases de conflicto', () => {
   it.todo('abre una excepción `divergencia_checksum` con el bloque exacto');
   it.todo('no reporta divergencia cuando ambos lados están vacíos');
 
-  // El corazón de F0 y de F4. Sin pureza esto no se puede afirmar.
-  it.todo('ARBITRAJE · dos nodos con los mismos datos calculan el MISMO ganador');
-  it.todo('ARBITRAJE · gana el boleto pagado e impreso sobre el pagado sin imprimir');
-  it.todo('ARBITRAJE · gana el pagado sobre el abono parcial, y el abono sobre la reservación');
-  it.todo('ARBITRAJE · a igual prioridad gana el `emitido_en` más antiguo');
-  it.todo('ARBITRAJE · a igual emisión desempata por sucursal y luego por boleto, de forma estable');
-  it.todo('ARBITRAJE · el resultado NO cambia si se invierte el orden de llegada a la nube');
-  it.todo('ARBITRAJE · es total: nunca devuelve empate para dos ocupaciones distintas');
-  it.todo('el perdedor pasa a `estado=conflicto` y su boleto a `conflicto_sobreventa`, sin borrarse');
+  // El corazón de F0 y de F4. La APLICACIÓN a la base (el perdedor pasa a
+  // `conflicto`, su boleto a `conflicto_sobreventa`, sin borrarse) vive en
+  // `tests/sync/arbitraje.test.ts`. Aquí, las propiedades PURAS.
+  it('ARBITRAJE · dos nodos con los mismos datos calculan el MISMO ganador', () => {
+    const base: Omit<Ocupacion, 'id' | 'boletoId' | 'sucursalId'> = {
+      salidaId: 's', asientoNum: 7, tramos: '[0,3)',
+      emitidoEn: new Date('2026-09-01T10:00:00Z'),
+      impreso: false, pagado: true, abonoParcial: false,
+    };
+    const a: Ocupacion = { ...base, id: 'o1', boletoId: 'b1', sucursalId: 'AAA' };
+    const b: Ocupacion = {
+      ...base, id: 'o2', boletoId: 'b2', sucursalId: 'BBB',
+      emitidoEn: new Date('2026-09-01T10:05:00Z'),
+    };
+    const nodo1 = arbitrar([a, b]);
+    const nodo2 = arbitrar([b, a]);
+    expect(nodo1.gana.id).toBe(nodo2.gana.id);
+    expect(nodo1.gana.id).toBe('o1');
+  });
 
-  it.todo('REASIGNACIÓN · prefiere otro asiento del MISMO bloque');
-  it.todo('REASIGNACIÓN · si no lo hay, uno adyacente a los acompañantes de la misma venta');
-  it.todo('REASIGNACIÓN · conserva el folio, que es lo que la hace reversible');
-  it.todo('REASIGNACIÓN · con la unidad llena devuelve null y abre excepción de severidad alta');
-  it.todo('REASIGNACIÓN · deja nota_auditoria(tipo=reasignacion_por_conflicto) y encola reimpresión');
+  it('ARBITRAJE · gana el boleto pagado e impreso sobre el pagado sin imprimir', () => {
+    const impreso: Ocupacion = {
+      id: 'o1', boletoId: 'b1', sucursalId: 'A', salidaId: 's', asientoNum: 7, tramos: '[0,3)',
+      emitidoEn: new Date('2026-09-01T12:00:00Z'), impreso: true, pagado: true, abonoParcial: false,
+    };
+    const soloPagado: Ocupacion = {
+      ...impreso, id: 'o2', boletoId: 'b2', sucursalId: 'B', impreso: false,
+      emitidoEn: new Date('2026-09-01T09:00:00Z'),  // más antiguo, pero no impreso
+    };
+    expect(prioridadDe(impreso)).toBe(1);
+    expect(prioridadDe(soloPagado)).toBe(2);
+    expect(arbitrar([soloPagado, impreso]).gana.id).toBe('o1');
+  });
+
+  it('ARBITRAJE · gana el pagado sobre el abono parcial, y el abono sobre la reservación', () => {
+    const mk = (id: string, p: Partial<Ocupacion>): Ocupacion => ({
+      id, boletoId: `b${id}`, sucursalId: 'A', salidaId: 's', asientoNum: 7, tramos: '[0,3)',
+      emitidoEn: new Date('2026-09-01T10:00:00Z'), impreso: false, pagado: false, abonoParcial: false,
+      ...p,
+    });
+    const pagado = mk('1', { pagado: true });
+    const abono = mk('2', { abonoParcial: true });
+    const reserva = mk('3', {});
+    expect([prioridadDe(pagado), prioridadDe(abono), prioridadDe(reserva)]).toEqual([2, 3, 4]);
+    expect(arbitrar([reserva, abono, pagado]).gana.id).toBe('1');
+    expect(arbitrar([reserva, abono]).gana.id).toBe('2');
+  });
+
+  it('ARBITRAJE · a igual prioridad gana el `emitido_en` más antiguo', () => {
+    const mk = (id: string, iso: string): Ocupacion => ({
+      id, boletoId: `b${id}`, sucursalId: 'A', salidaId: 's', asientoNum: 7, tramos: '[0,3)',
+      emitidoEn: new Date(iso), impreso: false, pagado: true, abonoParcial: false,
+    });
+    const tarde = mk('tarde', '2026-09-01T10:10:00Z');
+    const temprano = mk('temprano', '2026-09-01T10:00:00Z');
+    expect(arbitrar([tarde, temprano]).gana.id).toBe('temprano');
+  });
+
+  it('ARBITRAJE · a igual emisión desempata por sucursal y luego por boleto, de forma estable', () => {
+    const base = {
+      salidaId: 's', asientoNum: 7, tramos: '[0,3)',
+      emitidoEn: new Date('2026-09-01T10:00:00Z'),
+      impreso: false, pagado: true, abonoParcial: false,
+    } as const;
+    const sucA: Ocupacion = { ...base, id: 'o1', boletoId: 'bZ', sucursalId: 'AAA' };
+    const sucB: Ocupacion = { ...base, id: 'o2', boletoId: 'bA', sucursalId: 'BBB' };
+    expect(arbitrar([sucB, sucA]).gana.sucursalId).toBe('AAA');
+
+    const mismaSuc1: Ocupacion = { ...base, id: 'o3', boletoId: 'b111', sucursalId: 'X' };
+    const mismaSuc2: Ocupacion = { ...base, id: 'o4', boletoId: 'b999', sucursalId: 'X' };
+    expect(arbitrar([mismaSuc2, mismaSuc1]).gana.boletoId).toBe('b111');
+  });
+
+  it('ARBITRAJE · el resultado NO cambia si se invierte el orden de llegada a la nube', () => {
+    const mk = (id: string, suc: string, iso: string, pagado: boolean): Ocupacion => ({
+      id, boletoId: `b${id}`, sucursalId: suc, salidaId: 's', asientoNum: 7, tramos: '[0,3)',
+      emitidoEn: new Date(iso), impreso: false, pagado, abonoParcial: false,
+    });
+    const cs = [
+      mk('1', 'C', '2026-09-01T10:03:00Z', false),
+      mk('2', 'A', '2026-09-01T10:01:00Z', true),
+      mk('3', 'B', '2026-09-01T10:02:00Z', true),
+    ];
+    const g1 = arbitrar(cs).gana.id;
+    const g2 = arbitrar([...cs].reverse()).gana.id;
+    const g3 = arbitrar([cs[2]!, cs[0]!, cs[1]!]).gana.id;
+    expect([g2, g3]).toEqual([g1, g1]);
+    expect(g1).toBe('2');  // pagado + emitido_en más antiguo entre los pagados
+  });
+
+  it('ARBITRAJE · es total: nunca devuelve empate para dos ocupaciones distintas', () => {
+    const gemelas = (id: string): Ocupacion => ({
+      id, boletoId: 'b', sucursalId: 'S', salidaId: 's', asientoNum: 7, tramos: '[0,3)',
+      emitidoEn: new Date('2026-09-01T10:00:00Z'), impreso: false, pagado: true, abonoParcial: false,
+    });
+    // Iguales en todo salvo el id de la ocupación: el comparador aún desempata.
+    expect(compararOcupaciones(gemelas('o1'), gemelas('o2'))).toBeLessThan(0);
+    expect(compararOcupaciones(gemelas('o2'), gemelas('o1'))).toBeGreaterThan(0);
+    expect(compararOcupaciones(gemelas('o1'), gemelas('o1'))).toBe(0);
+  });
+
+  // REASIGNACIÓN (01b §7): las propiedades PURAS de `elegirAsientoReasignado`.
+  // La aplicación a la base — folio intacto, nota_auditoria, reimpresión
+  // encolada, excepción alta con la unidad llena — está en
+  // `tests/sync/reasignacion.test.ts`.
+  const MAPA_MINI: MapaUnidad = {
+    asientos: [
+      { num: 1, fila: 0, col: 0 }, { num: 2, fila: 0, col: 1 }, { num: 3, fila: 0, col: 3 },
+      { num: 4, fila: 1, col: 0 }, { num: 5, fila: 1, col: 1 }, { num: 6, fila: 1, col: 3 },
+    ],
+    bloques: [
+      { clave: 'X0', asientos: [1, 2, 3] },
+      { clave: 'X1', asientos: [4, 5, 6] },
+    ],
+  };
+
+  it('REASIGNACIÓN · prefiere otro asiento del MISMO bloque', () => {
+    // Pierde el 1 (bloque X0 = {1,2,3}). El 2 está libre, y también el 5 (otro bloque).
+    const e = elegirAsientoReasignado(MAPA_MINI, 1, [2, 5], []);
+    expect(e).toEqual({ asiento: 2, motivo: 'mismo_bloque' });
+  });
+
+  it('REASIGNACIÓN · si no hay en el bloque, uno adyacente a un acompañante', () => {
+    // Pierde el 1; su bloque X0 no tiene libres salvo él. Acompañante en el 4
+    // (fila 1, col 0); el 5 (fila 1, col 1) es contiguo. El 6 también libre pero
+    // no adyacente (col 3, con pasillo).
+    const e = elegirAsientoReasignado(MAPA_MINI, 1, [5, 6], [4]);
+    expect(e).toEqual({ asiento: 5, motivo: 'adyacente_a_acompanante' });
+  });
+
+  it('REASIGNACIÓN · si no hay ni bloque ni adyacente, cualquiera libre', () => {
+    const e = elegirAsientoReasignado(MAPA_MINI, 1, [6], []);
+    expect(e).toEqual({ asiento: 6, motivo: 'cualquiera' });
+  });
+
+  it('REASIGNACIÓN · con la unidad llena devuelve null', () => {
+    expect(elegirAsientoReasignado(MAPA_MINI, 1, [], [])).toBeNull();
+    expect(elegirAsientoReasignado(MAPA_MINI, 1, [1], []), 'solo el propio no cuenta').toBeNull();
+  });
 });
 
 const IDS_SALUD: Ids = construirIds('d4', ['H']);
