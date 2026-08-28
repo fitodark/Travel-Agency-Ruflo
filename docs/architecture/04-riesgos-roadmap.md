@@ -215,6 +215,67 @@ escritura que viaja de local a nube y vuelve a otra réplica; y un respaldo rest
 - Baja recibida con `effective_from` ya vencido → se aplica al recibirla.
 - Sin sync por 73 h → banner de degradación y bloqueo de primer login.
 
+**Entregado en F2**: login offline, aplicador de configuración, stale-guard y
+modo degradado, y **solo el CRUD de clientes** (clase B, la terminal es su
+dueña). El CRUD de la configuración clase A —usuarios, sucursales, tarifas,
+impresora, ticket— se difirió a "el dashboard en nube"; F8 se construyó como
+reportes de solo lectura y ese alcance quedó sin hacer. Se retoma en F2b.
+
+### F2b — Consola de administración en la nube (2.5–3 semanas)
+
+> Añadida tras el cierre de F8. Es el CRUD de configuración clase A que F2 no
+> entregó, reordenado para hacerse **antes de endurecer la venta**: sin él no se
+> pueden dar de alta usuarios reales con roles repartidos entre sucursales, y sin
+> eso no se prueban en serio los permisos, la caja, los viajes ni los cierres.
+> Hoy la única vía para crear un usuario o una sucursal es `scripts/sembrar-admin.ts`
+> o un `INSERT` a mano.
+
+**Ya está y no se rehace**: `sync.publicar_a_nodos`, `sync.ingest_fila` sin
+efectos locales (0014), el aplicador de configuración, las vistas `v_*_vigente`
+con `effective_from`, `src/sync/bootstrap.ts` y el RBAC replicado. Falta solo la
+superficie de autoría y tres huecos de cableado.
+
+- **Slice 1 · Cimientos**. Servicio Node aparte (`src/admin/`), desplegado junto
+  a la nube. Auth del administrador con **Supabase Auth** (GoTrue) — aquí sí
+  sirve, el internet es prerrequisito en la nube (03 §1.1). Rol de Postgres de
+  escritura dedicado, distinto del de reportes, acotado a las tablas clase A y a
+  auditoría (P6). Helper `escribirConfig(tabla, fila, { modo })` con los tres
+  modos de §3.2 (ventana / inmediato / programado) y el filtro expand/contract de
+  D-8. Migración: registrar `auth_local.credencial` en el pipeline clase A
+  (`publicar_a_nodos` + columnas de sync + `clases.ts` + `bootstrap.ts`) — hoy no
+  baja, y 03 §1.2 lo da por hecho.
+- **Slice 2 · Sucursales**. CRUD `core.sucursal` (código único, tope 32;
+  dirección, teléfono, `zona_horaria`), baja con `effective_until`. Al alta:
+  generar la semilla `auth_local.revocacion_hotp`; el nodo crea su
+  `core.folio_secuencia` en el bootstrap.
+- **Slice 3 · Usuarios y accesos**. CRUD `core.usuario` y asignación a sucursales
+  (`core.usuario_sucursal`) con vigencia. Provisión de credencial: contraseña
+  temporal + `debe_cambiar`, hash Argon2id calculado en la nube; reset de
+  contraseña. Baja de usuario en modo inmediato (recomendado, §3.4). **Capa 3 de
+  revocación (03 §1.5)**, que quedó pendiente de F2: generador de código HOTP
+  fuera de banda en la consola + validador nuevo en el nodo, consumido en el login.
+- **Slice 4 · Impresora, ticket, tarifas, parámetros, permisos**.
+  `core.config_impresora` (IP/transporte, modo inmediato — cierra el pendiente de
+  F0), `core.config_ticket`, `core.tarifa` (siempre ventana, nunca a media
+  venta), `core.parametro`, `core.rol_permiso`.
+
+**Criterios de aceptación**
+- Los cuatro criterios de F2 que quedaron sin superficie de autoría (arriba) se
+  pueden ejercitar de punta a punta desde la consola.
+- Un usuario dado de alta en la consola entra en una terminal tras un pull.
+- Una baja inmediata cierra la sesión viva de ese usuario en la siguiente pasada
+  del aplicador.
+- Un código de revocación dictado por teléfono desactiva al usuario con la
+  terminal sin internet.
+- Cambiar la IP de una impresora en la consola surte efecto en el nodo sin
+  desplegar nada.
+- Un nodo nuevo hace bootstrap completo, credenciales incluidas.
+
+**Dependencias**: P12 (zona horaria de las 4 sucursales) fija la hora exacta de
+la ventana nocturna; si sigue abierta, arranca con `America/Mexico_City`. P7 no
+bloquea: la consola trae su propia auth (Supabase Auth), separada del bearer de
+solo lectura del tablero.
+
 ### F3 — Flota, conductores, rutas, horarios, salidas y cupos (3 semanas)
 
 - Catálogo de `tipo_unidad` con mapa declarativo; **Sprinter 18 sembrada y renderizada**.
@@ -334,9 +395,15 @@ sobreventa no resuelta y sin intervención manual en la base de datos.
 | F6 Cortes de caja | 2–3 | 20 |
 | F7 Viajes efectuados | 1–2 | 21 |
 | F8 Dashboard y reportes | 2 | 23 |
-| F9 Endurecimiento y despliegue | 2–3 | **20–26** |
+| F2b Consola de administración | 2.5–3 | 25.5–26 |
+| F9 Endurecimiento y despliegue | 2–3 | **28–29** |
 
-**≈ 5–6 meses**, contra los ~4 meses de la propuesta comercial (R8). Con F8 diferido a la
+F2b se listó fuera de orden a propósito: se planeó en F2, se descubrió sin hacer
+tras F8, y se ejecuta cuando aparece en el listado —antes de F9— para que el
+piloto pruebe la operación con usuarios y sucursales dados de alta desde la
+consola, no sembrados a mano.
+
+**≈ 6–7 meses**, contra los ~4 meses de la propuesta comercial (R8). Con F8 diferido a la
 renta —como la propuesta ya contempla— y paralelización entre F5/F6/F7, la Etapa 1 operativa
-cae en el rango de **17–19 semanas (~4.5 meses)**, que es lo más cerca de lo prometido que
+cae en el rango de **20–22 semanas (~5 meses)**, que es lo más cerca de lo prometido que
 este alcance permite sin comprometer el motor de sincronización.
