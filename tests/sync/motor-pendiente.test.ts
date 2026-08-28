@@ -36,8 +36,6 @@
 import { afterEach, beforeAll, afterAll, describe, expect, it } from 'vitest';
 import 'dotenv/config';
 import type { Client } from 'pg';
-import type { PullResult } from '../../src/sync/pull.js';
-import type { PushResult } from '../../src/sync/push.js';
 import {
   clasificarDeriva, medirDeriva, medirSalud, registrarDeriva, registrarRespaldo, reportarSalud,
 } from '../../src/sync/salud.js';
@@ -50,58 +48,13 @@ import {
 } from './harness.js';
 
 // ===========================================================================
-// PROPUESTA DE CONTRATO — borrar cuando existan los módulos reales
+// CONTRATO — los módulos ya aterrizaron; aquí solo quedan punteros.
 // ===========================================================================
 
-/** `src/sync/engine.ts` */
-export namespace ContratoEngine {
-  export type Estado = 'detenido' | 'inactivo' | 'sincronizando' | 'sin_red' | 'degradado';
-
-  /** Cadencia del §3.3. Todo en milisegundos salvo lo que diga otra cosa. */
-  export interface Cadencia {
-    pushMs: number;              // 5_000 en operación normal
-    pullMs: number;              // 30_000 en operación normal
-    loteDrenaje: number;         // 500 al reconectar tras un corte largo
-    backoffInicialMs: number;    // 1_000
-    backoffMaxMs: number;        // 300_000, para no martillar una nube caída
-    degradadoTrasHoras: number;  // 72 (03 §1.5)
-  }
-
-  export interface Opciones {
-    node: Client;
-    /** Fábrica, no cliente: la terminal enciende sin internet más veces de las que se cree. */
-    abrirNube: () => Promise<Client>;
-    sucursalId: string;
-    versionNodo: string;
-    cadencia?: Partial<Cadencia>;
-    /** Inyectable. Ver exigencia 1 de la cabecera. */
-    ahora?: () => Date;
-  }
-
-  export interface ResultadoCiclo {
-    push: PushResult | null;
-    pull: PullResult | null;
-    error: Error | null;
-    /** Backoff calculado para el siguiente intento. Se expone para poder observarlo. */
-    proximoIntentoMs: number;
-    estado: Estado;
-  }
-
-  export interface Motor {
-    iniciar(): void;
-    detener(): Promise<void>;
-    /** Un ciclo inmediato, como el que dispara una venta (§3.3). Resuelve al terminar. */
-    ciclo(): Promise<ResultadoCiclo>;
-    estado(): Estado;
-    /** Última sincronización exitosa; `null` si nunca hubo. Alimenta el stale-guard. */
-    ultimaSyncExitosa(): Date | null;
-  }
-
-  export type CrearMotor = (opts: Opciones) => Motor;
-
-  /** Puro, exportado aparte: el backoff debe probarse sin levantar nada. */
-  export type SiguienteBackoff = (intentosFallidos: number, cadencia: Cadencia) => number;
-}
+// `src/sync/engine.ts` ATERRIZÓ como la clase `SyncEngine` (toma dos `Client`
+// abiertos; `src/sync/servicio.ts` los reconecta) con `calcularBackoff` puro,
+// `ciclo()`, `pushInmediato()`, `snapshot` y `modo`. Sus 12 pruebas —cadencia,
+// backoff, `sin_red`, degradado, dos motores— viven en `tests/sync/engine.test.ts`.
 
 /** `src/sync/reconcile.ts` */
 export namespace ContratoReconcile {
@@ -126,23 +79,9 @@ export namespace ContratoReconcile {
 // más abajo, ya ejecutables. El contrato propuesto se borró.
 
 // ===========================================================================
-// Lo que hay que probar en cuanto exista cada módulo
+// Propiedades PURAS del arbitraje y la reasignación. El resto de los módulos
+// del motor tiene sus pruebas en archivos propios (ver punteros arriba).
 // ===========================================================================
-
-describe('src/sync/engine.ts — ciclo, cadencia y backoff', () => {
-  it.todo('respeta la cadencia del §3.3: push cada 5 s y pull cada 30 s en operación normal');
-  it.todo('dispara un push inmediato tras una venta, sin esperar el tick');
-  it.todo('con la nube caída no lanza: acumula en outbox y deja el estado en `sin_red`');
-  it.todo('el backoff crece de forma monótona y se topa en backoffMaxMs');
-  it.todo('el backoff se reinicia tras el primer ciclo exitoso');
-  it.todo('al reconectar tras un corte largo drena en lotes de 500 sin monopolizar la caja');
-  it.todo('`detener()` espera al ciclo en curso: no deja un lote a medias');
-  it.todo('dos motores sobre el mismo nodo no envían el mismo renglón dos veces');
-  it.todo('con `ahora()` desplazado 73 h el estado pasa a `degradado` sin esperar tres días');
-  it.todo('en modo degradado sigue drenando el outbox: degradar no es dejar de sincronizar');
-  it.todo('un error en el pull no impide el push del mismo ciclo, ni al revés');
-  it.todo('hace catch-up de pull ANTES de permitir vender asientos fuera de cupo (§3.3)');
-});
 
 describe('src/sync/reconcile.ts — checksum y clases de conflicto', () => {
   // El checksum, el diff fila a fila (`soloEnLocal` / `soloEnNube` /

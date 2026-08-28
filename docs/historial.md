@@ -871,14 +871,43 @@ Suite backend: **352 verdes, 0 rojas, 12 `it.todo`**. `tsc --noEmit` limpio.
 
 ---
 
+## Sesión 19 — 2026-08-28 · Motor de sync: los 12 `it.todo` de `engine.ts` (PR #13)
+
+Última deuda de F1. `engine.ts` ATERRIZÓ hace tiempo como la clase `SyncEngine`
+(no `crearMotor`): toma dos `Client` abiertos y `servicio.ts` los reconecta. El
+`ContratoEngine` propuesto se retira; las pruebas se escriben contra el motor real.
+
+- **`src/sync/engine.ts`**: se añade `get modo(): EstadoMotor`
+  (`detenido | inactivo | sincronizando | sin_red | degradado`) derivado del
+  estado interno, y `async ciclo(): Promise<ResultadoCiclo>` — un push + un pull,
+  independientes, que resuelve al terminar (lo que las pruebas necesitan para no
+  depender de timers). El campo privado `estado` se renombra a `st` para no
+  chocar con el getter.
+- **`tests/sync/engine.test.ts`** (11 + 1 `it.todo`, nube simulada): cadencia
+  (push ≫ pull), push inmediato tras venta, nube caída → `sin_red` sin lanzar,
+  `calcularBackoff` monótono y topado (puro), backoff que se reinicia tras el
+  primer éxito (fallo forzado con `LOCK sync.lote_recibido` + `lock_timeout` en
+  conexión dedicada), drenaje en lotes, `detener()` que espera el ciclo en curso,
+  dos motores sin doble envío (`FOR UPDATE SKIP LOCKED`), degradado a +73 h con
+  `now()` inyectado, degradado que sigue drenando, error de pull que no tumba el
+  push.
+- El `it.todo` que queda: "catch-up de pull ANTES de vender fuera de cupo" — no
+  es solo del motor; exige que `src/ventas/` consulte una señal y bloquee el
+  override. El motor ya expone `modo` y `ultimaSyncExitosa`; falta el enganche.
+- `motor-pendiente.test.ts` retira el `ContratoEngine` y el bloque de 12
+  `it.todo`; solo conserva las propiedades puras de arbitraje/reasignación.
+
+Suite backend: **363 verdes, 0 rojas, 1 `it.todo`**. `tsc --noEmit` limpio.
+
+---
+
 ## Pendientes de F1
 
-- `src/sync/engine.ts` funciona pero no cumple el `ContratoEngine` propuesto en
-  `motor-pendiente.test.ts` (es la clase `SyncEngine`, no `crearMotor`).
-- El checksum de `reconcile.ts` ATERRIZÓ en la Sesión 18 (diff dirigido,
-  `tests/sync/reconcile.test.ts`).
-- Quedan 12 `it.todo`, todos de `engine.ts` (cadencia, backoff, degradado,
-  catch-up de pull antes de vender fuera de cupo).
+- El contrato de pruebas del motor está CERRADO: `salud.ts` (Ses. 4), arbitraje
+  y reasignación (F4), checksum dirigido de `reconcile.ts` (Ses. 18) y los 12
+  `it.todo` de `engine.ts` (Ses. 19, `tests/sync/engine.test.ts`).
+- Queda **1 `it.todo`**: "catch-up de pull ANTES de vender fuera de cupo" — es
+  cross-cutting (motor + `src/ventas/`), a la espera de esa decisión de diseño.
 
 ## Defectos conocidos aún vivos (con su prueba `DEFECTO VIGENTE` en verde)
 
