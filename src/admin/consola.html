@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Donaji · Administración</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/supabase-js/2.45.4/supabase.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+<style>
+  :root { color-scheme: light; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.5 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; color: #1e293b; background: #f1f5f9; }
+  header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; padding: 16px 24px; background: #0f172a; color: #f1f5f9; }
+  header h1 { margin: 0; font-size: 18px; font-weight: 600; }
+  header .quien { color: #94a3b8; font-size: 13px; }
+  main { max-width: 1100px; margin: 0 auto; padding: 20px 24px 60px; }
+  .tabs { display: flex; flex-wrap: wrap; gap: 2px; border-bottom: 1px solid #cbd5e1; margin: 16px 0; }
+  .tabs button { padding: 8px 14px; border: 0; background: none; font: inherit; color: #64748b; border-bottom: 2px solid transparent; margin-bottom: -1px; cursor: pointer; }
+  .tabs button.activo { color: #0f172a; font-weight: 600; border-bottom-color: #0f172a; }
+  .nota { color: #94a3b8; font-size: 12px; margin: 4px 0 0; }
+  .banner { background: #ecfccb; border: 1px solid #bef264; border-radius: 8px; padding: 10px 14px; margin-bottom: 14px; }
+  .banner code { font-size: 18px; font-weight: 600; letter-spacing: 1px; }
+  .aviso { color: #64748b; padding: 24px; text-align: center; }
+  .error { color: #dc2626; }
+  table { width: 100%; border-collapse: collapse; background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden; }
+  th, td { padding: 8px 12px; text-align: left; border-top: 1px solid #e2e8f0; vertical-align: top; }
+  thead th { background: #f8fafc; color: #64748b; border-top: 0; font-weight: 500; }
+  .scroll { overflow-x: auto; }
+  .chip { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 12px; margin: 0 4px 2px 0; background: #f1f5f9; color: #475569; }
+  .chip.baja { background: #fee2e2; color: #b91c1c; }
+  .chip.ok { background: #dcfce7; color: #15803d; }
+  input, select, button { font: inherit; }
+  input, select { padding: 6px 8px; border: 1px solid #cbd5e1; border-radius: 6px; }
+  .btn { padding: 6px 12px; border: 0; border-radius: 6px; background: #0f172a; color: #fff; cursor: pointer; }
+  .btn.sec { background: #e2e8f0; color: #0f172a; }
+  .btn.link { background: none; color: #2563eb; padding: 2px 4px; }
+  .btn.link.rojo { color: #dc2626; }
+  form.alta { background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 14px; margin-bottom: 16px; display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; align-items: end; }
+  form.alta label { font-size: 12px; color: #64748b; display: block; }
+  form.alta [hidden], [hidden] { display: none !important; }
+  form.alta label input, form.alta label select { width: 100%; }
+  form.alta .full { grid-column: 1 / -1; }
+  details.alta { margin-bottom: 16px; }
+  details.alta > summary { cursor: pointer; color: #2563eb; margin-bottom: 8px; }
+  #login { max-width: 380px; margin: 80px auto; background: #fff; padding: 24px; border-radius: 10px; border: 1px solid #e2e8f0; }
+  #login input { width: 100%; margin-bottom: 10px; }
+  #msg { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: #0f172a; color: #fff; padding: 10px 18px; border-radius: 8px; max-width: 90vw; }
+</style>
+</head>
+<body>
+<div id="login" hidden>
+  <h2 style="margin-top:0">Consola de administración</h2>
+  <form id="f-supa" hidden>
+    <p class="nota">Inicia sesión con tu cuenta de administrador.</p>
+    <input type="email" id="s-email" placeholder="correo" autocomplete="username" />
+    <input type="password" id="s-pass" placeholder="contraseña" autocomplete="current-password" />
+    <button class="btn" type="submit" style="width:100%">Entrar</button>
+  </form>
+  <form id="f-token" hidden>
+    <p class="nota">Pega tu token de acceso (JWT de Supabase).</p>
+    <input type="password" id="t-token" placeholder="token" autocomplete="off" />
+    <button class="btn" type="submit" style="width:100%">Entrar</button>
+  </form>
+  <p id="login-error" class="error" hidden></p>
+</div>
+
+<div id="app" hidden>
+  <header>
+    <h1>Donaji · Administración</h1>
+    <div><span class="quien" id="quien"></span> <button class="btn sec" id="salir">salir</button></div>
+  </header>
+  <main>
+    <div class="tabs" id="tabs"></div>
+    <div id="panel"><p class="aviso">Cargando…</p></div>
+  </main>
+</div>
+<div id="msg" hidden></div>
+
+<script src="/consola.js"></script>
+</body>
+</html>

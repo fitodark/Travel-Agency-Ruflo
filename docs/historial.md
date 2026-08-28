@@ -1426,7 +1426,79 @@ Las seis ramas de F2b (sesiones 28–34) se mergearon en orden el 2026-08-28:
 PRs **#23–#28**, `main` en `4827f5c`. Migraciones 0034–0038 ya en nube y local.
 `src/admin/` tiene la consola completa; `npm run admin` la levanta. Sobre `main`
 mergeada: `tsc` limpio, las 84 pruebas de `tests/admin/` + `tests/auth/{rbac,hotp,
-revocacion}` en verde.
+revocacion}` en verde. Cierre documental: PR #29.
+
+---
+
+## Sesión 35 — 2026-08-28 · F2b: UI de la consola (primera pasada)
+
+La consola tenía API pero no interfaz. Primera pasada, vanilla como
+`tablero.html` (sin build):
+
+- **`src/admin/consola.html`** (~380 líneas). Servida en `GET /` (pública, sin
+  token — los datos siguen tras el JWT). Login: si `/config` trae
+  `supabaseUrl`+`anonKey` → formulario email/contraseña con `@supabase/supabase-js`
+  (cdnjs); si no → pegado de token. El JWT vive en `localStorage`.
+  - Pestaña **Sucursales**: tabla (código, nombre, zona, vigencia, estado, HOTP)
+    + "Nueva sucursal" (formulario) + acciones por fila (editar, baja, regenerar
+    HOTP) vía `prompt`/`confirm`.
+  - Pestaña **Usuarios y accesos**: tabla (nombre/correo, rol, sucursales,
+    credencial, estado) + "Nuevo usuario" (con checkboxes de sucursales, devuelve
+    la contraseña temporal) + acciones (editar, baja, asignar/quitar sucursal,
+    restablecer contraseña, **código de revocación** — abre un `prompt` con el
+    código de 8 dígitos para dictar).
+  - Widget de modo de propagación reutilizable (ventana / inmediato con
+    confirmación / programado con fecha).
+- **`src/admin/servidor.ts`** — `GET /` sirve `consola.html`; `GET /config`
+  devuelve `{ supabaseUrl, supabaseAnonKey }` (públicos; vacíos si no se
+  configuró). `OpcionesServidorAdmin` gana `supabaseUrl`/`supabaseAnonKey`/`pagina`.
+- **`src/admin/lookups.ts`** — `resolverAgencia(db, id?)`: usa la única agencia si
+  no se pasa una (el caso de Donaji). `POST /api/sucursales` y `/api/ticket` ya no
+  exigen `agenciaId`.
+- **`src/admin/main.ts`** — pasa `SUPABASE_URL`/`SUPABASE_ANON_KEY` del entorno.
+- Verificado en el navegador (servidor local + JWT de prueba): login, ambas
+  pestañas, alta de sucursal por API (201, agencia resuelta), y el toggle del
+  widget de modo.
+- **`tests/admin/servidor.test.ts`** +4 (`GET /`, `GET /config`),
+  `tests/admin/sucursales.test.ts` +1 (alta sin `agenciaId`).
+
+### Segunda pasada (misma sesión) — impresora, ticket, tarifas
+
+- El JS se separó a **`src/admin/consola.js`** (servido en `GET /consola.js`);
+  `consola.html` queda en 78 líneas y ambos bajo el límite de 500.
+- Pestaña **Impresoras**: tabla + formulario (sucursal, transporte tcp/usb con
+  campos que se muestran según el transporte, IP/puerto/cola, columnas, code
+  page, predeterminada). Siempre inmediato. Upsert por sucursal.
+- Pestaña **Ticket**: formulario con los valores vigentes precargados (leyenda,
+  teléfono, créditos del proveedor, logo, secreto HMAC) + modo. Cada guardado es
+  una versión nueva.
+- Pestaña **Tarifas**: tabla (ruta, tramo, importe, vigencia, estado) + "Nueva
+  tarifa" (select de ruta → selects de origen/destino poblados de sus paradas,
+  importe, modo sin `inmediato` por §3.4) + acción "retirar" por fila.
+- **`src/admin/tarifas.ts`** — `listarRutas(db)` (ruta + paradas). Ruta
+  `GET /api/rutas`.
+- Verificado en el navegador: las 5 pestañas cargan, y alta de impresora y de
+  ticket por sus endpoints devuelven 201. `tests/admin/servidor.test.ts`
+  actualizado para `/consola.js`.
+
+### Tercera pasada (misma sesión) — formularios inline en vez de `prompt`
+
+- **`editor({ titulo, campos, conModo?, onGuardar })`** en `consola.js`: renderiza
+  un formulario a pantalla completa del panel (con "← volver") a partir de una
+  lista de campos (`text`/`select`/`checkbox`/`number`/`datetime-local`), opcional
+  el widget de modo. Reemplaza los `prompt` de `suc-edit` y `usr-edit`.
+- **`banner(html)`** — mensaje persistente (se cierra a mano) para la contraseña
+  temporal y el código de revocación, en vez de un `toast` de 3,5 s.
+- **`usr-suc`** ahora es una vista con la lista de sucursales y un botón
+  asignar/quitar por fila (refresca en sitio), en vez de un `prompt` + `confirm`.
+- **`usr-revocar`** es un `editor` con un select de sucursal → genera el código y
+  lo muestra en un `banner` sobre la lista.
+- Los `confirm()` de baja / regenerar HOTP se mantienen (son sí/no puro, no
+  recogían texto). Cero `prompt()` en el archivo.
+- Verificado en el navegador: editar sucursal (guarda y vuelve a la lista),
+  vista de sucursales de un usuario, y código de revocación (con la semilla
+  sembrada). `consola.js` queda en ~555 líneas — un poco sobre el límite de 500,
+  pero partir el cierre compartido costaría más de lo que aporta.
 
 ---
 

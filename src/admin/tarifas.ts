@@ -37,6 +37,22 @@ async function cuandoEntra(db: Consultable, opts: OpcionesTarifa): Promise<Date>
   return proximaVentana(db, opts.zonaHoraria ?? ZONA_DEFECTO, opts.ahora?.() ?? new Date());
 }
 
+/** Las rutas con sus paradas, para poblar el formulario de tarifas. */
+export async function listarRutas(db: Consultable): Promise<Record<string, unknown>[]> {
+  const { rows } = await db.query(
+    `SELECT r.id, r.nombre,
+            (SELECT jsonb_agg(jsonb_build_object('orden', rp.orden, 'sucursal', s.nombre)
+                              ORDER BY rp.orden)
+               FROM core.ruta_parada rp
+               JOIN core.sucursal s ON s.id = rp.sucursal_id
+              WHERE rp.ruta_id = r.id) AS paradas
+       FROM core.ruta r
+      WHERE r.activo
+      ORDER BY r.nombre`,
+  );
+  return rows;
+}
+
 export async function listarTarifas(
   db: Consultable,
   rutaId?: string,

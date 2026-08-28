@@ -56,6 +56,8 @@ async function main(): Promise<void> {
     db: pool,
     jwtSecret: JWT_SECRET,
     adminsIniciales: ADMINS_INICIALES,
+    ...(process.env['SUPABASE_URL'] ? { supabaseUrl: process.env['SUPABASE_URL'] } : {}),
+    ...(process.env['SUPABASE_ANON_KEY'] ? { supabaseAnonKey: process.env['SUPABASE_ANON_KEY'] } : {}),
     logger: true,
   });
 

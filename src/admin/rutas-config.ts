@@ -14,7 +14,8 @@ import {
   configurarImpresora, configurarTicket, listarImpresoras, ticketVigente,
   type Transporte,
 } from './impresion.js';
-import { crearTarifa, darDeBajaTarifa, listarTarifas } from './tarifas.js';
+import { resolverAgencia } from './lookups.js';
+import { crearTarifa, darDeBajaTarifa, listarRutas, listarTarifas } from './tarifas.js';
 
 interface OpcionesRutas {
   db: Consultable;
@@ -76,21 +77,14 @@ export function rutasConfig(app: FastifyInstance, { db, ahora }: OpcionesRutas):
   );
 
   // ---- ticket ----------------------------------------------------------
-  app.get<{ Querystring: { agenciaId: string } }>(
+  app.get<{ Querystring: { agenciaId?: string } }>(
     '/ticket',
-    {
-      schema: {
-        querystring: {
-          type: 'object', required: ['agenciaId'],
-          properties: { agenciaId: { type: 'string', format: 'uuid' } },
-        },
-      },
-    },
-    async (req) => (await ticketVigente(db, req.query.agenciaId, ahora())) ?? {},
+    { schema: { querystring: { type: 'object', properties: { agenciaId: { type: 'string', format: 'uuid' } } } } },
+    async (req) => (await ticketVigente(db, await resolverAgencia(db, req.query.agenciaId), ahora())) ?? {},
   );
 
   app.post<{ Body: {
-    agenciaId: string; logoUrl?: string | null; telefonoAtencion?: string | null;
+    agenciaId?: string; logoUrl?: string | null; telefonoAtencion?: string | null;
     leyendaPie?: string | null; credencialesProveedor?: string | null; hmacQrSecreto?: string | null;
     modo?: 'ventana' | 'inmediato' | 'programado'; fechaProgramada?: string; confirmarInmediato?: boolean;
   } }>(
@@ -99,7 +93,6 @@ export function rutasConfig(app: FastifyInstance, { db, ahora }: OpcionesRutas):
       schema: {
         body: {
           type: 'object',
-          required: ['agenciaId'],
           properties: {
             agenciaId: { type: 'string', format: 'uuid' },
             logoUrl: { type: ['string', 'null'] },
@@ -116,7 +109,14 @@ export function rutasConfig(app: FastifyInstance, { db, ahora }: OpcionesRutas):
     },
     async (req, reply) => {
       const b = req.body;
-      const r = await configurarTicket(db, b, {
+      const r = await configurarTicket(db, {
+        agenciaId: await resolverAgencia(db, b.agenciaId),
+        ...(b.logoUrl !== undefined ? { logoUrl: b.logoUrl } : {}),
+        ...(b.telefonoAtencion !== undefined ? { telefonoAtencion: b.telefonoAtencion } : {}),
+        ...(b.leyendaPie !== undefined ? { leyendaPie: b.leyendaPie } : {}),
+        ...(b.credencialesProveedor !== undefined ? { credencialesProveedor: b.credencialesProveedor } : {}),
+        ...(b.hmacQrSecreto !== undefined ? { hmacQrSecreto: b.hmacQrSecreto } : {}),
+      }, {
         ...(b.modo ? { modo: b.modo } : {}),
         ...(b.fechaProgramada ? { fechaProgramada: new Date(b.fechaProgramada) } : {}),
         ...(b.confirmarInmediato ? { confirmarInmediato: true } : {}),
@@ -127,6 +127,8 @@ export function rutasConfig(app: FastifyInstance, { db, ahora }: OpcionesRutas):
   );
 
   // ---- tarifas -------------------------------------------------------
+  app.get('/rutas', async () => listarRutas(db));
+
   app.get<{ Querystring: { rutaId?: string } }>('/tarifas', async (req) =>
     listarTarifas(db, req.query.rutaId));
 
