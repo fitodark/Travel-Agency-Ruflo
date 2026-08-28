@@ -3,6 +3,7 @@ import { useSesion } from '../auth/sesion';
 
 const NAV = [
   { a: '/vender', texto: 'Vender' },
+  { a: '/caja', texto: 'Caja' },
   { a: '/sincronizacion', texto: 'Sincronización' },
   { a: '/clientes', texto: 'Clientes' },
 ];
