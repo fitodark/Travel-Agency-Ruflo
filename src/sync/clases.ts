@@ -88,6 +88,10 @@ export const CLASE_POR_TABLA: Readonly<Record<string, ClaseEntidad>> = {
   // Añadidas por la migración 0012: el blueprint las declaraba clase A pero
   // `publicar_a_nodos` las había omitido, así que nunca bajaban a las terminales.
   'core.rol_permiso': 'A',
+  // Añadida por 0034 (F2b slice 1): el hash de contraseña se calcula en la nube
+  // y baja replicado (03 §1.2). Única tabla de `auth_local` que se sincroniza;
+  // `sesion`, `intento` y `revocacion_hotp` son estado local del nodo.
+  'auth_local.credencial': 'A',
 
   // B — Transaccional local. Single-writer: la sucursal que la creó.
   'core.corte_caja': 'B',

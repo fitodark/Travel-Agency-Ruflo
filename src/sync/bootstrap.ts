@@ -36,6 +36,9 @@ export const ORDEN_TOPOLOGICO: readonly string[] = [
   // Nivel 2
   'core.usuario',
   'core.usuario_sucursal',
+  // Sin FK a core.usuario (auth_local se desacopla a propósito), pero es su
+  // credencial: va justo después. Añadida por 0034 (F2b slice 1).
+  'auth_local.credencial',
   'core.unidad',
   'core.config_impresora',
   'core.config_ticket',
