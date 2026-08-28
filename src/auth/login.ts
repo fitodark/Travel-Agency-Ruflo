@@ -32,6 +32,7 @@ export type MotivoRechazo =
   | 'credenciales'
   | 'usuario_no_vigente'
   | 'credencial_no_vigente'
+  | 'revocado'
   | 'sin_sucursal_activa'
   | 'bloqueo_degradado'
   | 'demasiados_intentos';
@@ -161,6 +162,21 @@ export async function login(args: LoginArgs): Promise<LoginResult> {
   if (!vigente(c.c_from, c.c_until)) {
     await registrarIntento(node, email, false, ip, ahora);
     return { ok: false, motivo: 'credencial_no_vigente' };
+  }
+
+  // 3b · Revocación fuera de banda (§1.5, capa 3). Marca LOCAL, puesta por un
+  //      código HOTP que el administrador dictó por teléfono. Vale hasta que una
+  //      re-alta desde la consola (con `effective_from` posterior) la supere.
+  const { rows: rev } = await node.query<{ bloqueado: boolean }>(
+    `SELECT EXISTS (
+       SELECT 1 FROM auth_local.revocacion_aplicada r
+        WHERE r.usuario_id = $1 AND r.aplicado_en >= $2::timestamptz
+     ) AS bloqueado`,
+    [c.id, c.u_from],
+  );
+  if (rev[0]!.bloqueado) {
+    await registrarIntento(node, email, false, ip, ahora);
+    return { ok: false, motivo: 'revocado' };
   }
 
   // 4 · Sucursal activa (req: "los usuarios solo podrán ingresar si tienen una

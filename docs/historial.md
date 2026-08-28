@@ -1307,6 +1307,44 @@ fuera de banda en la consola + validador nuevo en el nodo, consumido en
 
 ---
 
+## Sesión 32 — 2026-08-28 · F2b slice 3 (b): capa 3 de revocación HOTP
+
+Cierra el slice 3 y el hueco de la capa 3 de §1.5 que quedó pendiente desde F2.
+Escenario: se despide a un vendedor, la sucursal lleva días sin internet, la baja
+de clase A no ha bajado. El administrador genera un código de 8 dígitos, lo
+**dicta por teléfono**, el gerente lo captura y el nodo bloquea al usuario offline.
+
+- **`src/db/migrations/0036_revocacion_capa3.sql`** — tabla
+  `auth_local.revocacion_aplicada` (local del nodo, NO se replica: es la marca de
+  bloqueo, como `auth_local.sesion`) + permiso `usuario.revocar` para gerente y
+  administrador. **0036 en nube y local.**
+- **`src/auth/hotp.ts`** (puro) — `generarCodigo(semilla, usuarioId, contador)`
+  (HMAC-SHA1 + truncación RFC 4226, 8 dígitos) y `verificarCodigo` que barre una
+  ventana de contadores hacia adelante (el código viaja más rápido que el sync).
+  No es TOTP: no depende de relojes, que es justo lo que falla en el escenario.
+- **`src/admin/revocacion.ts`** — `generarCodigoRevocacion` (nube): lee la
+  semilla, `contador = ultimo_usado + 1`, genera el código y avanza `ultimo_usado`
+  (baja replicado como referencia). Ruta
+  `POST /api/usuarios/:id/codigo-revocacion`.
+- **`src/auth/revocacion.ts`** — `aplicarCodigoRevocacion` (nodo): valida contra
+  la semilla local (piso = max de lo consumido por la nube y lo ya aplicado
+  localmente, anti-replay), marca `revocacion_aplicada` y cierra las sesiones
+  vivas del usuario. Ruta `POST /auth/revocar` (`exige` permiso `usuario.revocar`).
+- **`src/auth/login.ts`** — paso 3b: niega la entrada (`motivo: 'revocado'`) si
+  hay marca de revocación con `aplicado_en >= usuario.effective_from`. Una re-alta
+  desde la consola (con `effective_from` posterior) la deja sin efecto.
+- **Pruebas**: `tests/auth/hotp.test.ts` (6, puro), `tests/auth/revocacion.test.ts`
+  (6, incluye el ciclo revocar→login denegado→re-alta→login OK),
+  `tests/admin/revocacion.test.ts` (3), y 3 casos nuevos en `tests/api/auth.test.ts`
+  (gerente aplica; vendedor 403; código inválido 400).
+
+`npm test`: **52 archivos, 484 verdes, 1 `it.todo`, 0 rojas**.
+
+**Slice 3 CERRADO.** Queda el slice 4 (impresora / ticket / tarifas) y el rol de
+Postgres de escritura dedicado.
+
+---
+
 ## Pendientes de F1
 
 - El contrato de pruebas del motor está CERRADO: `salud.ts` (Ses. 4), arbitraje

@@ -7,6 +7,7 @@
 import type { FastifyInstance } from 'fastify';
 import type { Consultable } from '../db/consulta.js';
 import type { ModoPropagacion } from './escribir-config.js';
+import { generarCodigoRevocacion } from './revocacion.js';
 import {
   asignarSucursal, crearUsuario, darDeBajaUsuario, editarUsuario, listarUsuarios,
   quitarSucursal, restablecerPassword,
@@ -185,6 +186,32 @@ export function rutasUsuarios(app: FastifyInstance, { db, ahora }: OpcionesRutas
       } catch (err) {
         if (esValidacion(err)) {
           return reply.status(400).send({ error: 'asignacion_invalida', mensaje: err.message });
+        }
+        throw err;
+      }
+    },
+  );
+
+  app.post<{ Params: { id: string }; Body: { sucursalId: string } }>(
+    '/usuarios/:id/codigo-revocacion',
+    {
+      schema: {
+        params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } },
+        body: {
+          type: 'object', required: ['sucursalId'],
+          properties: { sucursalId: { type: 'string', format: 'uuid' } },
+        },
+      },
+    },
+    async (req, reply) => {
+      try {
+        const r = await generarCodigoRevocacion(db, {
+          usuarioId: req.params.id, sucursalId: req.body.sucursalId, ahora,
+        });
+        return reply.send({ ...r, escritoPor: req.admin.email });
+      } catch (err) {
+        if (esValidacion(err)) {
+          return reply.status(400).send({ error: 'revocacion_invalida', mensaje: err.message });
         }
         throw err;
       }
