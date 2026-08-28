@@ -203,4 +203,6 @@ run('escribirConfig · contra PostgreSQL (nodo marcado como nube)', () => {
     );
     expect(rows[0]!.hhmm).toBe('03:00');
   });
-});
+  // Toda escritura serializa en `sync.hlc_estado` (defecto vigente): bajo la
+  // suite en paralelo el timeout de 5 s por defecto se queda corto.
+}, 25_000);

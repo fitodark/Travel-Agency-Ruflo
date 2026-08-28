@@ -182,37 +182,48 @@ export async function escribirConfig(
     );
   }
 
-  let id = opts.fila['id'];
-  if (id === undefined || id === null) {
-    const { rows } = await db.query<{ id: string }>(`SELECT core.uuid_v7() AS id`);
+  // No se genera `id` aquí. Si el llamador no lo pasa, lo produce la tabla: un
+  // `DEFAULT core.uuid_v7()` para las de id opaco, o el trigger de derivación
+  // para las de id calculado (`core.parametro`, `core.rol_permiso`,
+  // `auth_local.credencial`, `auth_local.revocacion_hotp`). Inventar un uuid aquí
+  // le pisaría el id determinista a esas últimas y rompería la convergencia.
+  const filaFinal: Record<string, unknown> = {
+    ...opts.fila,
+    ...(difiereVigencia ? { [vigenciaEn]: vigenciaDesde } : {}),
+  };
+  const idDado = opts.fila['id'];
+
+  // ¿La fila ya existe? Un alta y una edición son sentencias distintas: un
+  // `INSERT ... ON CONFLICT DO UPDATE` fallaría el NOT NULL de las columnas que
+  // una edición parcial no trae (dirección, código...) antes de llegar al
+  // `ON CONFLICT`.
+  const existente = idDado != null && (
+    (await db.query(`SELECT 1 FROM ${opts.tabla} WHERE id = $1`, [idDado])).rowCount ?? 0
+  ) > 0;
+
+  let id: string;
+  if (existente) {
+    const cols = Object.keys(filaFinal).filter((c) => c !== 'id');
+    if (cols.length === 0) {
+      throw new Error('`fila` no trae ninguna columna que escribir aparte de `id`.');
+    }
+    const sets = cols.map((c, i) => `${ident(c)} = $${i + 1}`);
+    const valores = [...cols.map((c) => filaFinal[c]), idDado];
+    const { rows } = await db.query<{ id: string }>(
+      `UPDATE ${opts.tabla} SET ${sets.join(', ')} WHERE id = $${cols.length + 1} RETURNING id`,
+      valores,
+    );
+    id = rows[0]!.id;
+  } else {
+    const cols = Object.keys(filaFinal);
+    const placeholders = cols.map((_, i) => `$${i + 1}`);
+    const { rows } = await db.query<{ id: string }>(
+      `INSERT INTO ${opts.tabla} (${cols.map(ident).join(', ')})
+       VALUES (${placeholders.join(', ')}) RETURNING id`,
+      Object.values(filaFinal),
+    );
     id = rows[0]!.id;
   }
 
-  const filaFinal: Record<string, unknown> = {
-    ...opts.fila,
-    id,
-    ...(difiereVigencia ? { [vigenciaEn]: vigenciaDesde } : {}),
-  };
-
-  const cols = Object.keys(filaFinal);
-  const valores = Object.values(filaFinal);
-  const placeholders = cols.map((_, i) => `$${i + 1}`);
-  const sets = cols
-    .filter((c) => c !== 'id')
-    .map((c) => `${ident(c)} = EXCLUDED.${ident(c)}`);
-
-  const { rows } = await db.query<{ id: string; creada: boolean }>(
-    `INSERT INTO ${opts.tabla} (${cols.map(ident).join(', ')})
-     VALUES (${placeholders.join(', ')})
-     ON CONFLICT (id) DO UPDATE SET ${sets.join(', ')}
-     RETURNING id, (xmax = 0) AS creada`,
-    valores,
-  );
-
-  return {
-    id: rows[0]!.id,
-    vigenciaEn,
-    vigenciaDesde,
-    creada: rows[0]!.creada,
-  };
+  return { id, vigenciaEn, vigenciaDesde, creada: !existente };
 }

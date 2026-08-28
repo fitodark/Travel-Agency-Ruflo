@@ -1236,6 +1236,45 @@ expone la superficie de escritura. Siguen los slices 2 (sucursales), 3 (usuarios
 
 ---
 
+## Sesión 30 — 2026-08-28 · F2b slice 2: sucursales
+
+CRUD de `core.sucursal` desde la consola, con la semilla HOTP al alta.
+
+- **`src/db/migrations/0035_revocacion_hotp_clase_a.sql`** — `auth_local.revocacion_hotp`
+  se replica clase A (mismo patrón que 0034): `id uuid` = `sucursal_id`, columnas
+  estándar, `publicar_a_nodos`. La semilla se genera en la nube y baja a las
+  terminales para la capa 3 de revocación (03 §1.5). En `clases.ts` y
+  `bootstrap.ts` (tras `core.sucursal`). Nota de seguridad en el archivo: la
+  semilla baja a las 4 terminales, pero un código de revocación solo DESACTIVA
+  usuarios (fail-safe), así que el riesgo es acotado. **0035 en nube y local.**
+- **`src/admin/sucursales.ts`** — `crearSucursal` (valida código base32 o asigna
+  el siguiente libre; valida zona contra `pg_timezone_names`; genera semilla de
+  20 bytes), `editarSucursal`, `darDeBajaSucursal` (`activo=false` +
+  `effective_until`), `regenerarHotp`, `listarSucursales` (todas, con flag
+  `tieneHotp`). La secuencia de folios la crea sola el trigger
+  `core.trg_secuencia_folio` cuando la sucursal aterriza en el nodo — aquí no hay
+  que hacer nada.
+- **`src/admin/rutas-sucursales.ts`** — `GET /api/sucursales`,
+  `POST /api/sucursales` (201), `PATCH /api/sucursales/:id`,
+  `POST /api/sucursales/:id/baja`, `POST /api/sucursales/:id/regenerar-hotp`.
+  Registrado en el bloque `/api` de `servidor.ts` (hereda la auth).
+  `auth_local.revocacion_hotp` sumada a `TABLAS_ADMINISTRABLES`.
+- **`escribir-config.ts`**: alta y edición ahora son sentencias distintas
+  (`INSERT` vs `UPDATE ... WHERE id`). El `INSERT ... ON CONFLICT DO UPDATE`
+  anterior fallaba el NOT NULL de las columnas que una edición parcial no trae
+  (dirección, código). Y ya no inventa `id`: lo produce la tabla (DEFAULT
+  `uuid_v7` o el trigger de derivación), para no pisar el id determinista de
+  `parametro`/`rol_permiso`/`credencial`/`revocacion_hotp`.
+- **`tests/admin/sucursales.test.ts`** (13: dominio + HTTP). Ajuste en
+  `tests/sync/credencial-clase-a.test.ts` (`es_tabla_ingerible` de
+  `revocacion_hotp` ahora es `true`). Los `describe` de la consola contra
+  PostgreSQL llevan `timeout: 25_000` — cada alta son dos escrituras y la suite
+  en paralelo satura el serializador `sync.hlc_estado` (defecto vigente).
+
+`npm test`: **48 archivos, 452 verdes, 1 `it.todo`, 0 rojas**.
+
+---
+
 ## Pendientes de F1
 
 - El contrato de pruebas del motor está CERRADO: `salud.ts` (Ses. 4), arbitraje

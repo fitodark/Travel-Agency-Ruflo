@@ -33,6 +33,9 @@ export const ORDEN_TOPOLOGICO: readonly string[] = [
   'core.rol_permiso',
   // Nivel 1
   'core.sucursal',
+  // Semilla HOTP de la sucursal (03 §1.5). Sin FK (auth_local desacoplado), pero
+  // lógicamente cuelga de la sucursal. Añadida por 0035 (F2b slice 2).
+  'auth_local.revocacion_hotp',
   // Nivel 2
   'core.usuario',
   'core.usuario_sucursal',

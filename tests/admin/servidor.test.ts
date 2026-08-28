@@ -164,4 +164,4 @@ run('consola de administración (PostgreSQL real)', () => {
     });
     expect(r.statusCode).toBe(401);
   });
-});
+}, 25_000);
