@@ -974,13 +974,51 @@ corre en la nube y ve las 4 sucursales consolidadas.
 
 Suite backend: **385 verdes, 1 `it.todo`**. `tsc --noEmit` limpio.
 
+PR #16 **mergeado** a `main` (merge `b2994ad`).
+
 ### Pendiente de la SPA / reportes
 
 - Las 5 pantallas de dominio y el tablero en nube están completos.
 - El mapa visual de asientos sigue esperando el prototipo del cliente.
-- El manifiesto se previsualiza como JSON crudo; darle formato de papel es F5.
 - P7: falta cerrar el mecanismo de acceso formal del tablero/consumidor externo
   (hoy: bearer compartido).
+
+---
+
+## Sesión 23 — 2026-08-28 · F5: formato de papel del manifiesto
+
+Arranca F5. La impresora Enduro sigue sin instalar, pero la capa ESC/POS +
+`npm run printer:fake` permiten construir y probar toda la maqueta sin hardware;
+solo la aceptación física (`printer:poc`) espera el equipo.
+
+- **`src/printing/templates/manifiesto.ts`** — `renderManifiesto(datos, cfg)` →
+  bytes ESC/POS. Recibe el jsonb CONGELADO de `core.datos_manifiesto` tal cual
+  (interfaz en `snake_case`, sin mapear). Sin E/S, sin transporte, como
+  `renderBoleto`.
+  - Encabezado: título, `COPIA CONDUCTOR|TERMINAL`, ruta origen→destino, hora de
+    salida, fecha de operación, unidad+tipo, conductor (`sin asignar` si null),
+    `Generado:` (el snapshot), y estado resaltado si ≠ `programada`.
+  - Cuerpo agrupado por parada de ascenso; cada pasajero con casilla `[ ]` para
+    palomear a mano, asiento a 2 dígitos, nombre y destino. Parada sin nadie se
+    lista como `(sin pasajeros en esta parada)`.
+  - Copia `terminal`: además importe, `SALDO $…` solo si hay saldo, línea
+    `!! CONFLICTO DE SOBREVENTA` en negritas, y bloque `OCUPACION POR TRAMO`.
+  - Copia `conductor`: sin importes/saldo/ocupación.
+  - Pie: `TOTAL PASAJEROS`, `BOLETOS EN CONFLICTO` si los hay, y línea de firma
+    (`Firma del conductor:` / `Responsable de terminal:`).
+  - Horas: extrae `HH:mm` del ISO sin aritmética de zona (P12 abierta); la
+    localización se hará al generar el jsonb, no en la plantilla.
+- **`tests/printing/manifiesto.test.ts`** (13): encabezado, agrupación, casillas,
+  conductor sin importes, terminal con importe/saldo/ocupación, saldo solo si
+  procede, conflicto marcado + conteo, parada vacía, total, firma por copia,
+  `sin asignar`, estado resaltado, respeta ancho 32/48/64, corte de papel.
+
+Pendiente de F5: enganchar un spooler que consuma `core.print_job` y despache por
+`template_key` (`boleto` / `manifiesto_conductor` / `manifiesto_terminal`) al
+transporte de `core.config_impresora`; y un `printer:poc` de manifiesto para la
+aceptación física cuando llegue la Enduro.
+
+Suite backend: **398 verdes, 1 `it.todo`**. `tsc --noEmit` limpio.
 
 ---
 
