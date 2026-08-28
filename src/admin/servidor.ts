@@ -23,6 +23,7 @@ import type { Consultable } from '../db/consulta.js';
 import {
   escribirConfig, type ModoPropagacion,
 } from './escribir-config.js';
+import { rutasConfig } from './rutas-config.js';
 import { rutasSucursales } from './rutas-sucursales.js';
 import { rutasUsuarios } from './rutas-usuarios.js';
 import { TokenInvalido, verificarTokenSupabase, type IdentidadSupabase } from './auth-supabase.js';
@@ -165,6 +166,7 @@ export function construirServidorAdmin(opts: OpcionesServidorAdmin): FastifyInst
 
     rutasSucursales(api, { db, ahora });
     rutasUsuarios(api, { db, ahora });
+    rutasConfig(api, { db, ahora });
 
     api.post<{ Params: { tabla: string }; Body: CuerpoConfig }>(
       '/config/:tabla',

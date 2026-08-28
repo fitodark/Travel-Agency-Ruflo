@@ -1345,6 +1345,42 @@ Postgres de escritura dedicado.
 
 ---
 
+## Sesión 33 — 2026-08-28 · F2b slice 4: impresora, ticket, tarifas
+
+Cierra F2b (salvo el rol de Postgres dedicado). Sin migración — sobre el esquema
+existente.
+
+- **`src/admin/impresion.ts`**:
+  - `configurarImpresora` — SIEMPRE inmediato (`core.config_impresora` no lleva
+    vigencia a propósito, 0011: la IP es hardware presente). Actualiza la fila
+    vigente de la sucursal si existe, o la crea. **Cierra el pendiente de F0**:
+    cuando llegue la Enduro, `configurarImpresora({ ip })` y surte efecto en la
+    siguiente impresión, sin desplegar. Valida transporte↔ip/cola.
+  - `configurarTicket` — `core.config_ticket` es versionado-append: cada cambio
+    es una fila nueva. `ventana` por defecto (cosmético), admite inmediato.
+    `ticketVigente(db, agenciaId, ahora)` lee la tabla base (no la vista, que fija
+    el instante en `now()`).
+  - `listarImpresoras`.
+- **`src/admin/tarifas.ts`**:
+  - `crearTarifa` — **RECHAZA `inmediato` (§3.4)**: no se cambia el precio a media
+    venta. Fija el precio nuevo y CIERRA el anterior del mismo tramo en la misma
+    fecha (sin traslape ni hueco). `darDeBajaTarifa`, `listarTarifas`.
+- **`src/admin/rutas-config.ts`** — `GET/POST /api/impresoras`,
+  `GET/POST /api/ticket`, `GET/POST /api/tarifas`, `POST /api/tarifas/:id/baja`.
+  Registradas en `servidor.ts`.
+- **`core.parametro` y `core.rol_permiso`** siguen SIN rutas dedicadas: se
+  escriben por el endpoint genérico `POST /api/config/:tabla`. Nota: revocar un
+  permiso además exige que `rbac.puede()` filtre por `activo` — pendiente.
+- **`tests/admin/config.test.ts`** (9: dominio + HTTP).
+
+`tsc` limpio. `npm test`: **53 archivos, 493 verdes, 1 `it.todo`, 0 rojas**.
+
+**F2b CERRADA** salvo el **rol de Postgres de escritura dedicado** para la consola
+(hoy usa `DATABASE_URL`, como el tablero). Y del slice 3: `rbac.puede()` no filtra
+`activo`, así que revocar un permiso desde la consola aún no surte efecto.
+
+---
+
 ## Pendientes de F1
 
 - El contrato de pruebas del motor está CERRADO: `salud.ts` (Ses. 4), arbitraje
