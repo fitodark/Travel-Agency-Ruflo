@@ -67,6 +67,7 @@ export interface OpcionesServidorAdmin {
 }
 
 const PAGINA = readFileSync(fileURLToPath(new URL('./consola.html', import.meta.url)), 'utf8');
+const PAGINA_JS = readFileSync(fileURLToPath(new URL('./consola.js', import.meta.url)), 'utf8');
 
 declare module 'fastify' {
   interface FastifyRequest {
@@ -131,6 +132,8 @@ export function construirServidorAdmin(opts: OpcionesServidorAdmin): FastifyInst
   // La página de la consola: pública (solo HTML/JS; los datos van tras el token).
   const pagina = opts.pagina ?? PAGINA;
   app.get('/', async (_req, reply) => reply.type('text/html; charset=utf-8').send(pagina));
+  app.get('/consola.js', async (_req, reply) =>
+    reply.type('application/javascript; charset=utf-8').send(PAGINA_JS));
 
   // Lo que la página necesita para el login por Supabase Auth. Sin secreto: el
   // `anon` key es público. Si no está configurado, la página cae al pegado de token.

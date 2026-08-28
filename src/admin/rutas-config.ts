@@ -15,7 +15,7 @@ import {
   type Transporte,
 } from './impresion.js';
 import { resolverAgencia } from './lookups.js';
-import { crearTarifa, darDeBajaTarifa, listarTarifas } from './tarifas.js';
+import { crearTarifa, darDeBajaTarifa, listarRutas, listarTarifas } from './tarifas.js';
 
 interface OpcionesRutas {
   db: Consultable;
@@ -127,6 +127,8 @@ export function rutasConfig(app: FastifyInstance, { db, ahora }: OpcionesRutas):
   );
 
   // ---- tarifas -------------------------------------------------------
+  app.get('/rutas', async () => listarRutas(db));
+
   app.get<{ Querystring: { rutaId?: string } }>('/tarifas', async (req) =>
     listarTarifas(db, req.query.rutaId));
 

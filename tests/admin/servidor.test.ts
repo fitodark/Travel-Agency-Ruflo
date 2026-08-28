@@ -49,15 +49,20 @@ describe('construirServidorAdmin · guardas de arranque', () => {
 describe('construirServidorAdmin · página y config (sin base)', () => {
   const dbFalso = { query: async () => ({ rows: [] }) };
 
-  it('GET / sirve la consola HTML sin pedir token', async () => {
+  it('GET / y /consola.js sirven la consola sin pedir token', async () => {
     const app = construirServidorAdmin({ db: dbFalso as never, jwtSecret: SECRETO });
     try {
-      const r = await app.inject({ method: 'GET', url: '/' });
-      expect(r.statusCode).toBe(200);
-      expect(r.headers['content-type']).toMatch(/text\/html/);
-      expect(r.body).toContain('Consola de administración');
-      expect(r.body).toContain('donaji.consola.jwt');
-      expect(r.body).toContain('signInWithPassword');
+      const html = await app.inject({ method: 'GET', url: '/' });
+      expect(html.statusCode).toBe(200);
+      expect(html.headers['content-type']).toMatch(/text\/html/);
+      expect(html.body).toContain('Consola de administración');
+      expect(html.body).toContain('src="/consola.js"');
+
+      const js = await app.inject({ method: 'GET', url: '/consola.js' });
+      expect(js.statusCode).toBe(200);
+      expect(js.headers['content-type']).toMatch(/javascript/);
+      expect(js.body).toContain('donaji.consola.jwt');
+      expect(js.body).toContain('signInWithPassword');
     } finally { await app.close(); }
   });
 

@@ -1462,8 +1462,26 @@ La consola tenía API pero no interfaz. Primera pasada, vanilla como
 - **`tests/admin/servidor.test.ts`** +4 (`GET /`, `GET /config`),
   `tests/admin/sucursales.test.ts` +1 (alta sin `agenciaId`).
 
-Pendiente de la UI: formularios de edición completos (hoy `prompt`), y las
-secciones de impresora / ticket / tarifas.
+### Segunda pasada (misma sesión) — impresora, ticket, tarifas
+
+- El JS se separó a **`src/admin/consola.js`** (servido en `GET /consola.js`);
+  `consola.html` queda en 78 líneas y ambos bajo el límite de 500.
+- Pestaña **Impresoras**: tabla + formulario (sucursal, transporte tcp/usb con
+  campos que se muestran según el transporte, IP/puerto/cola, columnas, code
+  page, predeterminada). Siempre inmediato. Upsert por sucursal.
+- Pestaña **Ticket**: formulario con los valores vigentes precargados (leyenda,
+  teléfono, créditos del proveedor, logo, secreto HMAC) + modo. Cada guardado es
+  una versión nueva.
+- Pestaña **Tarifas**: tabla (ruta, tramo, importe, vigencia, estado) + "Nueva
+  tarifa" (select de ruta → selects de origen/destino poblados de sus paradas,
+  importe, modo sin `inmediato` por §3.4) + acción "retirar" por fila.
+- **`src/admin/tarifas.ts`** — `listarRutas(db)` (ruta + paradas). Ruta
+  `GET /api/rutas`.
+- Verificado en el navegador: las 5 pestañas cargan, y alta de impresora y de
+  ticket por sus endpoints devuelven 201. `tests/admin/servidor.test.ts`
+  actualizado para `/consola.js`.
+
+Pendiente de la UI: formularios de edición completos (hoy `prompt`).
 
 ---
 
