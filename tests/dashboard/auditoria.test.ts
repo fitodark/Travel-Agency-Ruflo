@@ -71,6 +71,10 @@ run('dashboard · auditoría, salud y gastos (PostgreSQL real)', () => {
 
   it('excepciones abiertas: listado ordenado por severidad y resumen por severidad', async () => {
     const fx = await seedCaja(db, 1);
+    // El `pretest` deja `sync.excepcion` vacía; aquí se hace `DELETE` (no
+    // `TRUNCATE`, cuyo ACCESS EXCLUSIVE interbloquea en paralelo) por si otro
+    // proceso dejó ruido. El rollback del test lo restaura.
+    await db.query('DELETE FROM sync.excepcion');
     await db.query(
       `INSERT INTO sync.excepcion (tipo, severidad, sucursal_id, estado)
        VALUES ('deriva_reloj', 'alta',    $1, 'abierta'),
@@ -80,13 +84,11 @@ run('dashboard · auditoría, salud y gastos (PostgreSQL real)', () => {
     );
 
     const lista = await excepcionesAbiertas(db);
-    const mias = lista.filter((e) => e.sucursal !== null);
-    expect(mias[0]!.severidad, 'la crítica primero').toBe('critica');
-    expect(mias.map((e) => e.tipo)).toEqual(['sobreventa', 'deriva_reloj']);
+    expect(lista.map((e) => e.tipo)).toEqual(['sobreventa', 'deriva_reloj']);
+    expect(lista[0]!.severidad, 'la crítica primero').toBe('critica');
 
     const resumen = await excepcionesResumen(db);
-    expect(resumen.critica).toBeGreaterThanOrEqual(1);
-    expect(resumen.alta).toBeGreaterThanOrEqual(1);
+    expect(resumen).toEqual({ critica: 1, alta: 1, media: 0, baja: 0 });
   });
 
   it('gastos: egresos de caja por sucursal y la nómina mensual', async () => {

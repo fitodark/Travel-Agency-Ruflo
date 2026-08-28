@@ -78,9 +78,10 @@ export function Sincronizacion() {
       </div>
 
       <p className="text-xs text-slate-400">
-        El motor de sincronización corre solo, en segundo plano (servicio{' '}
-        <code>npm run sync</code>). Esta pantalla solo lo observa; "Forzar ciclo"
-        empuja ahora mismo sin esperar el próximo tick.
+        El motor de sincronización corre solo, en segundo plano (arranca con la
+        API). Con conexión, cada operación llega a la nube en segundos sin que
+        nadie haga nada; sin conexión, se encola y la terminal sigue operando en
+        local. Esta pantalla solo observa. "Forzar ciclo" empuja ahora mismo.
       </p>
 
       {ciclo.data && (

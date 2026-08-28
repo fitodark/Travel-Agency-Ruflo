@@ -7,23 +7,42 @@
  * ventana de configuración, el drenaje del outbox y la cola de impresión ocurren
  * sin operador, así que el proceso no puede estar atado a una ventana abierta
  * (blueprint §4.2).
+ *
+ * MOTOR DE SYNC EMBEBIDO: por defecto este proceso también arranca el motor de
+ * sincronización (empuja el outbox cada ~5 s, jala cambios cada ~30 s), para que
+ * en desarrollo `npm run api` sea lo único que hay que correr. En producción el
+ * motor es un servicio APARTE (`npm run sync` bajo NSSM) y la API arranca con
+ * `API_SIN_SYNC=1` para no duplicarlo.
  */
 
 import 'dotenv/config';
 import { Pool } from 'pg';
 import { resolveConnection } from '../db/connection.js';
+import { iniciarMotor } from '../sync/servicio.js';
 import { construirApp } from './server.js';
 
 const PUERTO = Number(process.env['API_PUERTO'] ?? process.env['PORT'] ?? 3000);
 const HOST = process.env['API_HOST'] ?? '127.0.0.1';
+const SYNC_EMBEBIDO = process.env['API_SIN_SYNC'] !== '1';
 
 async function main(): Promise<void> {
   const conn = resolveConnection('local');
   const pool = new Pool({ ...conn.config, max: 10 });
   const app = await construirApp({ db: pool, logger: true });
 
+  const motor = SYNC_EMBEBIDO
+    ? iniciarMotor({ log: (l) => app.log.info(l) })
+    : null;
+
+  let cerrando = false;
   const cerrar = (): void => {
+    if (cerrando) return;
+    cerrando = true;
+    // Red de seguridad: si el motor se queda esperando un push contra una nube
+    // que no responde, `detener()` puede tardar. No dejamos el proceso colgado.
+    setTimeout(() => process.exit(0), 5_000).unref();
     void (async (): Promise<void> => {
+      await motor?.detener().catch(() => { /* ya detenido */ });
       await app.close();
       await pool.end();
       process.exit(0);
@@ -34,6 +53,9 @@ async function main(): Promise<void> {
 
   await app.listen({ port: PUERTO, host: HOST });
   app.log.info(`Donaji API escuchando en http://${HOST}:${PUERTO} · base ${conn.describe}`);
+  app.log.info(SYNC_EMBEBIDO
+    ? 'motor de sync embebido: activo'
+    : 'motor de sync embebido: desactivado (API_SIN_SYNC=1)');
 }
 
 main().catch((err: unknown) => {

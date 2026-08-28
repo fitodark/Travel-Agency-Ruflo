@@ -30,6 +30,10 @@ run('API · /sync (PostgreSQL real)', () => {
 
   beforeEach(async () => {
     await db.query('BEGIN');
+    // `/sync/estado` y `/sync/excepciones` leen `sync.*` globalmente. El `pretest`
+    // (`scripts/limpiar-dev.ts`) deja `sync.excepcion` y `sync.salud` vacías antes
+    // de la suite; no se hace `TRUNCATE` aquí porque su ACCESS EXCLUSIVE, en
+    // paralelo con el lock de `sync.hlc_estado`, interbloquea con otros archivos.
     app = await abrirApp(db, ahora);
   });
   afterEach(async () => {
@@ -51,7 +55,7 @@ run('API · /sync (PostgreSQL real)', () => {
   it('GET /sync/estado devuelve el snapshot del motor', async () => {
     const { fx, token } = await auth();
     await db.query(`UPDATE sync.nodo SET sucursal_id = $1 WHERE singleton`, [fx.sucursalAId]);
-    await db.query(`TRUNCATE sync.outbox`);
+    await db.query(`DELETE FROM sync.outbox`);
     await db.query(
       `INSERT INTO sync.salud (sucursal_id, ultima_sync_exitosa, deriva_reloj_seg)
        VALUES (sync.sucursal_local(), $1, 4)`,

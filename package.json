@@ -9,6 +9,7 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
+    "pretest": "tsx scripts/limpiar-dev.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "printer:fake": "tsx src/printing/tools/fake-printer.ts",
