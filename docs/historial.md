@@ -1149,7 +1149,90 @@ Suite: `tsc` limpio; `tests/sync` + `tests/auth` + `tests/api` = **192 verdes,
 1 `it.todo`, 0 rojas**.
 
 Pendiente de slice 1: el helper `escribirConfig({ modo })`, el servicio
-`src/admin/` + Supabase Auth, y el rol de escritura dedicado.
+`src/admin/` + Supabase Auth, y el rol de escritura dedicado. PR #22 mergeado
+(`973d78a`).
+
+---
+
+## Sesión 28 — 2026-08-28 · F2b slice 1 (b): helper `escribirConfig`
+
+La pieza central que usan los slices 2–4: escribir una fila de configuración
+clase A en la nube con la fecha de vigencia que corresponde al modo (§3.1–§3.2).
+
+- **`src/admin/escribir-config.ts`** (primer archivo de `src/admin/`):
+  - `escribirConfig(db, { tabla, fila, modo, vigenciaEn?, zonaHoraria?,
+    fechaProgramada?, confirmarInmediato? })`.
+  - `modo`: `ventana` (default) → `effective_from` = próxima 03:00 hora local;
+    `inmediato` (exige `confirmarInmediato: true`) → ahora; `programado` → fecha
+    dada.
+  - `vigenciaEn`: `effective_from` (alta/cambio) o `effective_until` (baja).
+  - Zona para `ventana`: explícita → `fila.zona_horaria` → zona de
+    `fila.sucursal_id` → `America/Mexico_City` (P12 sin cerrar).
+  - Tablas sin columna de vigencia (`core.config_impresora`): solo admiten
+    `inmediato`; diferir un cambio no tendría dónde anotarse.
+  - Guarda: la tabla debe ser clase A (`claseDe`) y las claves de `fila` deben
+    ser columnas reales. (Que la conexión sea de verdad la nube se comprueba una
+    vez al arrancar el servicio — ver sesión 29.)
+  - Upsert `ON CONFLICT (id)` → `trg_cambio_log` publica hacia las terminales.
+  - `proximaVentana(db, zona, ahora)` exportada aparte (la usa el cálculo y sirve
+    para previsualizar en la UI).
+- **`tests/admin/escribir-config.test.ts`** (11, PostgreSQL real): los 3 modos,
+  `effective_until` para bajas, publicación en `sync.cambio_log`, upsert
+  idempotente, zona deducida (Tijuana 1 h detrás de CDMX), rechazos (tabla no
+  clase A, columna inexistente).
+
+Sin migración: el helper es TS puro sobre el esquema existente.
+
+Suite: `tsc` limpio; `tests/admin` + `tests/sync` + `tests/auth` = **148 verdes,
+1 `it.todo`, 0 rojas**.
+
+Pendiente de slice 1: el servicio `src/admin/servidor.ts` + Supabase Auth y el
+rol de Postgres de escritura dedicado (sesión 29, mismo PR).
+
+---
+
+## Sesión 29 — 2026-08-28 · F2b slice 1 (c): servicio `src/admin/` + Supabase Auth
+
+El proceso de la consola y su autenticación. Cierra los cimientos de F2b.
+
+- **`src/admin/auth-supabase.ts`** — `verificarTokenSupabase(token, secreto)`:
+  verifica offline un JWT HS256 de Supabase Auth (HMAC-SHA256 contra
+  `SUPABASE_JWT_SECRET`; comprueba `alg`, firma en tiempo constante, `exp`,
+  `aud='authenticated'`). Sin librería de JWT — Node `crypto`. SUPUESTO: el
+  proyecto usa el secreto simétrico (modo por defecto histórico); si rota a
+  claves asimétricas + JWKS, hay que cambiar el verificador. `firmarTokenSupabase`
+  se exporta para pruebas y desarrollo local (los tokens reales los emite GoTrue).
+- **`src/admin/servidor.ts`** — `construirServidorAdmin({ db, jwtSecret,
+  adminsIniciales?, ahora? })` → Fastify.
+  - `GET /salud` sin auth. Todo lo demás bajo `/api`, con `preHandler` que
+    verifica el JWT (401) y autoriza (403): el email debe ser un `core.usuario`
+    con `rol='administrador'` vigente, o estar en `ADMIN_EMAILS` (lista de
+    arranque, para el primer alta antes de que exista ningún usuario).
+  - `GET /api/yo` — identidad resuelta (prueba de vida de la auth).
+  - `POST /api/config/:tabla` — escritura genérica sobre `escribirConfig`, con
+    allowlist `TABLAS_ADMINISTRABLES` (las 10 tablas de config de F2b). Body:
+    `{ fila, modo, vigenciaEn?, zonaHoraria?, fechaProgramada?, confirmarInmediato? }`.
+    201 si es alta, 200 si actualiza. Los errores de guarda de `escribirConfig`
+    → 400 `escritura_invalida`.
+- **`src/admin/main.ts`** — `npm run admin`. `Pool` a `DATABASE_URL` (nube),
+  `ADMIN_PUERTO`/`_HOST`. **Aquí** se comprueba `sync.nodo.es_nube` una vez al
+  arrancar (se sacó de `escribirConfig`: por llamada tomaba el lock de la fila
+  única `sync.nodo` y serializaba la suite de pruebas).
+- **`tests/admin/servidor.test.ts`** (14) y ajustes en `escribir-config.test.ts`:
+  verificación del JWT (firma, expiración, basura), `GET /salud` sin token,
+  401 sin token, 403 email no admin, 200 por lista de arranque y por
+  `core.usuario`, `POST /api/config` a tabla fuera de la lista → 400, escritura
+  + publicación en `sync.cambio_log` (201), `inmediato` sin confirmar → 400.
+- **Pendiente (deuda anotada en `main.ts`)**: rol de Postgres dedicado para la
+  consola en vez del de `DATABASE_URL`. Y la UI (formularios) — llega con los
+  CRUD de los slices 2–4.
+
+`npm test` completo: **47 archivos, 439 verdes, 1 `it.todo`, 0 rojas**.
+
+Con esto **el slice 1 de F2b queda cerrado**: `auth_local.credencial` replica,
+`escribirConfig` pone la fecha de vigencia, y el servicio autentica admins y
+expone la superficie de escritura. Siguen los slices 2 (sucursales), 3 (usuarios
++ accesos + HOTP) y 4 (impresora/ticket/tarifas).
 
 ---
 
