@@ -551,6 +551,60 @@ mitigación real es `"disableAllHooks": true` en `~/.claude/settings.json`
 
 ---
 
+## Sesión 12 — 2026-09-01 · Fase F6 (cortes de caja), 2 slices
+
+Se saltó F5 (impresión) por ahora: F6 no depende de ella y cierra de paso el
+enlace `pago → movimiento_caja` que F4 había dejado pendiente. Rama `f6-caja`.
+
+### Slice 1 — ciclo del corte (`0024`, `src/caja/corte.ts`)
+
+- `core.abrir_corte(sucursal, usuario, saldo_inicial, ahora?)` — el "un solo
+  corte abierto por sucursal" lo garantiza el índice único parcial
+  `corte_unico_abierto_idx` (0006); la función solo traduce el `unique_violation`
+  a un mensaje. `core.cerrar_corte(corte, usuario_cierre, saldo_declarado,
+  ahora?)` → desglose + diferencia declarado − calculado; guarda
+  `saldo_final_calculado` desde `v_corte_saldo`.
+- **`src/caja/corte.ts`**: `abrirCorte`, `cerrarCorte`, `saldoCorte`,
+  `corteAbiertoDe`.
+- **Pruebas** (`tests/caja/corte.test.ts`, 10): 2º corte rechazado por la BD
+  (verificado: sigue habiendo uno), otra sucursal sí a la vez, tras cerrar se
+  abre otro, diferencia, doble cierre, saldo negativo / inexistente / usuario no
+  vigente. Helper `esperaError` (SAVEPOINT) para varias aserciones-que-lanzan en
+  una transacción.
+
+### Slice 2 — movimientos (`0025`, `src/caja/movimiento.ts`)
+
+- **`core.trg_pago_a_ingreso`** — trigger en `core.pago`: crea el
+  `movimiento_caja(ingreso, pago_boleto)` cuando el pago se vuelve dinero
+  confirmado (efectivo al registrar, transferencia al verificar). Suma al corte
+  de `pago.corte_caja_id` — el de quien COBRA, no la venta (C5). Guardado con
+  `sync.replicando()`. La baja del pago arrastra su ingreso.
+- `core.registrar_egreso(...)` — descripción obligatoria.
+  `core.anular_movimiento(...)` — baja lógica idempotente; el monto vuelve al
+  corte por la vista, el registro queda para auditoría.
+- **`src/caja/movimiento.ts`**: `registrarEgreso`, `anularMovimiento`,
+  `movimientosDeCorte(corte, rol)` — gerente → `v_movimiento_operativo`, admin →
+  `v_movimiento_auditoria`.
+- **Pruebas** (`tests/caja/movimiento.test.ts`, 9) — los 4 criterios de
+  aceptación de F6: venta efectivo suma ingreso, transferencia no hasta
+  verificar, **reservación cobrada en destino suma al corte de quien cobra**,
+  egreso resta / sin descripción lanza, **anular egreso devuelve el monto**,
+  **gerente no ve el inactivo / admin sí**, corte cerrado rechaza, baja del pago
+  arrastra su ingreso. El enlace pago→ingreso es real: usan `registrarVenta` /
+  `registrarPago` / `verificarTransferencia` de F4.
+
+### Cierre
+
+F6 cerrada (los 4 criterios de aceptación). Suite: **289 verdes, 0 rojas, 18
+`it.todo`**. `tsc` limpio. Migraciones `0024`–`0025` en local y nube. Mergeada a
+`main` el 2026-09-01 (PR #4, merge commit `e9bda8f`); rama `f6-caja` eliminada.
+
+De higiene: se quitó de `scripts/sembrar-admin.ts` el ejemplo de uso con
+contraseña en línea (`ADMIN_PASSWORD='…'`), que el inspector de git marcaba como
+"Password exposed".
+
+---
+
 ## Pendientes de F1
 
 - `src/sync/engine.ts` funciona pero no cumple el `ContratoEngine` propuesto en
