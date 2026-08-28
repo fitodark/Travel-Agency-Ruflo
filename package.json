@@ -25,7 +25,8 @@
     "printer:probe": "tsx src/printing/tools/probe.ts",
     "api": "tsx src/api/main.ts",
     "seed:admin": "tsx scripts/sembrar-admin.ts",
-    "materializar": "tsx scripts/materializar.ts"
+    "materializar": "tsx scripts/materializar.ts",
+    "export:semanal": "tsx scripts/export-semanal.ts"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",

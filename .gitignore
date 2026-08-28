@@ -15,6 +15,9 @@ dist/
 backups/
 *.bin
 
+# Export semanal de reportes (F8) — se genera, no se versiona
+exports/
+
 # Runtime de ruflo y configuracion local de agentes (no forman parte del sistema)
 .agents/
 .claude/
