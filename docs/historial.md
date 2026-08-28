@@ -1065,10 +1065,30 @@ origen, número de unidad, `emitido_en`, hora en la zona de la sucursal, que ya
 vive en `core.sucursal.zona_horaria`); y la aceptación física de ambos
 documentos con la Enduro.
 
-Suite backend: spooler **8/8 verde**, `tsc --noEmit` limpio. (Ajenas a este
-cambio: `tests/api/sync.test.ts` falla 2/4 en `main` por estado real
-compartido, y `tests/auth/login.test.ts` tiene un flake de orden bajo ejecución
-en paralelo.)
+Suite backend: spooler **8/8 verde**, `tsc --noEmit` limpio. (PR #18 mergeado
+`7b2540e`.) Al pasar la suite completa afloraron dos fallos ajenos al spooler,
+que se arreglan en la sesión siguiente.
+
+---
+
+## Sesión 25 — 2026-08-28 · Aislamiento de `sync.test.ts` y `login.test.ts`
+
+Dos pruebas dependían de estado global en vez de aislarse:
+
+- **`tests/api/sync.test.ts`** — `/sync/estado` y `/sync/excepciones` leen
+  `sync.excepcion` y `sync.salud` sin filtrar por nodo. La prueba confiaba en que
+  el `pretest` (`limpiar-dev.ts`) las dejara vacías, pero correr un solo archivo
+  con `vitest` se salta el `pretest` y `npm run sync` las reensucia a media
+  suite. Ahora hace `DELETE FROM sync.excepcion` / `sync.salud` dentro de su
+  propia transacción (revertido en el `afterEach`). `DELETE` y no `TRUNCATE`: el
+  `ACCESS EXCLUSIVE` interbloquea con el lock de `sync.hlc_estado` de otros
+  archivos en paralelo.
+- **`tests/auth/login.test.ts`** — "registra cada intento" ordenaba
+  `auth_local.intento` por `ocurrido_en`; con el reloj fijo de la prueba los dos
+  intentos comparten timestamp y el orden salía arbitrario. Ahora ordena por
+  `id` (`bigserial`).
+
+Suite completa: **44 archivos, 406 verdes, 1 `it.todo`, 0 rojas** (`npm test`).
 
 ---
 

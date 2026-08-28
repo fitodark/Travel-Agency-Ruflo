@@ -212,7 +212,10 @@ run('login offline (PostgreSQL real)', () => {
     await login({ node: db, email: fx.email, password: PASSWORD_OK, ahora });
 
     const { rows } = await db.query<{ exito: boolean }>(
-      `SELECT exito FROM auth_local.intento WHERE email = $1 ORDER BY ocurrido_en`, [fx.email],
+      // Por `id` (bigserial), no por `ocurrido_en`: el reloj de la prueba es
+      // fijo, así que los dos intentos comparten timestamp y `ORDER BY
+      // ocurrido_en` los devolvería en orden arbitrario.
+      `SELECT exito FROM auth_local.intento WHERE email = $1 ORDER BY id`, [fx.email],
     );
     expect(rows.map((r) => r.exito)).toEqual([false, true]);
   });
