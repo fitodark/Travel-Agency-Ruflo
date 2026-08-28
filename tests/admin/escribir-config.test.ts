@@ -3,9 +3,9 @@
  *
  * Blueprint v0.2 · docs/architecture/03-auth-impresion-config.md §3.1–§3.2
  *
- * Los escenarios contra PostgreSQL marcan el nodo como nube (`sync.nodo.es_nube`)
- * dentro de la transacción que se revierte: es donde vive la autoridad de
- * configuración y donde `trg_cambio_log` publica hacia las terminales.
+ * Solo el escenario que comprueba la publicación marca el nodo como nube
+ * (`sync.nodo.es_nube`), y lo hace dentro de su propio `it` para no tomar el lock
+ * de esa fila única durante toda la suite.
  */
 
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -45,7 +45,6 @@ run('escribirConfig · contra PostgreSQL (nodo marcado como nube)', () => {
 
   beforeEach(async () => {
     await db.query('BEGIN');
-    await db.query(`UPDATE sync.nodo SET es_nube = true WHERE singleton`);
     const { rows } = await db.query<{ id: string }>(
       `SELECT id FROM core.agencia WHERE activo ORDER BY creado_en LIMIT 1`,
     );
@@ -92,6 +91,10 @@ run('escribirConfig · contra PostgreSQL (nodo marcado como nube)', () => {
   });
 
   it('publica el alta en sync.cambio_log (la config baja a las terminales)', async () => {
+    // `trg_cambio_log` solo dispara si el nodo es la nube. Se marca aquí, no en
+    // el beforeEach, para no serializar con el resto de la suite por el lock de
+    // la fila única sync.nodo.
+    await db.query(`UPDATE sync.nodo SET es_nube = true WHERE singleton`);
     const r = await escribirConfig(db, {
       tabla: 'core.usuario', fila: usuario(), modo: 'ventana', ahora,
     });
@@ -189,14 +192,6 @@ run('escribirConfig · contra PostgreSQL (nodo marcado como nube)', () => {
         confirmarInmediato: true, ahora,
       }),
     ).rejects.toThrow(/no tiene la columna "inventada"/);
-  });
-
-  it('rechaza escribir desde una terminal (es_nube = false)', async () => {
-    await db.query(`UPDATE sync.nodo SET es_nube = false WHERE singleton`);
-    await expect(
-      escribirConfig(db, { tabla: 'core.usuario', fila: usuario(), modo: 'inmediato',
-        confirmarInmediato: true, ahora }),
-    ).rejects.toThrow(/nube/i);
   });
 
   it('proximaVentana: siempre en el futuro y a las 03:00 locales', async () => {

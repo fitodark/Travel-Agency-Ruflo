@@ -17,8 +17,13 @@
  *
  * El helper NO conoce la semántica de cada tabla (una fila por usuario vs. una
  * fila nueva por versión de tarifa): eso lo pone el llamador en `fila`. El helper
- * pone la fecha de vigencia, valida que la tabla sea clase A, y hace el upsert
- * EN LA NUBE, donde `trg_cambio_log` lo publica hacia las terminales.
+ * pone la fecha de vigencia, valida que la tabla sea clase A, y hace el upsert.
+ * En la nube, `trg_cambio_log` lo publica hacia las terminales.
+ *
+ * Que la conexión sea de verdad la de la nube (`sync.nodo.es_nube`) se comprueba
+ * UNA vez al arrancar la consola (`src/admin/main.ts`), no en cada escritura:
+ * hacerlo por llamada tomaba un lock sobre la fila única `sync.nodo` que
+ * serializaba con el resto del sistema.
  */
 
 import type { Consultable } from '../db/consulta.js';
@@ -79,18 +84,6 @@ export async function proximaVentana(
     [ahora.toISOString(), zonaHoraria],
   );
   return rows[0]!.ventana;
-}
-
-async function exigeNube(db: Consultable): Promise<void> {
-  const { rows } = await db.query<{ es_nube: boolean }>(
-    `SELECT es_nube FROM sync.nodo WHERE singleton`,
-  );
-  if (!rows[0]?.es_nube) {
-    throw new Error(
-      'escribirConfig corre en la nube (donde vive la autoridad de configuración), ' +
-        'no en una terminal. sync.nodo.es_nube es false.',
-    );
-  }
 }
 
 async function columnasReales(db: Consultable, tabla: string): Promise<Set<string>> {
@@ -165,7 +158,6 @@ export async function escribirConfig(
       `escribirConfig solo escribe configuración de clase A; "${opts.tabla}" no lo es.`,
     );
   }
-  await exigeNube(db);
 
   const ahora = opts.ahora?.() ?? new Date();
   const vigenciaEn = opts.vigenciaEn ?? 'effective_from';
