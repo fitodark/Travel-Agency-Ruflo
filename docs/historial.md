@@ -1422,6 +1422,12 @@ Los dos pendientes de F2b.
 **F2b CERRADA.** Despliegue: `ALTER ROLE donaji_consola WITH LOGIN PASSWORD '...'`
 en Supabase y `ADMIN_DATABASE_URL` en el entorno de la consola.
 
+Las seis ramas de F2b (sesiones 28–34) se mergearon en orden el 2026-08-28:
+PRs **#23–#28**, `main` en `4827f5c`. Migraciones 0034–0038 ya en nube y local.
+`src/admin/` tiene la consola completa; `npm run admin` la levanta. Sobre `main`
+mergeada: `tsc` limpio, las 84 pruebas de `tests/admin/` + `tests/auth/{rbac,hotp,
+revocacion}` en verde.
+
 ---
 
 ## Pendientes de F1
