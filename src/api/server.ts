@@ -18,6 +18,7 @@ import type { ContextoSesion } from './tipos.js';
 import { rutasAuth } from './rutas/auth.js';
 import { rutasCatalogos } from './rutas/catalogos.js';
 import { rutasClientes } from './rutas/clientes.js';
+import { rutasSync } from './rutas/sync.js';
 import type { BaseDeDatos } from './tipos.js';
 
 export interface OpcionesApp {
@@ -63,6 +64,7 @@ export async function construirApp(opts: OpcionesApp): Promise<FastifyInstance> 
   await app.register(rutasAuth, { prefix: '/auth' });
   await app.register(rutasClientes, { prefix: '/clientes' });
   await app.register(rutasCatalogos, { prefix: '/catalogos' });
+  await app.register(rutasSync, { prefix: '/sync' });
 
   return app;
 }
