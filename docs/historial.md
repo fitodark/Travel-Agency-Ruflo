@@ -1381,6 +1381,49 @@ existente.
 
 ---
 
+## Sesión 34 — 2026-08-28 · F2b: rol de Postgres dedicado + `rbac` filtra `activo`
+
+Los dos pendientes de F2b.
+
+- **`src/auth/rbac.ts`** — `puede()` y `permisosDe()` filtran `AND activo`. Un
+  permiso retirado (`activo = false`, que es como la consola lo baja — 
+  `core.rol_permiso` no lleva `effective_from`) ya deja de valer.
+  `tests/auth/rbac.test.ts` +1 caso, ahora transaccional.
+- **`src/db/migrations/0037_rol_consola.sql`** — rol `donaji_consola` (NOLOGIN; el
+  despliegue le pone `LOGIN PASSWORD` y la consola apunta con `ADMIN_DATABASE_URL`).
+  - **Lee** `core` y `sync` completos (lo mismo que el administrador ve en el
+    tablero). **Escribe SOLO** las 9 tablas de config clase A + `auth_local.
+    {credencial,revocacion_hotp}` + la fontanería que disparan sus triggers
+    (`sync.hlc_estado`, `sync.cambio_log`, `core.folio_secuencia`, secuencias).
+    No puede escribir `core.venta`, `boleto`, `pago`, `corte_caja` — nada
+    transaccional (P6).
+  - `EXECUTE` en `core.uuid_v7`, `sync.hlc_siguiente`, `sync.sucursal_local`.
+  - `ALTER DEFAULT PRIVILEGES` para que futuras tablas de `core` sean legibles.
+  - `GRANT donaji_consola TO CURRENT_USER` para que ops y pruebas puedan
+    `SET ROLE`. **0037 en nube y local.**
+- **`src/db/connection.ts`** — `conexionDesdeUrl(url)` extraído (SSL, pooler,
+  describe) para una URL cualquiera. **`src/admin/main.ts`** usa
+  `ADMIN_DATABASE_URL` si está, si no cae a `DATABASE_URL`.
+- **`tests/admin/rol-consola.test.ts`** (2): con `SET LOCAL ROLE donaji_consola`
+  corre TODO el CRUD de la consola (sucursal, usuario, revocación, impresora,
+  ticket, tarifa, parámetro, permiso) sin un solo `permission denied`, y publica a
+  `sync.cambio_log`; y `has_table_privilege` confirma que no puede tocar datos
+  transaccionales.
+
+- **`src/db/migrations/0038_forzar_nube_pruebas.sql`** — `sync.trg_cambio_log`
+  acepta `SET LOCAL donaji.forzar_nube = 'on'` además de `sync.nodo.es_nube`
+  (misma idea que `sync.replicando()`, 0014). Las pruebas de la consola marcaban
+  la nube con `UPDATE sync.nodo`, que toma el lock de la fila única y serializaba
+  la suite en paralelo hasta hacer saltar timeouts. Ahora usan el GUC — sin lock.
+  Sin efecto en producción. **0038 en nube y local.**
+
+`tsc` limpio. `npm test`: **54 archivos, 496 verdes, 1 `it.todo`, 0 rojas**.
+
+**F2b CERRADA.** Despliegue: `ALTER ROLE donaji_consola WITH LOGIN PASSWORD '...'`
+en Supabase y `ADMIN_DATABASE_URL` en el entorno de la consola.
+
+---
+
 ## Pendientes de F1
 
 - El contrato de pruebas del motor está CERRADO: `salud.ts` (Ses. 4), arbitraje

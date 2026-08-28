@@ -14,7 +14,7 @@
 
 import 'dotenv/config';
 import { Pool } from 'pg';
-import { resolveConnection } from '../db/connection.js';
+import { conexionDesdeUrl, resolveConnection } from '../db/connection.js';
 import { construirServidorAdmin } from './servidor.js';
 
 const PUERTO = Number(process.env['ADMIN_PUERTO'] ?? process.env['PORT'] ?? 4100);
@@ -30,7 +30,12 @@ async function main(): Promise<void> {
     );
   }
 
-  const conn = resolveConnection('nube');
+  // Preferí `ADMIN_DATABASE_URL` (rol `donaji_consola`, acotado a configuración);
+  // si no está, cae al rol de `DATABASE_URL`, igual que el tablero.
+  const urlAdmin = process.env['ADMIN_DATABASE_URL'];
+  const conn = urlAdmin
+    ? { url: urlAdmin, ...conexionDesdeUrl(urlAdmin) }
+    : resolveConnection('nube');
   const pool = new Pool({ ...conn.config, max: 4 });
 
   // Red de seguridad: la consola SOLO debe correr contra la nube. Escribir

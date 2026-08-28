@@ -143,7 +143,7 @@ run('consola · sucursales (PostgreSQL real)', () => {
   });
 
   it('el alta publica la sucursal y su semilla a las terminales', async () => {
-    await db.query(`UPDATE sync.nodo SET es_nube = true WHERE singleton`);
+    await db.query("SET LOCAL donaji.forzar_nube = 'on'");
     const { id } = await crearSucursal(db, datos('Z'), { ahora });
 
     const { rows } = await db.query<{ tabla: string }>(
