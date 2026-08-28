@@ -901,6 +901,37 @@ Suite backend: **363 verdes, 0 rojas, 1 `it.todo`**. `tsc --noEmit` limpio.
 
 ---
 
+## Sesión 20 — 2026-08-28 · SPA: slice de Viajes (PR #14)
+
+Cuarta pantalla de dominio. Backend F7 (`src/fleet/{manifiesto,abordaje}.ts`) ya
+estaba; faltaba exponerlo por HTTP y la pantalla.
+
+- **`src/api/rutas/viajes.ts`** (`tests/api/viajes.test.ts`, 7):
+  - `GET /viajes?fecha=` — salidas del día de mi sucursal (sesión), con conteo de boletos.
+  - `GET /viajes/:id/checklist` — checklist de abordaje por asiento.
+  - `GET /viajes/:id/manifiesto?copia=` — datos congelados para previsualizar.
+  - `POST /viajes/:id/manifiestos` — encola las dos copias (conductor/terminal) → 201.
+  - `POST /viajes/:id/en-ruta` · `POST /viajes/:id/finalizar` — estado del viaje.
+  - `POST /viajes/abordaje` · `POST /viajes/abordaje/:id/corregir` — captura.
+  - Escritura pide `abordaje.registrar` (rol operativo: vendedor+). `sucursalId`/
+    `usuarioId` de la sesión. Reglas de negocio (salida no en ruta, boleto
+    inexistente) → 422.
+- **`web/src/paginas/Viajes.tsx`** + `web/src/api/viajes.ts`: lista de salidas con
+  chip de estado; al abrir una, checklist con botones "abordó / no se presentó",
+  y acciones "Generar manifiestos" / "Marcar en ruta" / "Finalizar viaje". Boletos
+  en conflicto resaltados. Cuarto ítem del nav del Shell.
+
+Suite backend: **370 verdes, 1 `it.todo`**. `web`: `tsc` + `vite build` verdes.
+
+### Pendiente de la SPA
+
+- Falta el slice de **Dashboard** (reportes de F8).
+- El mapa visual de asientos sigue esperando el prototipo del cliente.
+- El manifiesto se previsualiza como JSON crudo (`GET .../manifiesto`); darle
+  formato de papel es parte de F5 (impresión).
+
+---
+
 ## Pendientes de F1
 
 - El contrato de pruebas del motor está CERRADO: `salud.ts` (Ses. 4), arbitraje
