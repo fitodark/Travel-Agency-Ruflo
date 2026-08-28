@@ -753,6 +753,36 @@ Suite backend: **328 verdes, 0 rojas, 18 `it.todo`**.
 
 ---
 
+## Sesión 16 — 2026-09-01 · SPA: slice de ventas (ruta API + pantalla)
+
+Primer slice de dominio sobre la SPA. Rama `spa-ventas`, PR #8 (merge `3c01233`).
+
+### API — `src/api/rutas/ventas.ts` (`tests/api/ventas.test.ts`, 6)
+
+- `GET /ventas/salidas` — búsqueda con disponibilidad por tramo (pasos 1-2).
+- `POST /ventas/lease` · `POST /ventas/lease/:id/liberar` — paso 3 con conexión.
+- `POST /ventas` — registra venta/reservación (pasos 4-6). **`sucursalVentaId` y
+  `usuarioId` siempre salen de la sesión, nunca del body.**
+- `POST /ventas/:id/pagos` — abono/liquidación (posible en otra sucursal, C5).
+- `POST /ventas/pagos/:id/verificar` · `GET /ventas/:id` (saldo + boletos).
+- **El error handler** ahora mapea los `RAISE` de las funciones de dominio
+  (SQLSTATE `P0001`) a **422 `regla_negocio`** con el mensaje — antes esos
+  errores caían a 500 genérico.
+- Helper `crearUsuarioConAcceso` en `tests/ventas/fixture.ts` (usuario +
+  credencial `PASSWORD_OK` + `usuario_sucursal`) para las pruebas HTTP.
+
+### SPA — `web/src/paginas/Vender.tsx`
+
+Stepper de 6 pasos: búsqueda → horario → **asientos** (lista de
+`asientosOfrecibles`; el mapa visual espera el prototipo del cliente) →
+pasajeros → resumen → pago (efectivo / transferencia / reservar sin pago).
+`web/src/api/{ventas,catalogos}.ts`. "Vender" es la pantalla de inicio.
+
+Suite backend: **334 verdes, 0 rojas, 18 `it.todo`**. web: `tsc` + `vite build`
+verdes.
+
+---
+
 ## Pendientes de F1
 
 - `src/sync/engine.ts` funciona pero no cumple el `ContratoEngine` propuesto en
