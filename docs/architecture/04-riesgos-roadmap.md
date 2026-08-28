@@ -221,14 +221,18 @@ dueña). El CRUD de la configuración clase A —usuarios, sucursales, tarifas,
 impresora, ticket— se difirió a "el dashboard en nube"; F8 se construyó como
 reportes de solo lectura y ese alcance quedó sin hacer. Se retoma en F2b.
 
-### F2b — Consola de administración en la nube (2.5–3 semanas)
+### F2b — Consola de administración en la nube (2.5–3 semanas) — **HECHA**
 
 > Añadida tras el cierre de F8. Es el CRUD de configuración clase A que F2 no
 > entregó, reordenado para hacerse **antes de endurecer la venta**: sin él no se
 > pueden dar de alta usuarios reales con roles repartidos entre sucursales, y sin
 > eso no se prueban en serio los permisos, la caja, los viajes ni los cierres.
-> Hoy la única vía para crear un usuario o una sucursal es `scripts/sembrar-admin.ts`
-> o un `INSERT` a mano.
+>
+> **Cerrada el 2026-08-28** (PRs #21–#30, migraciones 0034–0038). `src/admin/` con
+> los cuatro slices + la deuda (rol `donaji_consola`, `rbac.activo`) + la UI web
+> (`consola.html`/`consola.js`, 5 pestañas). `npm run admin`. Solo falta el
+> despliegue: `ALTER ROLE donaji_consola ... LOGIN PASSWORD` y las variables de
+> entorno de la consola. Ver `docs/historial.md` §"F2b — CERRADA".
 
 **Ya está y no se rehace**: `sync.publicar_a_nodos`, `sync.ingest_fila` sin
 efectos locales (0014), el aplicador de configuración, las vistas `v_*_vigente`
