@@ -66,14 +66,16 @@ run('credencial · clase A (PostgreSQL real)', () => {
     return rows[0]!.p;
   };
 
-  it('`es_tabla_ingerible` admite credencial y sigue rechazando las demás de auth_local', async () => {
+  it('`es_tabla_ingerible` admite las tablas de auth_local con columnas de sync', async () => {
+    // `credencial` (0034) y `revocacion_hotp` (0035) replican clase A; `sesion` e
+    // `intento` son estado local del nodo y no deben poder ingerirse.
     const { rows } = await db.query<{ cred: boolean; ses: boolean; hotp: boolean; usr: boolean }>(
       `SELECT sync.es_tabla_ingerible('auth_local.credencial')    AS cred,
               sync.es_tabla_ingerible('auth_local.sesion')        AS ses,
               sync.es_tabla_ingerible('auth_local.revocacion_hotp') AS hotp,
               sync.es_tabla_ingerible('core.usuario')             AS usr`,
     );
-    expect(rows[0]).toEqual({ cred: true, ses: false, hotp: false, usr: true });
+    expect(rows[0]).toEqual({ cred: true, ses: false, hotp: true, usr: true });
   });
 
   it('`es_tabla_config` la reconoce como clase A (baja, no sube)', async () => {

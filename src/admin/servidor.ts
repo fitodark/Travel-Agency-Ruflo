@@ -23,6 +23,7 @@ import type { Consultable } from '../db/consulta.js';
 import {
   escribirConfig, type ModoPropagacion,
 } from './escribir-config.js';
+import { rutasSucursales } from './rutas-sucursales.js';
 import { TokenInvalido, verificarTokenSupabase, type IdentidadSupabase } from './auth-supabase.js';
 
 /** Tablas de configuración que la consola puede escribir. Allowlist explícita. */
@@ -37,6 +38,7 @@ export const TABLAS_ADMINISTRABLES: readonly string[] = [
   'core.tarifa',
   'core.parametro',
   'auth_local.credencial',
+  'auth_local.revocacion_hotp',
 ];
 
 export interface AdminAutenticado extends IdentidadSupabase {
@@ -159,6 +161,8 @@ export function construirServidorAdmin(opts: OpcionesServidorAdmin): FastifyInst
       usuarioId: req.admin.usuarioId,
       viaListaDeArranque: req.admin.usuarioId === null,
     }));
+
+    rutasSucursales(api, { db, ahora });
 
     api.post<{ Params: { tabla: string }; Body: CuerpoConfig }>(
       '/config/:tabla',
