@@ -1500,6 +1500,39 @@ La consola tenía API pero no interfaz. Primera pasada, vanilla como
   sembrada). `consola.js` queda en ~555 líneas — un poco sobre el límite de 500,
   pero partir el cierre compartido costaría más de lo que aporta.
 
+Las tres pasadas de UI se mergearon en un solo PR **#30** (`main` `20a65a8`) el
+2026-08-28.
+
+---
+
+## F2b — CERRADA
+
+Toda la fase (PRs **#21–#30**) está en `main`. Consola de administración en la
+nube completa: `src/admin/` (14 archivos TS + `consola.html`/`consola.js`),
+`npm run admin`. Migraciones **0034–0038** aplicadas a nube y local.
+
+| Slice | Qué | PRs |
+|---|---|---|
+| Roadmap | fase F2b añadida a `04-riesgos-roadmap.md` | #21 |
+| 1 | `auth_local.credencial` → clase A (0034); `escribirConfig`; servidor + Supabase Auth (JWT HS256); `POST /api/config/:tabla` | #22, #23 |
+| 2 | sucursales; `auth_local.revocacion_hotp` → clase A (0035); semilla HOTP al alta | #24 |
+| 3a | usuarios / accesos / credencial temporal Argon2id | #25 |
+| 3b | capa 3 de revocación HOTP (0036): `src/auth/{hotp,revocacion}.ts`, `POST /auth/revocar`, paso `revocado` en el login | #26 |
+| 4 | impresora / ticket / tarifas | #27 |
+| deuda | rol Postgres `donaji_consola` (0037); `rbac.puede()` filtra `activo`; GUC `donaji.forzar_nube` de pruebas (0038) | #28 |
+| doc | marcas de merge en el historial | #29 |
+| UI | `consola.html`/`consola.js`: 5 pestañas con listado + alta + edición inline + acciones | #30 |
+
+**Lo único pendiente es de despliegue**, no de código:
+`ALTER ROLE donaji_consola WITH LOGIN PASSWORD '...'` en Supabase, y en el entorno
+de la consola: `ADMIN_DATABASE_URL` (→ ese rol), `SUPABASE_JWT_SECRET`,
+`SUPABASE_URL`, `SUPABASE_ANON_KEY`, `ADMIN_EMAILS`.
+
+Arrastres registrados: P7 (mecanismo de acceso del sistema externo de reportes)
+sigue abierto — la consola trae su propia auth y no depende de él. P12 (zona
+horaria de las 4 sucursales) fija la hora exacta de la ventana nocturna; hoy
+`America/Mexico_City` por defecto.
+
 ---
 
 ## Pendientes de F1
