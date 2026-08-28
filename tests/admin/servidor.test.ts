@@ -130,7 +130,7 @@ run('consola de administración (PostgreSQL real)', () => {
   });
 
   it('POST /api/config/core.usuario escribe y publica (201)', async () => {
-    await db.query(`UPDATE sync.nodo SET es_nube = true WHERE singleton`);
+    await db.query("SET LOCAL donaji.forzar_nube = 'on'");
     const r = await app.inject({
       method: 'POST', url: '/api/config/core.usuario', headers: auth('arranque@donaji.mx'),
       payload: { fila: filaUsuario(), modo: 'ventana', zonaHoraria: 'America/Mexico_City' },

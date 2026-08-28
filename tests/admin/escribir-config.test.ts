@@ -94,7 +94,7 @@ run('escribirConfig · contra PostgreSQL (nodo marcado como nube)', () => {
     // `trg_cambio_log` solo dispara si el nodo es la nube. Se marca aquí, no en
     // el beforeEach, para no serializar con el resto de la suite por el lock de
     // la fila única sync.nodo.
-    await db.query(`UPDATE sync.nodo SET es_nube = true WHERE singleton`);
+    await db.query("SET LOCAL donaji.forzar_nube = 'on'");
     const r = await escribirConfig(db, {
       tabla: 'core.usuario', fila: usuario(), modo: 'ventana', ahora,
     });

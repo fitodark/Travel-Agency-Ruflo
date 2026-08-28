@@ -156,7 +156,7 @@ run('consola · usuarios (PostgreSQL real)', () => {
   });
 
   it('el alta publica el usuario y su credencial a las terminales', async () => {
-    await db.query(`UPDATE sync.nodo SET es_nube = true WHERE singleton`);
+    await db.query("SET LOCAL donaji.forzar_nube = 'on'");
     const { id } = await crearUsuario(db, datos(), { ahora });
     const { rows } = await db.query<{ tabla: string }>(
       `SELECT DISTINCT tabla FROM sync.cambio_log WHERE fila_id = $1`, [id],

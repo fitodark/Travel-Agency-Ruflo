@@ -4,7 +4,7 @@
  * Blueprint v0.2 · docs/architecture/03-auth-impresion-config.md §1.4
  */
 
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import 'dotenv/config';
 import { Client } from 'pg';
 import { resolveConnection } from '../../src/db/connection.js';
@@ -21,6 +21,9 @@ run('rbac (PostgreSQL real)', () => {
     await db.connect();
   });
   afterAll(async () => { await db.end(); });
+
+  beforeEach(async () => { await db.query('BEGIN'); });
+  afterEach(async () => { await db.query('ROLLBACK'); });
 
   it('el vendedor puede vender pero no configurar', async () => {
     expect(await puede(db, 'vendedor', 'venta.crear')).toBe(true);
@@ -47,6 +50,15 @@ run('rbac (PostgreSQL real)', () => {
   it('un rol o permiso inexistente devuelve false, no lanza', async () => {
     expect(await puede(db, 'superusuario', 'todo')).toBe(false);
     expect(await puede(db, 'vendedor', 'permiso.que.no.existe')).toBe(false);
+  });
+
+  it('un permiso retirado (activo=false) deja de valer', async () => {
+    expect(await puede(db, 'gerente', 'venta.anular')).toBe(true);
+    await db.query(
+      `UPDATE core.rol_permiso SET activo = false WHERE rol = 'gerente' AND permiso = 'venta.anular'`,
+    );
+    expect(await puede(db, 'gerente', 'venta.anular')).toBe(false);
+    expect(await permisosDe(db, 'gerente')).not.toContain('venta.anular');
   });
 
   it('`permisosDe` lista los permisos del rol, ordenados y sin los de otros', async () => {

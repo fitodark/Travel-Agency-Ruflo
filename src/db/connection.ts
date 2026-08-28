@@ -67,29 +67,29 @@ export function resolveConnection(target: Target, env: NodeJS.ProcessEnv = proce
     );
   }
 
+  return { target, url, ...conexionDesdeUrl(url) };
+}
+
+/**
+ * El `ClientConfig` (SSL, pooler) y el `describe` para una URL cualquiera.
+ *
+ * Lo usa `resolveConnection` y también la consola de administración, que se
+ * conecta a la nube con un rol acotado (`ADMIN_DATABASE_URL` → `donaji_consola`)
+ * en vez del rol de `DATABASE_URL`.
+ */
+export function conexionDesdeUrl(url: string): { config: ClientConfig; describe: string } {
   const u = new URL(url);
   const config: ClientConfig = { connectionString: url };
 
   if (needsSsl(url)) {
-    // `rejectUnauthorized: false` acepta el certificado del proveedor sin distribuir su
-    // CA a las 4 terminales. El tráfico va cifrado; lo que no se valida es la cadena.
-    // Antes de producción conviene fijar el CA de Supabase — queda anotado como pendiente.
     config.ssl = { rejectUnauthorized: false };
   }
-
   if (isTransactionPooler(url)) {
-    // PgBouncer en modo transacción no conserva estado entre sentencias: las prepared
-    // statements con nombre se rompen. `pg` las usa al reutilizar consultas.
     config.statement_timeout = undefined;
     config.query_timeout = undefined;
   }
 
-  return {
-    target,
-    url,
-    config,
-    describe: `${u.hostname}:${u.port || '5432'}/${u.pathname.slice(1)}`,
-  };
+  return { config, describe: `${u.hostname}:${u.port || '5432'}/${u.pathname.slice(1)}` };
 }
 
 /**
