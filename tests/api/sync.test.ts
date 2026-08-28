@@ -30,10 +30,16 @@ run('API · /sync (PostgreSQL real)', () => {
 
   beforeEach(async () => {
     await db.query('BEGIN');
-    // `/sync/estado` y `/sync/excepciones` leen `sync.*` globalmente. El `pretest`
-    // (`scripts/limpiar-dev.ts`) deja `sync.excepcion` y `sync.salud` vacías antes
-    // de la suite; no se hace `TRUNCATE` aquí porque su ACCESS EXCLUSIVE, en
-    // paralelo con el lock de `sync.hlc_estado`, interbloquea con otros archivos.
+    // `/sync/estado` y `/sync/excepciones` leen `sync.excepcion` y `sync.salud`
+    // sin filtrar por nodo, así que la prueba tiene que partir de tablas vacías.
+    // No basta con el `pretest` (`scripts/limpiar-dev.ts`): se lo salta correr un
+    // solo archivo con `vitest`, y `npm run sync` contra la misma base las
+    // reensucia a media suite. El `DELETE` es local a esta transacción y se
+    // revierte en el `afterEach`; se usa `DELETE` y no `TRUNCATE` a propósito —
+    // el `ACCESS EXCLUSIVE` de `TRUNCATE`, en paralelo con el lock de
+    // `sync.hlc_estado`, interbloquea con otros archivos.
+    await db.query('DELETE FROM sync.excepcion');
+    await db.query('DELETE FROM sync.salud');
     app = await abrirApp(db, ahora);
   });
   afterEach(async () => {
