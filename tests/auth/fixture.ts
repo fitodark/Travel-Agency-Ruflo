@@ -112,12 +112,18 @@ export async function seedAuth(client: Client, opts: SeedAuthOpts = {}): Promise
     );
   }
 
-  // El nodo NO se repunta aquí a propósito: hacerlo en cada `seedAuth` en paralelo
-  // serializa (y en combinación con el lock de `sync.hlc_estado` puede interbloquear)
-  // todas las transacciones de la suite sobre la fila única de `sync.nodo`. El
-  // `pretest` (`scripts/limpiar-dev.ts`) deja `sync.salud` vacío, así que el
-  // stale-guard del login no ve nada degradado. Las pruebas de modo degradado
-  // llaman a `fijarNodo` explícitamente.
+  // El nodo "es" esta sucursal recién creada. Su `sync.salud` está vacío, así que
+  // el stale-guard del login no la ve degradada aunque haya un motor de sync vivo
+  // (`npm run api` embebido) escribiendo `sync.salud` para la sucursal de dev con
+  // la hora real —que, frente al `AHORA` futuro que inyectan las pruebas, parece
+  // atrasada—. Va DESPUÉS de los INSERT de arriba a propósito: para entonces la
+  // transacción ya tiene el lock de `sync.hlc_estado`, así que tomar la fila única
+  // de `sync.nodo` no abre un ciclo nuevo. (El interbloqueo que hubo venía de un
+  // `TRUNCATE sync.*` ANTES del primer INSERT, no de esto.)
+  await client.query(
+    `UPDATE sync.nodo SET sucursal_id = $1::uuid, es_nube = false WHERE singleton`,
+    [sucursalAId],
+  );
 
   return { agenciaId, sucursalAId, sucursalBId, usuarioId, email };
 }
