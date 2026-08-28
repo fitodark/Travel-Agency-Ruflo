@@ -69,10 +69,29 @@ hlc_cnt          integer     NOT NULL,  -- contador lógico de desempate
 sync_sucursal_id uuid                   -- sucursal que originó la escritura
 ```
 
-Regla HLC estándar: al escribir, `hlc_ts = max(now(), último_hlc_ts)`; si son iguales se
-incrementa `hlc_cnt`. Al recibir un lote remoto se avanza el reloj local al máximo
-observado. Da un **orden total determinista** `(hlc_ts, hlc_cnt, sync_sucursal_id)` que
-todas las réplicas calculan igual, sin depender de que los relojes coincidan.
+Regla HLC estándar: al escribir, `hlc_ts = max(now(), piso_observado)`; al recibir un lote
+remoto se avanza el piso al máximo observado. Da un **orden total determinista**
+`(hlc_ts, hlc_cnt, sync_sucursal_id)` que todas las réplicas calculan igual, sin depender de
+que los relojes coincidan.
+
+Implementación (migración 0041, tras cerrar los defectos D1/D2/D3 de F1):
+
+- `sync.hlc_estado.ultimo_ts` es el **piso observado** — el máximo `hlc_ts` que el nodo ha
+  visto de cualquier origen. Ninguna escritura normal lo modifica: `sync.hlc_siguiente()`
+  solo lo **lee** (sin lock — antes el `UPDATE` de esa fila única serializaba toda escritura
+  de la base).
+- `hlc_cnt` sale de la secuencia `sync.hlc_seq` (`nextval` no toma lock). Deja de ser
+  "eventos desde que avanzó el ts" y pasa a ser un contador global monótono; el orden total
+  no cambia porque los tres campos viajan intactos en la replicación y `sync_sucursal_id`
+  es el desempate final.
+- **Deriva acotada** (`hlc_deriva_max_seg`, 300 s por defecto): `hlc_siguiente()` nunca
+  sella más de ese margen por delante del piso ni del reloj de pared, y `hlc_observar()` no
+  deja que un lote remoto empuje el piso más allá de `clock_timestamp() + ese margen`. Una
+  excursión del reloj (BIOS corrida, toque manual) queda topada en vez de dispararse para
+  siempre; cuando NTP corrige, el sello vuelve solo a la hora real. Cuando el clamp actúa se
+  abre una excepción `deriva_reloj` visible en el tablero.
+- `hlc_observar()` se cablea en `sync.ingest_fila`, el único camino de escritura replicada
+  en los dos lados (pull del nodo, push a la nube).
 
 El HLC se usa para **orden**, no para permisos ni expiraciones. Las expiraciones de cupo sí
 usan reloj de pared con NTP (requisito de instalación desde D-5) y un margen de seguridad.
