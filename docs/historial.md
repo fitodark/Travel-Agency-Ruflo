@@ -923,12 +923,36 @@ estaba; faltaba exponerlo por HTTP y la pantalla.
 
 Suite backend: **370 verdes, 1 `it.todo`**. `web`: `tsc` + `vite build` verdes.
 
+---
+
+## Sesión 21 — 2026-08-28 · SPA: slice de Dashboard (PR #15)
+
+Quinta y última pantalla de dominio pendiente. Backend F8 (`src/dashboard/
+{operacion,auditoria}.ts`, esquema `reporte`) ya estaba.
+
+- **`src/api/rutas/reportes.ts`** (`tests/api/reportes.test.ts`, 8), SOLO LECTURA
+  contra la base LOCAL (números de ESTA terminal; el consolidado es el tablero
+  en nube, fuera de alcance):
+  - `GET /reportes/{ventas,ingresos-caja,ventas-vs-caja,cortes,gastos}?desde=&hasta=`
+  - `GET /reportes/{salud,excepciones,inactivos}`
+  - Operación pide `dashboard.ver`; auditoría/salud/gastos/excepciones piden
+    `auditoria.ver`. Ambos son de administrador → 403 para vendedor/gerente.
+- **`web/src/paginas/Dashboard.tsx`** + `web/src/api/reportes.ts`: selector de
+  rango + pestañas (Ventas · Ventas vs. caja · Cortes · Gastos · Salud ·
+  Excepciones), tabla genérica. Ruta `/tablero`.
+- **`web/src/componentes/Shell.tsx`**: el nav filtra por permiso (`puede`); el
+  ítem "Tablero" solo aparece para administrador.
+
+Suite backend: **378 verdes, 1 `it.todo`**. `web`: `tsc` + `vite build` verdes.
+
 ### Pendiente de la SPA
 
-- Falta el slice de **Dashboard** (reportes de F8).
+- Las **5 pantallas de dominio están completas** (Vender, Caja, Viajes, Tablero,
+  Clientes) + Sincronización. QA tiene el lazo cerrado: vende → cobra → ve números.
 - El mapa visual de asientos sigue esperando el prototipo del cliente.
-- El manifiesto se previsualiza como JSON crudo (`GET .../manifiesto`); darle
-  formato de papel es parte de F5 (impresión).
+- El manifiesto se previsualiza como JSON crudo; darle formato de papel es F5.
+- El tablero muestra solo la terminal local; el consolidado de las 4 sucursales
+  es el dashboard en nube (aún sin construir).
 
 ---
 
