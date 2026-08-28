@@ -9,6 +9,9 @@
 import type { Client } from 'pg';
 import { materializarHorario } from '../../src/fleet/materializar.js';
 import { seedRuta, type SeedRutaOpts } from '../fleet/fixture.js';
+import { hashPrueba } from '../auth/fixture.js';
+
+let seq = 0;
 
 export interface SalidaFixture {
   salidaId: string;
@@ -93,6 +96,31 @@ export async function antesDelCierre(
     [salidaId, orden],
   );
   return new Date(rows[0]!.cierre.getTime() - 60 * 60 * 1000);
+}
+
+/**
+ * Un usuario con credencial (hash de `PASSWORD_OK`) y acceso a una sucursal,
+ * para las pruebas HTTP que necesitan un token real.
+ */
+export async function crearUsuarioConAcceso(
+  client: Client, sucursalId: string, rol = 'vendedor',
+): Promise<{ usuarioId: string; email: string }> {
+  const email = `v-${Date.now().toString(36)}${seq++}@donaji.test`;
+  const { rows } = await client.query<{ id: string }>(
+    `INSERT INTO core.usuario (nombre, email, rol)
+     VALUES ('Vendedor Prueba', $1::citext, $2::text) RETURNING id`,
+    [email, rol],
+  );
+  const usuarioId = rows[0]!.id;
+  await client.query(
+    `INSERT INTO core.usuario_sucursal (usuario_id, sucursal_id) VALUES ($1, $2)`,
+    [usuarioId, sucursalId],
+  );
+  await client.query(
+    `INSERT INTO auth_local.credencial (usuario_id, hash_password) VALUES ($1, $2)`,
+    [usuarioId, await hashPrueba()],
+  );
+  return { usuarioId, email };
 }
 
 /** Un usuario con el rol dado (para las ventas de prueba). */
