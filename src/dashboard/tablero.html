@@ -1,0 +1,240 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Donaji · Tablero</title>
+<style>
+  :root { color-scheme: light; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; font: 14px/1.5 system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+    color: #1e293b; background: #f1f5f9;
+  }
+  header {
+    display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
+    gap: 12px; padding: 16px 24px; background: #0f172a; color: #f1f5f9;
+  }
+  header h1 { margin: 0; font-size: 18px; font-weight: 600; }
+  main { max-width: 1100px; margin: 0 auto; padding: 20px 24px 60px; }
+  .rango { display: flex; align-items: center; gap: 8px; }
+  input[type=date], input[type=password] {
+    padding: 6px 8px; border: 1px solid #cbd5e1; border-radius: 6px; font: inherit;
+  }
+  .tabs { display: flex; flex-wrap: wrap; gap: 2px; border-bottom: 1px solid #cbd5e1; margin: 16px 0; }
+  .tabs button {
+    padding: 8px 14px; border: 0; background: none; font: inherit; color: #64748b;
+    border-bottom: 2px solid transparent; margin-bottom: -1px; cursor: pointer;
+  }
+  .tabs button.activo { color: #0f172a; font-weight: 600; border-bottom-color: #0f172a; }
+  .nota { color: #94a3b8; font-size: 12px; margin: 4px 0 0; }
+  table { width: 100%; border-collapse: collapse; background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden; }
+  th, td { padding: 8px 12px; text-align: left; border-top: 1px solid #e2e8f0; }
+  thead th { background: #f8fafc; color: #64748b; border-top: 0; font-weight: 500; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .aviso { color: #64748b; padding: 24px; text-align: center; }
+  .error { color: #dc2626; }
+  .chip { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px; margin-right: 6px; }
+  .sev-critica { background: #fee2e2; color: #b91c1c; }
+  .sev-alta { background: #ffedd5; color: #c2410c; }
+  .sev-media { background: #fef3c7; color: #b45309; }
+  .sev-baja { background: #f1f5f9; color: #475569; }
+  .malo { color: #b91c1c; } .bueno { color: #15803d; } .ojo { color: #b45309; }
+  .scroll { overflow-x: auto; }
+  #login { max-width: 360px; margin: 80px auto; background: #fff; padding: 24px; border-radius: 10px; border: 1px solid #e2e8f0; }
+  #login button, #salir {
+    padding: 8px 16px; border: 0; border-radius: 6px; background: #0f172a; color: #fff; font: inherit; cursor: pointer;
+  }
+  #salir { background: none; color: #cbd5e1; }
+</style>
+</head>
+<body>
+<div id="login" hidden>
+  <h2 style="margin-top:0">Tablero Donaji</h2>
+  <p class="nota">Consolidado de las sucursales. Introduce el token de acceso.</p>
+  <form id="login-form">
+    <input type="password" id="token" placeholder="token" autocomplete="off" style="width:100%;margin-bottom:12px" />
+    <button type="submit">Entrar</button>
+    <p id="login-error" class="error" hidden>Token inválido.</p>
+  </form>
+</div>
+
+<div id="app" hidden>
+  <header>
+    <h1>Donaji · Tablero consolidado</h1>
+    <div class="rango">
+      <input type="date" id="desde" />
+      <span>—</span>
+      <input type="date" id="hasta" />
+      <button id="salir">salir</button>
+    </div>
+  </header>
+  <main>
+    <p class="nota">Datos de la nube (las 4 sucursales). Ventas por sucursal que vende; caja por la que cobra — no cuadran entre sí (C5).</p>
+    <div class="tabs" id="tabs"></div>
+    <div id="panel"><p class="aviso">Cargando…</p></div>
+  </main>
+</div>
+
+<script>
+(function () {
+  const CLAVE = 'donaji.tablero.token';
+  const $ = (id) => document.getElementById(id);
+  const money = (n) => Number(n).toLocaleString('es-MX', { style: 'currency', currency: 'MXN' });
+  const fecha = (s) => s ? new Date(s).toLocaleString('es-MX') : '—';
+  const iso = (d) => d.toISOString().slice(0, 10);
+
+  let token = null;
+  try { token = localStorage.getItem(CLAVE); } catch (e) { /* ventana privada */ }
+
+  const TABS = [
+    { id: 'ventas', txt: 'Ventas' },
+    { id: 'ventas-vs-caja', txt: 'Ventas vs. caja' },
+    { id: 'cortes', txt: 'Cortes' },
+    { id: 'gastos', txt: 'Gastos' },
+    { id: 'salud', txt: 'Salud' },
+    { id: 'excepciones', txt: 'Excepciones' },
+  ];
+  let tab = 'ventas';
+
+  async function pedir(ruta) {
+    const res = await fetch('/reportes/' + ruta, { headers: { authorization: 'Bearer ' + token } });
+    if (res.status === 401) { salir(); throw new Error('sesión'); }
+    if (!res.ok) throw new Error('error ' + res.status);
+    return res.json();
+  }
+
+  function rango() {
+    return 'desde=' + encodeURIComponent($('desde').value) + '&hasta=' + encodeURIComponent($('hasta').value);
+  }
+
+  function tabla(cols, filas) {
+    if (!filas || !filas.length) return '<p class="aviso">Sin datos en el rango.</p>';
+    const th = cols.map((c) => '<th class="' + (c.num ? 'num' : '') + '">' + c.t + '</th>').join('');
+    const tr = filas.map((f) =>
+      '<tr>' + cols.map((c) => '<td class="' + (c.num ? 'num' : '') + '">' + c.v(f) + '</td>').join('') + '</tr>'
+    ).join('');
+    return '<div class="scroll"><table><thead><tr>' + th + '</tr></thead><tbody>' + tr + '</tbody></table></div>';
+  }
+
+  const VISTAS = {
+    'ventas': async () => tabla([
+      { t: 'Día', v: (f) => f.dia },
+      { t: 'Sucursal', v: (f) => f.sucursal },
+      { t: 'Ops', num: 1, v: (f) => f.operaciones },
+      { t: 'Boletos', num: 1, v: (f) => f.boletos },
+      { t: 'Reserv.', num: 1, v: (f) => f.reservaciones },
+      { t: 'Vendido', num: 1, v: (f) => money(f.importeVendido) },
+      { t: 'Liquidado', num: 1, v: (f) => money(f.importeLiquidado) },
+    ], await pedir('ventas?' + rango())),
+
+    'ventas-vs-caja': async () => tabla([
+      { t: 'Sucursal', v: (f) => f.sucursal },
+      { t: 'Vendido', num: 1, v: (f) => money(f.importeVendido) },
+      { t: 'A caja', num: 1, v: (f) => money(f.ingresoACaja) },
+      { t: 'Diferencia', num: 1, v: (f) => '<span class="' + (f.diferencia ? 'ojo' : '') + '">' + money(f.diferencia) + '</span>' },
+      { t: 'Nota', v: (f) => '<span class="nota">' + f.nota + '</span>' },
+    ], await pedir('ventas-vs-caja?' + rango())),
+
+    'cortes': async () => tabla([
+      { t: 'Sucursal', v: (f) => f.sucursal },
+      { t: 'Abierto', v: (f) => fecha(f.abiertoEn) },
+      { t: 'Estado', v: (f) => f.estado },
+      { t: 'Inicial', num: 1, v: (f) => money(f.saldoInicial) },
+      { t: 'Ingresos', num: 1, v: (f) => money(f.ingresos) },
+      { t: 'Egresos', num: 1, v: (f) => money(f.egresos) },
+      { t: 'Calculado', num: 1, v: (f) => money(f.saldoCalculado) },
+      { t: 'Diferencia', num: 1, v: (f) => f.diferencia == null ? '—' : '<span class="' + (f.diferencia ? 'malo' : '') + '">' + money(f.diferencia) + '</span>' },
+    ], await pedir('cortes?' + rango())),
+
+    'gastos': async () => tabla([
+      { t: 'Concepto', v: (f) => f.concepto },
+      { t: 'Sucursal', v: (f) => f.sucursal || '—' },
+      { t: 'Movs.', num: 1, v: (f) => f.movimientos },
+      { t: 'Monto', num: 1, v: (f) => money(f.monto) },
+    ], await pedir('gastos?' + rango())),
+
+    'salud': async () => tabla([
+      { t: 'Sucursal', v: (f) => f.sucursal },
+      { t: 'Estado', v: (f) => f.degradado == null ? '<span class="nota">nunca reportó</span>'
+        : f.degradado ? '<span class="malo">degradado</span>' : '<span class="bueno">al día</span>' },
+      { t: 'Atraso', num: 1, v: (f) => f.atrasoHoras == null ? '—' : f.atrasoHoras.toFixed(1) + ' h' },
+      { t: 'Outbox', num: 1, v: (f) => f.outboxPendiente == null ? '—' : f.outboxPendiente },
+      { t: 'Exc. críticas', num: 1, v: (f) => f.excepcionesCriticas == null ? '—' : f.excepcionesCriticas },
+      { t: 'Esquema', v: (f) => f.versionEsquema || '—' },
+    ], await pedir('salud')),
+
+    'excepciones': async () => {
+      const d = await pedir('excepciones');
+      const chips = ['critica', 'alta', 'media', 'baja']
+        .map((s) => '<span class="chip sev-' + s + '">' + s + ': ' + d.resumen[s] + '</span>').join('');
+      if (!d.abiertas.length) return chips + '<p class="aviso">Ninguna excepción abierta.</p>';
+      const li = d.abiertas.map((e) =>
+        '<li style="background:#fff;border:1px solid #e2e8f0;border-radius:8px;padding:10px 12px;margin-bottom:8px">'
+        + '<span class="chip sev-' + e.severidad + '">' + e.severidad + '</span>'
+        + '<strong>' + e.tipo + '</strong>'
+        + (e.sucursal ? ' <span class="nota">· ' + e.sucursal + '</span>' : '')
+        + (e.entidad ? ' <span class="nota">· ' + e.entidad + '</span>' : '')
+        + ' <span class="nota">· hace ' + Math.round(e.antiguedadHoras) + ' h</span></li>'
+      ).join('');
+      return chips + '<ul style="list-style:none;padding:0;margin:12px 0 0">' + li + '</ul>';
+    },
+  };
+
+  async function render() {
+    $('panel').innerHTML = '<p class="aviso">Cargando…</p>';
+    try {
+      $('panel').innerHTML = await VISTAS[tab]();
+    } catch (e) {
+      if (e.message !== 'sesión') $('panel').innerHTML = '<p class="aviso error">No se pudo cargar.</p>';
+    }
+  }
+
+  function pintarTabs() {
+    $('tabs').innerHTML = TABS.map((t) =>
+      '<button data-id="' + t.id + '" class="' + (t.id === tab ? 'activo' : '') + '">' + t.txt + '</button>'
+    ).join('');
+    $('tabs').querySelectorAll('button').forEach((b) => b.onclick = () => {
+      tab = b.dataset.id; pintarTabs(); render();
+    });
+  }
+
+  function salir() {
+    try { localStorage.removeItem(CLAVE); } catch (e) { /* */ }
+    token = null;
+    $('app').hidden = true;
+    $('login').hidden = false;
+  }
+
+  function entrar() {
+    const hasta = new Date();
+    const desde = new Date(hasta.getTime() - 29 * 86400000);
+    $('desde').value = iso(desde);
+    $('hasta').value = iso(hasta);
+    $('desde').onchange = render;
+    $('hasta').onchange = render;
+    $('salir').onclick = salir;
+    $('login').hidden = true;
+    $('app').hidden = false;
+    pintarTabs();
+    render();
+  }
+
+  $('login-form').onsubmit = async (ev) => {
+    ev.preventDefault();
+    token = $('token').value.trim();
+    try {
+      const res = await fetch('/reportes/salud', { headers: { authorization: 'Bearer ' + token } });
+      if (!res.ok) throw new Error();
+      try { localStorage.setItem(CLAVE, token); } catch (e) { /* */ }
+      entrar();
+    } catch (e) {
+      $('login-error').hidden = false;
+    }
+  };
+
+  if (token) entrar(); else { $('login').hidden = false; }
+})();
+</script>
+</body>
+</html>

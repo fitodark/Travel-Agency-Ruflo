@@ -63,6 +63,14 @@ Distinto del esquema `api`. El dashboard del administrador (F8) lee del esquema
 - `reporte.f_excepciones_abiertas()` / `f_excepciones_resumen()`.
 - `reporte.f_gastos(desde, hasta)` — egresos de caja + nómina mensual.
 
+El **tablero consolidado** (`npm run tablero:nube`, `src/dashboard/servidor.ts`)
+es un proceso Node aparte que corre JUNTO a la nube (no en la terminal): se
+conecta a Supabase, sirve estas funciones agregadas sobre las 4 sucursales
+(`GET /reportes/*`) y una página estática que las muestra. Acceso por bearer
+compartido (`DASHBOARD_TOKEN`) — provisional mientras P7 no cierre el mecanismo
+formal. El tablero de la SPA, en cambio, corre en cada terminal y solo ve su
+base local.
+
 El **export semanal** (`npm run export:semanal`, `src/dashboard/export.ts`)
 empaqueta todo esto en JSON por semana ISO. En producción lo dispara una tarea
 programada en la nube; la entrega al cliente (correo / SFTP) la cablea F9.
