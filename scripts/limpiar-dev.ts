@@ -24,9 +24,20 @@ import 'dotenv/config';
 import { Client } from 'pg';
 import { resolveConnection, targetFromArgs } from '../src/db/connection.js';
 
+// `npm test` corre esto como `pretest`. En un entorno sin base local (CI que solo
+// hace typecheck, por ejemplo) no hay nada que limpiar y no debe romper la suite.
+const ENV_POR_TARGET: Record<string, string> = { local: 'LOCAL_DATABASE_URL', nube: 'DATABASE_URL' };
+
 const PREFIJO = '01900000-%';
 
 const POC: Array<[string, string]> = [
+  ['asiento_lease', `DELETE FROM core.asiento_lease WHERE salida_id::text LIKE $1`],
+  ['asiento_ocupacion', `DELETE FROM core.asiento_ocupacion WHERE salida_id::text LIKE $1`],
+  ['boleto', `DELETE FROM core.boleto WHERE salida_id::text LIKE $1`],
+  ['venta', `DELETE FROM core.venta WHERE salida_id::text LIKE $1`],
+  ['cupo_offline', `DELETE FROM core.cupo_offline WHERE salida_id::text LIKE $1`],
+  ['salida_parada', `DELETE FROM core.salida_parada WHERE salida_id::text LIKE $1 OR salida_id IN (SELECT id FROM core.salida WHERE horario_id IN (SELECT id FROM core.horario WHERE id::text LIKE $1))`],
+  ['salida', `DELETE FROM core.salida WHERE id::text LIKE $1 OR horario_id IN (SELECT id FROM core.horario WHERE id::text LIKE $1)`],
   ['horario_parada', `DELETE FROM core.horario_parada WHERE horario_id IN (SELECT id FROM core.horario WHERE id::text LIKE $1)`],
   ['horario', `DELETE FROM core.horario WHERE id::text LIKE $1`],
   ['ruta_parada', `DELETE FROM core.ruta_parada WHERE ruta_id IN (SELECT id FROM core.ruta WHERE id::text LIKE $1)`],
@@ -40,6 +51,9 @@ const POC: Array<[string, string]> = [
   ['folio_secuencia', `DELETE FROM core.folio_secuencia WHERE sucursal_id::text LIKE $1`],
   ['sucursal', `DELETE FROM core.sucursal WHERE id::text LIKE $1`],
   ['agencia', `DELETE FROM core.agencia WHERE id::text LIKE $1`],
+  // El log de bajada: si esto queda, el pull vuelve a traer las filas de la PoC
+  // a cada nodo. En la nube hay que borrarlo; en local está vacío.
+  ['sync.cambio_log', `DELETE FROM sync.cambio_log WHERE fila_id::text LIKE $1 OR payload->>'id' LIKE $1`],
 ];
 
 const SYNC: Array<[string, string]> = [
@@ -55,6 +69,10 @@ const SYNC: Array<[string, string]> = [
 
 async function main(): Promise<void> {
   const target = targetFromArgs(process.argv.slice(2), 'local');
+  if (!process.env[ENV_POR_TARGET[target]!]) {
+    console.log(`Sin ${ENV_POR_TARGET[target]}: nada que limpiar en "${target}", se omite.`);
+    return;
+  }
   const conn = resolveConnection(target);
   const c = new Client(conn.config);
   await c.connect();
@@ -66,9 +84,14 @@ async function main(): Promise<void> {
       const r = await c.query(sql, [PREFIJO]);
       if (r.rowCount) console.log(`  poc  ${nombre.padEnd(16)} -${r.rowCount}`);
     }
-    for (const [nombre, sql] of SYNC) {
-      const r = await c.query(sql);
-      if (r.rowCount) console.log(`  sync ${nombre.padEnd(20)} ${sql.startsWith('DELETE') ? `-${r.rowCount}` : 'reset'}`);
+    // El reset del runtime de sync SOLO tiene sentido en una base local de dev.
+    // En la nube, `sync.lote_recibido` / `sync.cursor` / `sync.hlc_estado` son
+    // estado real que no se debe tocar; ahí solo se purgan las filas de la PoC.
+    if (target === 'local') {
+      for (const [nombre, sql] of SYNC) {
+        const r = await c.query(sql);
+        if (r.rowCount) console.log(`  sync ${nombre.padEnd(20)} ${sql.startsWith('DELETE') ? `-${r.rowCount}` : 'reset'}`);
+      }
     }
     await c.query('COMMIT');
     console.log('Listo.');

@@ -42,12 +42,9 @@ export async function seedCaja(client: Client, cuantasSucursales = 2): Promise<C
     sucursales.push(rows[0]!.id);
   }
 
-  // El nodo "es" la primera sucursal: `sync.salud` vacío para ella, así que el
-  // stale-guard del login no la ve degradada (ver nota en tests/auth/fixture.ts).
-  await client.query(
-    `UPDATE sync.nodo SET sucursal_id = $1::uuid, es_nube = false WHERE singleton`,
-    [sucursales[0]],
-  );
+  // El nodo NO se repunta aquí (ver nota en tests/auth/fixture.ts): en paralelo,
+  // el `UPDATE ... WHERE singleton` sobre `sync.nodo` interbloquea con el lock de
+  // `sync.hlc_estado`. El `pretest` deja `sync.salud` limpio.
 
   return { agenciaId, sucursales };
 }
