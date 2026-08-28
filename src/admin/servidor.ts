@@ -18,6 +18,8 @@
  * tarifas) son los slices 2–4.
  */
 
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import Fastify, { type FastifyError, type FastifyInstance, type FastifyRequest } from 'fastify';
 import type { Consultable } from '../db/consulta.js';
 import {
@@ -54,9 +56,17 @@ export interface OpcionesServidorAdmin {
   jwtSecret: string;
   /** Emails admitidos aunque no exista aún su `core.usuario`. Para el primer alta. */
   adminsIniciales?: readonly string[];
+  /** URL del proyecto Supabase — la página la usa para el login por email/contraseña. */
+  supabaseUrl?: string;
+  /** `anon` key del proyecto Supabase. Es pública por diseño. */
+  supabaseAnonKey?: string;
   ahora?: () => Date;
   logger?: boolean;
+  /** Sobrescribe la página servida en `/` (para pruebas). */
+  pagina?: string;
 }
+
+const PAGINA = readFileSync(fileURLToPath(new URL('./consola.html', import.meta.url)), 'utf8');
 
 declare module 'fastify' {
   interface FastifyRequest {
@@ -117,6 +127,17 @@ export function construirServidorAdmin(opts: OpcionesServidorAdmin): FastifyInst
   });
 
   app.get('/salud', async () => ({ ok: true }));
+
+  // La página de la consola: pública (solo HTML/JS; los datos van tras el token).
+  const pagina = opts.pagina ?? PAGINA;
+  app.get('/', async (_req, reply) => reply.type('text/html; charset=utf-8').send(pagina));
+
+  // Lo que la página necesita para el login por Supabase Auth. Sin secreto: el
+  // `anon` key es público. Si no está configurado, la página cae al pegado de token.
+  app.get('/config', async () => ({
+    supabaseUrl: opts.supabaseUrl ?? '',
+    supabaseAnonKey: opts.supabaseAnonKey ?? '',
+  }));
 
   async function autenticar(req: FastifyRequest): Promise<AdminAutenticado> {
     const cabecera = req.headers.authorization ?? '';

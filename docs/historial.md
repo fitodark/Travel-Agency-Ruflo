@@ -1426,7 +1426,44 @@ Las seis ramas de F2b (sesiones 28–34) se mergearon en orden el 2026-08-28:
 PRs **#23–#28**, `main` en `4827f5c`. Migraciones 0034–0038 ya en nube y local.
 `src/admin/` tiene la consola completa; `npm run admin` la levanta. Sobre `main`
 mergeada: `tsc` limpio, las 84 pruebas de `tests/admin/` + `tests/auth/{rbac,hotp,
-revocacion}` en verde.
+revocacion}` en verde. Cierre documental: PR #29.
+
+---
+
+## Sesión 35 — 2026-08-28 · F2b: UI de la consola (primera pasada)
+
+La consola tenía API pero no interfaz. Primera pasada, vanilla como
+`tablero.html` (sin build):
+
+- **`src/admin/consola.html`** (~380 líneas). Servida en `GET /` (pública, sin
+  token — los datos siguen tras el JWT). Login: si `/config` trae
+  `supabaseUrl`+`anonKey` → formulario email/contraseña con `@supabase/supabase-js`
+  (cdnjs); si no → pegado de token. El JWT vive en `localStorage`.
+  - Pestaña **Sucursales**: tabla (código, nombre, zona, vigencia, estado, HOTP)
+    + "Nueva sucursal" (formulario) + acciones por fila (editar, baja, regenerar
+    HOTP) vía `prompt`/`confirm`.
+  - Pestaña **Usuarios y accesos**: tabla (nombre/correo, rol, sucursales,
+    credencial, estado) + "Nuevo usuario" (con checkboxes de sucursales, devuelve
+    la contraseña temporal) + acciones (editar, baja, asignar/quitar sucursal,
+    restablecer contraseña, **código de revocación** — abre un `prompt` con el
+    código de 8 dígitos para dictar).
+  - Widget de modo de propagación reutilizable (ventana / inmediato con
+    confirmación / programado con fecha).
+- **`src/admin/servidor.ts`** — `GET /` sirve `consola.html`; `GET /config`
+  devuelve `{ supabaseUrl, supabaseAnonKey }` (públicos; vacíos si no se
+  configuró). `OpcionesServidorAdmin` gana `supabaseUrl`/`supabaseAnonKey`/`pagina`.
+- **`src/admin/lookups.ts`** — `resolverAgencia(db, id?)`: usa la única agencia si
+  no se pasa una (el caso de Donaji). `POST /api/sucursales` y `/api/ticket` ya no
+  exigen `agenciaId`.
+- **`src/admin/main.ts`** — pasa `SUPABASE_URL`/`SUPABASE_ANON_KEY` del entorno.
+- Verificado en el navegador (servidor local + JWT de prueba): login, ambas
+  pestañas, alta de sucursal por API (201, agencia resuelta), y el toggle del
+  widget de modo.
+- **`tests/admin/servidor.test.ts`** +4 (`GET /`, `GET /config`),
+  `tests/admin/sucursales.test.ts` +1 (alta sin `agenciaId`).
+
+Pendiente de la UI: formularios de edición completos (hoy `prompt`), y las
+secciones de impresora / ticket / tarifas.
 
 ---
 

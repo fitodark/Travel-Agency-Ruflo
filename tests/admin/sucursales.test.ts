@@ -196,6 +196,17 @@ run('consola · sucursales por HTTP (PostgreSQL real)', () => {
     expect((l.json() as { id: string }[]).some((s) => s.id === id)).toBe(true);
   });
 
+  it('POST /api/sucursales sin agenciaId usa la única agencia', async () => {
+    const c = await app.inject({
+      method: 'POST', url: '/api/sucursales', headers: auth,
+      payload: {
+        nombre: 'Sin agencia', direccionCompleta: 'x', telefonoPrincipal: 'x',
+        codigo: 'W', modo: 'inmediato', confirmarInmediato: true,
+      },
+    });
+    expect(c.statusCode, c.body).toBe(201);
+  });
+
   it('PATCH, /baja y /regenerar-hotp responden', async () => {
     const c = await app.inject({
       method: 'POST', url: '/api/sucursales', headers: auth,

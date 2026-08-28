@@ -8,6 +8,7 @@
 import type { FastifyInstance } from 'fastify';
 import type { Consultable } from '../db/consulta.js';
 import type { ModoPropagacion } from './escribir-config.js';
+import { resolverAgencia } from './lookups.js';
 import {
   crearSucursal, darDeBajaSucursal, editarSucursal, listarSucursales, regenerarHotp,
 } from './sucursales.js';
@@ -47,7 +48,7 @@ export function rutasSucursales(app: FastifyInstance, { db, ahora }: OpcionesRut
   app.get('/sucursales', async () => listarSucursales(db));
 
   app.post<{ Body: CamposPropagacion & {
-    agenciaId: string; nombre: string; direccionCompleta: string;
+    agenciaId?: string; nombre: string; direccionCompleta: string;
     telefonoPrincipal: string; codigo?: string; zonaHoraria?: string;
   } }>(
     '/sucursales',
@@ -55,7 +56,7 @@ export function rutasSucursales(app: FastifyInstance, { db, ahora }: OpcionesRut
       schema: {
         body: {
           type: 'object',
-          required: ['agenciaId', 'nombre', 'direccionCompleta', 'telefonoPrincipal'],
+          required: ['nombre', 'direccionCompleta', 'telefonoPrincipal'],
           properties: {
             agenciaId: { type: 'string', format: 'uuid' },
             nombre: { type: 'string', minLength: 1 },
@@ -72,7 +73,7 @@ export function rutasSucursales(app: FastifyInstance, { db, ahora }: OpcionesRut
       const b = req.body;
       try {
         const r = await crearSucursal(db, {
-          agenciaId: b.agenciaId,
+          agenciaId: await resolverAgencia(db, b.agenciaId),
           nombre: b.nombre,
           direccionCompleta: b.direccionCompleta,
           telefonoPrincipal: b.telefonoPrincipal,

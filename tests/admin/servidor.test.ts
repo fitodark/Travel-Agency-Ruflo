@@ -46,6 +46,41 @@ describe('construirServidorAdmin · guardas de arranque', () => {
   });
 });
 
+describe('construirServidorAdmin · página y config (sin base)', () => {
+  const dbFalso = { query: async () => ({ rows: [] }) };
+
+  it('GET / sirve la consola HTML sin pedir token', async () => {
+    const app = construirServidorAdmin({ db: dbFalso as never, jwtSecret: SECRETO });
+    try {
+      const r = await app.inject({ method: 'GET', url: '/' });
+      expect(r.statusCode).toBe(200);
+      expect(r.headers['content-type']).toMatch(/text\/html/);
+      expect(r.body).toContain('Consola de administración');
+      expect(r.body).toContain('donaji.consola.jwt');
+      expect(r.body).toContain('signInWithPassword');
+    } finally { await app.close(); }
+  });
+
+  it('GET /config expone (solo) la URL y anon key de Supabase', async () => {
+    const app = construirServidorAdmin({
+      db: dbFalso as never, jwtSecret: SECRETO,
+      supabaseUrl: 'https://proj.supabase.co', supabaseAnonKey: 'anon-xyz',
+    });
+    try {
+      const r = await app.inject({ method: 'GET', url: '/config' });
+      expect(r.json()).toEqual({ supabaseUrl: 'https://proj.supabase.co', supabaseAnonKey: 'anon-xyz' });
+    } finally { await app.close(); }
+  });
+
+  it('GET /config devuelve vacío si no se configuró Supabase Auth', async () => {
+    const app = construirServidorAdmin({ db: dbFalso as never, jwtSecret: SECRETO });
+    try {
+      expect((await app.inject({ method: 'GET', url: '/config' })).json())
+        .toEqual({ supabaseUrl: '', supabaseAnonKey: '' });
+    } finally { await app.close(); }
+  });
+});
+
 const local = process.env['LOCAL_DATABASE_URL'];
 const run = local ? describe : describe.skip;
 
