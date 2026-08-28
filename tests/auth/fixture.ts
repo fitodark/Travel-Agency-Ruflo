@@ -112,6 +112,15 @@ export async function seedAuth(client: Client, opts: SeedAuthOpts = {}): Promise
     );
   }
 
+  // El nodo "es" esta sucursal recién creada: su `sync.salud` está vacío, así que
+  // el stale-guard no la ve degradada aunque `npm run sync` haya dejado una fila
+  // para OTRA sucursal en la base de dev. Las pruebas de modo degradado llaman a
+  // `fijarNodo` después y ganan.
+  await client.query(
+    `UPDATE sync.nodo SET sucursal_id = $1::uuid, es_nube = false WHERE singleton`,
+    [sucursalAId],
+  );
+
   return { agenciaId, sucursalAId, sucursalBId, usuarioId, email };
 }
 

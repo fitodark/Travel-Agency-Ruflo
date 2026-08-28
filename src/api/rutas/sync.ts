@@ -98,15 +98,16 @@ export async function rutasSync(app: FastifyInstance): Promise<void> {
     return rows;
   });
 
-  // Disparo manual de un ciclo, para pruebas en vivo. Abre conexiones frescas a
-  // local y nube, hace push + pull, y las cierra. Si la nube no responde, lo
-  // reporta sin tumbar nada.
-  app.post('/ciclo', { preHandler: exige() }, async (_req, reply) => {
+  // Disparo manual de un ciclo, SOLO para pruebas en vivo. En operación normal
+  // el motor (`npm run sync`, servicio aparte) empuja el outbox solo; el FE no
+  // dispara nada. Abre conexiones frescas a local y nube, hace push + pull, y
+  // las cierra. Si la nube no responde, lo reporta sin tumbar nada.
+  app.post('/ciclo', { preHandler: exige() }, async (req, reply) => {
     let node: Client | null = null;
     let cloud: Client | null = null;
     try {
-      node = new Client(resolveConnection('local').config);
-      cloud = new Client(resolveConnection('nube').config);
+      node = new Client({ ...resolveConnection('local').config, connectionTimeoutMillis: 5_000 });
+      cloud = new Client({ ...resolveConnection('nube').config, connectionTimeoutMillis: 8_000 });
       await node.connect();
       await cloud.connect();
 
@@ -114,9 +115,10 @@ export async function rutasSync(app: FastifyInstance): Promise<void> {
       const resPull = await pull(node, cloud);
       return { ok: true, push: resPush, pull: resPull };
     } catch (err) {
+      req.log.error({ err }, 'ciclo de sync manual falló');
       return reply.status(200).send({
         ok: false,
-        error: err instanceof Error ? err.message : String(err),
+        error: err instanceof Error ? `${err.message}` : String(err),
       });
     } finally {
       await node?.end().catch(() => { /* ya cerrado */ });
