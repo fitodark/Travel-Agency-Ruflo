@@ -447,12 +447,119 @@ F3 mergeada a `main` el 2026-09-01 (PR #2, merge commit `d664e3e`); rama
 
 ---
 
+## Sesión 11 — 2026-09-01 · Fase F4, backend completo (5 slices)
+
+Se decidió NO saltar a F6: F4 es ~80 % backend (máquina de estados, búsqueda,
+leases, arbitraje, reasignación) y nada de eso depende del prototipo del mapa de
+asientos, que es lo único pendiente de aprobación del cliente. Se hizo todo el
+backend en una rama, `f4-venta-backend`.
+
+### Slice 1 — búsqueda y disponibilidad por tramo (pasos 1–2)
+
+- **Migración `0021`**: `core.asientos_libres(salida, desde, hasta, ahora)` —
+  vendibles sin ocupación firme ni lease vivo que solape el tramo.
+  `core.asientos_ofrecibles(...)` — regla de oro offline (01b §3.4): con conexión
+  cualquier libre; sin conexión solo el cupo propio y solo mientras esté vigente
+  descontando la zona muerta. `core.buscar_salidas(...)` — paso 2: salidas del
+  día origen→destino con disponibilidad por tramo, tarifa vigente y
+  `seleccionable` (programada + venta abierta + caben N).
+- **`src/ventas/busqueda.ts`**: `buscarSalidas(db, opts)`.
+- **Pruebas** (`tests/ventas/busqueda.test.ts`, 12): oferta completa con
+  conexión, venta que solapa deja de ofrecerse, tramo disjunto no colisiona,
+  lease vivo bloquea, offline solo cupo propio (12/3/0), horario lleno visible
+  pero no seleccionable, `en_ruta` no aparece, cierre pasado, tarifa vs. `null`.
+
+### Slice 2 — leases en línea (paso 3)
+
+- **Migración `0022`**: `core.adquirir_lease(...)` → `(estado, lease_id,
+  expira_en)`. `estado` es DATO, no excepción: `otorgado` / `ocupado` (ocupación
+  firme que solapa) / `lease_ajeno` (otro lease vivo). Solo lanza ante lo
+  imposible (salida inexistente/no programada, asiento no vendible, tramo
+  inválido). Libera de paso los leases vencidos del asiento para que la
+  constraint no los arrastre. `liberar_lease` (idempotente),
+  `barrer_leases_expirados` (barrido periódico, `liberado_en = expira_en`),
+  `consumir_lease` (para `registrar_venta`).
+- **`src/ventas/lease.ts`**: `adquirirLease`, `liberarLease`,
+  `barrerLeasesExpirados`, `consumirLease`, `leasesVivos`.
+- **Pruebas** (`tests/ventas/lease.test.ts`, 13).
+- Nota de proceso: al editar `0022` tras aplicarla hubo que resetear su fila en
+  `schema_migration` + `DROP FUNCTION` (bug de ambigüedad `expira_en` vs. OUT
+  param; se resolvió calculando `v_exp` antes del INSERT y aliando el UPDATE).
+
+### Slice 3 — venta / reservación / pagos (pasos 4–6)
+
+- **Migración `0023`**: `core.registrar_venta(salida, sucursal, usuario, tel,
+  origen, destino, pasajeros jsonb, es_reservacion?, cliente?, pago jsonb?,
+  con_conexion?, ahora?)` → N boletos con folio (`core.siguiente_folio`), N
+  ocupaciones firmes (el `EXCLUDE` revienta la venta entera si choca), pago
+  opcional — todo en una transacción. Autorización de asiento: lease vivo propio
+  que cubra el tramo · o (offline) asiento del cupo propio vigente · o (online)
+  directo. El ticket se encola cuando el saldo llega a 0, sin importar
+  `es_reservacion`. `core.registrar_pago` (abono/liquidación, cobro posible en
+  otra sucursal — C5), `core.verificar_transferencia` (solo quien vendió),
+  `core.snapshot_boleto`, `core.encolar_impresion_venta`, `core.corte_abierto`.
+- **Fuera de alcance (F6)**: el `core.movimiento_caja` de ingreso. Se crea el
+  `core.pago` con su `corte_caja_id`; el enlace pago→corte lo cablea F6.
+- **`src/ventas/venta.ts`**: `registrarVenta`, `registrarPago`,
+  `verificarTransferencia`, `saldoDeVenta`.
+- **Pruebas** (`tests/ventas/venta.test.ts`, 17).
+
+### Slice 4 — arbitraje determinista (01b §6)
+
+- **`src/sync/arbitraje.ts`** (TypeScript, sin migración): `prioridadDe` (nivel
+  1–4, 1 = pagado e impreso = gana), `compararOcupaciones` (orden total:
+  prioridad → `emitidoEn` → `sucursalId` → `boletoId` → `id`; nunca 0 para
+  distintas, nunca el orden de llegada a la nube), `arbitrar` (puro).
+  `resolverConflictoAsiento(db, salida, asiento)` aplica: ganador `firme`,
+  perdedores `conflicto` + boleto `conflicto_sobreventa` (sin borrarse),
+  excepción `sobreventa` crítica deduplicada.
+- **Pruebas**: 7 `it.todo` de ARBITRAJE de `motor-pendiente.test.ts` convertidos
+  a pruebas puras reales; `tests/sync/arbitraje.test.ts` (5) para la aplicación.
+
+### Slice 5 — reasignación automática del perdedor (01b §7)
+
+- **`src/sync/reasignacion.ts`**: `elegirAsientoReasignado(mapa, anterior,
+  libres, acompañantes)` puro — mismo bloque → adyacente a acompañante (misma
+  fila, columnas contiguas) → cualquiera; `null` si no cabe.
+  `proponerReasignacion(db, boletoId)` — libera la ocupación vieja, toma la nueva
+  firme, boleto a `reasignado` **con el mismo folio**, `nota_auditoria`
+  (`reasignacion_por_conflicto`) + reimpresión `REIMPRESIÓN — CAMBIO DE ASIENTO`.
+  Unidad llena → `null` + excepción `sobreventa` severidad **alta**.
+  `reasignarPerdedores` encadena §6 → §7.
+- **Pruebas**: 4 `it.todo` de REASIGNACIÓN convertidos a pruebas puras;
+  `tests/sync/reasignacion.test.ts` (4) para la base.
+
+### Cierre
+
+Backend de F4 cerrado. Suite: **270 verdes, 0 rojas, 18 `it.todo`** (los 13 de
+ARBITRAJE/REASIGNACIÓN se implementaron; quedan engine 12 + checksum de
+reconcile 6). `tsc` limpio. Migraciones `0021`–`0023` aplicadas en local y nube.
+Mergeada a `main` el 2026-09-01 (PR #3, merge commit `5226d73`); rama
+`f4-venta-backend` eliminada.
+
+**Pendiente de F4 (bloqueado):** el render del mapa de asientos en la SPA, a la
+espera de la aprobación del prototipo del cliente.
+
+### Nota de entorno
+
+Los hooks y el statusline de ruflo (`hook-handler.cjs`, `statusline.cjs`) lanzan
+procesos `npx @claude-flow/cli …` desatendidos que se cuelgan (mismo fallo que el
+timeout del MCP `claude-flow` al arrancar). Se acumularon ~390 procesos `node`
+(~6 GB) y hubo que barrerlos por antigüedad a lo largo de la sesión. La
+mitigación real es `"disableAllHooks": true` en `~/.claude/settings.json`
+(backups guardados en `*.bak-donaji-oom`).
+
+---
+
 ## Pendientes de F1
 
 - `src/sync/engine.ts` funciona pero no cumple el `ContratoEngine` propuesto en
   `motor-pendiente.test.ts` (es la clase `SyncEngine`, no `crearMotor`).
-- `src/sync/reconcile.ts` no expone el arbitraje determinista como función pura.
-- Quedan 31 `it.todo` (engine 12 + reconcile 19).
+- `src/sync/reconcile.ts` expone el arbitraje como función pura desde F4
+  (`src/sync/arbitraje.ts`), pero el checksum sigue con 6 `it.todo`
+  (`soloEnLocal`, respaldo restaurado, `versionDistinta`, re-push dirigido,
+  excepción `divergencia_checksum`, ambos vacíos).
+- Quedan 18 `it.todo` (engine 12 + reconcile checksum 6).
 
 ## Defectos conocidos aún vivos (con su prueba `DEFECTO VIGENTE` en verde)
 
