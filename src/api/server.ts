@@ -19,6 +19,7 @@ import { rutasAuth } from './rutas/auth.js';
 import { rutasCatalogos } from './rutas/catalogos.js';
 import { rutasClientes } from './rutas/clientes.js';
 import { rutasSync } from './rutas/sync.js';
+import { rutasVentas } from './rutas/ventas.js';
 import type { BaseDeDatos } from './tipos.js';
 
 export interface OpcionesApp {
@@ -47,8 +48,14 @@ export async function construirApp(opts: OpcionesApp): Promise<FastifyInstance> 
     if (err.validation) {
       return reply.status(400).send({ error: 'entrada_invalida', mensaje: err.message });
     }
-    // Código SQLSTATE de PostgreSQL (empieza por dígito): restricción violada,
-    // tipo inválido... No se filtra el detalle.
+    // `RAISE EXCEPTION` de una función de dominio (SQLSTATE P0001): es una regla
+    // de negocio con un mensaje escrito a mano, seguro de exponer.
+    if (err.code === 'P0001') {
+      req.log.info({ err }, 'regla de negocio');
+      return reply.status(422).send({ error: 'regla_negocio', mensaje: err.message });
+    }
+    // Otro código SQLSTATE de PostgreSQL (empieza por dígito): restricción
+    // violada, tipo inválido... No se filtra el detalle.
     if (typeof err.code === 'string' && /^[0-9]/.test(err.code)) {
       req.log.warn({ err }, 'error de base de datos');
       return reply.status(409).send({
@@ -65,6 +72,7 @@ export async function construirApp(opts: OpcionesApp): Promise<FastifyInstance> 
   await app.register(rutasClientes, { prefix: '/clientes' });
   await app.register(rutasCatalogos, { prefix: '/catalogos' });
   await app.register(rutasSync, { prefix: '/sync' });
+  await app.register(rutasVentas, { prefix: '/ventas' });
 
   return app;
 }

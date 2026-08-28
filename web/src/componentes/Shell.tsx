@@ -2,6 +2,7 @@ import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { useSesion } from '../auth/sesion';
 
 const NAV = [
+  { a: '/vender', texto: 'Vender' },
   { a: '/sincronizacion', texto: 'Sincronización' },
   { a: '/clientes', texto: 'Clientes' },
 ];
