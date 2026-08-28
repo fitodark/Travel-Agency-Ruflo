@@ -1089,6 +1089,7 @@ Dos pruebas dependían de estado global en vez de aislarse:
   `id` (`bigserial`).
 
 Suite completa: **44 archivos, 406 verdes, 1 `it.todo`, 0 rojas** (`npm test`).
+PR #19 **mergeado** (merge `e42f745`).
 
 ---
 
