@@ -659,6 +659,100 @@ que los boletos de F4, esperando la impresora.
 
 ---
 
+## Sesión 14 — 2026-09-01 · Fase F8 (dashboard en nube), 3 slices
+
+Backend de F8. El dashboard como UI es frontend (fuera de alcance aquí, como el
+mapa de F4). Rama `f8-dashboard`, PR #6 (merge `a0b3543`).
+
+### Slice 1 — reportes de operación (`0028`, `src/dashboard/operacion.ts`)
+
+- Esquema `reporte`. `f_ventas(desde, hasta, sucursal?)` reporta por la sucursal
+  que **vende** (`venta.sucursal_venta_id`); `f_ingresos_caja(...)` por la que
+  **cobra** (`pago.sucursal_cobro_id`). Funciones separadas a propósito: la
+  reservación pagada en destino es venta en el origen e ingreso en el destino
+  (**C5**). `f_ventas_vs_caja(...)` las pone lado a lado con la nota de que **no
+  deben cuadrar**. `f_cortes(...)` con declarado vs. calculado. Día operativo =
+  día local de la sucursal.
+- **Pruebas** (`tests/dashboard/operacion.test.ts`, 6).
+
+### Slice 2 — auditoría, salud, gastos (`0029`, `src/dashboard/auditoria.ts`)
+
+- `v_inactivos` (baja lógica con motivo y resumen), `v_salud_sucursal` (última
+  sync, atraso, deriva, versión, `degradado` = `null`/`false`/`true`),
+  `f_excepciones_abiertas()` / `f_excepciones_resumen()`, `f_gastos(desde, hasta)`
+  (egresos de caja por sucursal + nómina mensual, sin prorratear).
+- **Pruebas** (`tests/dashboard/auditoria.test.ts`, 5).
+
+### Slice 3 — esquema `api` + export semanal (`0030`, `scripts/export-semanal.ts`)
+
+- `api.v1_venta`, `api.v1_pago`, `api.v1_movimiento_caja` (activos e inactivos),
+  `api.v1_salida` — versionadas y **andamiadas**: P7 sigue parcial (falta el
+  mecanismo de acceso del sistema externo). `docs/architecture/api-contrato.md`
+  documenta el esquema y la política `v1_`/`v2_`.
+- `src/dashboard/export.ts` — `rangoSemanaAnterior` (lun–dom ISO),
+  `generarBundleSemanal`, `escribirBundle` (10 JSON por semana en
+  `exports/<YYYY-Www>/`). `npm run export:semanal` (default `--target nube`); la
+  entrega (correo / SFTP) la cablea F9. `exports/` gitignoreado.
+- **Pruebas** (`tests/dashboard/export.test.ts`, 4).
+
+### Cierre
+
+F8 cerrada. Los 4 criterios de aceptación cubiertos. Suite: **324 verdes, 0
+rojas, 18 `it.todo`**. `tsc` limpio. Migraciones `0028`–`0030` en local y nube.
+
+---
+
+## Sesión 15 — 2026-09-01 · API `/sync` y arranque de la SPA
+
+QA necesitaba pantallas para probar logueo, navegación y el motor de sync en
+vivo. El repo no tenía nada de frontend. Decisiones con el usuario: SPA en `web/`
+en este mismo repo, construir directo contra el blueprint (sin subagente
+arquitecto — la infra de ruflo sigue inestable), primer entregable = login +
+shell + Sincronización + Clientes. Rama `spa-y-api-qa`, PR #7 (merge `6b9a347`).
+
+### API — estado del motor de sync (`src/api/rutas/sync.ts`)
+
+- `GET /sync/estado` — snapshot: outbox pendiente/atascado, más viejo sin subir,
+  última sync, deriva, excepciones por severidad, versión de esquema, última
+  pasada del aplicador, `degradado` (contra `umbral_sync_degradado_horas`).
+- `GET /sync/excepciones` — abiertas, crítica primero.
+- `POST /sync/ciclo` — disparo manual: abre `Client` frescos a local y nube, hace
+  `push` + `pull`, y los cierra. Reporta el fallo si la nube no responde. Nunca
+  en el camino crítico de una venta (el motor es un contenedor aparte, §4.1).
+- **Pruebas** (`tests/api/sync.test.ts`, 4).
+
+### SPA (`web/`)
+
+- React 18 + Vite + TanStack Query + Tailwind + React Router. `package.json` y
+  `node_modules` propios. Proxy dev `/api/*` → `http://127.0.0.1:3000`.
+- `src/api/` cliente HTTP (fetch + token opaco en memoria + `sessionStorage`) y
+  wrappers por dominio. `src/auth/sesion.tsx` — `ProveedorSesion` / `useSesion`,
+  rehidratación por `/auth/me`.
+- Pantallas: **Login → Elegir sucursal** (paso 2 solo si el usuario tiene
+  varias) → **Shell** con navegación. **Sincronización** (polling 3 s del estado,
+  botón "Forzar ciclo", excepciones abiertas). **Clientes** (alta + búsqueda,
+  CRUD de F2).
+- `npm run typecheck` y `vite build` verdes.
+
+### Cómo lo corre QA
+
+```
+npm run api                          # raíz
+cd web && npm install && npm run dev  # http://localhost:5173
+```
+Login: `admin@donaji.local` / `donaji-admin`. Flujo de prueba del motor:
+registrar un cliente → ver subir el outbox → "Forzar ciclo" → ver drenar.
+
+### Siguiente iteración
+
+Un slice por dominio = ruta API + pantalla: ventas/reservación, caja, viajes,
+dashboard (reportes de F8). El flujo de venta con mapa de asientos sigue
+esperando el prototipo del cliente.
+
+Suite backend: **328 verdes, 0 rojas, 18 `it.todo`**.
+
+---
+
 ## Pendientes de F1
 
 - `src/sync/engine.ts` funciona pero no cumple el `ContratoEngine` propuesto en
