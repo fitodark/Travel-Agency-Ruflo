@@ -24,6 +24,7 @@ import {
   escribirConfig, type ModoPropagacion,
 } from './escribir-config.js';
 import { rutasSucursales } from './rutas-sucursales.js';
+import { rutasUsuarios } from './rutas-usuarios.js';
 import { TokenInvalido, verificarTokenSupabase, type IdentidadSupabase } from './auth-supabase.js';
 
 /** Tablas de configuración que la consola puede escribir. Allowlist explícita. */
@@ -163,6 +164,7 @@ export function construirServidorAdmin(opts: OpcionesServidorAdmin): FastifyInst
     }));
 
     rutasSucursales(api, { db, ahora });
+    rutasUsuarios(api, { db, ahora });
 
     api.post<{ Params: { tabla: string }; Body: CuerpoConfig }>(
       '/config/:tabla',
