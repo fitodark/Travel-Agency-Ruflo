@@ -605,6 +605,60 @@ contraseña en línea (`ADMIN_PASSWORD='…'`), que el inspector de git marcaba 
 
 ---
 
+## Sesión 13 — 2026-09-01 · Fase F7 (viajes efectuados), 2 slices
+
+La impresora sigue sin estar lista (problemas técnicos y de red), así que se
+saltó F5 otra vez: F7 no depende de imprimir físicamente — encola los `print_job`
+igual que F4 con los boletos. Rama `f7-viajes`.
+
+### Slice 1 — manifiestos (`0026`, `src/fleet/manifiesto.ts`)
+
+- `core.salidas_del_dia(fecha, sucursal?)` — listado de viajes del día.
+- `core.datos_manifiesto(salida, copia, ahora?)` — datos congelados. Copia
+  **conductor**: por parada de ascenso, sin importes. Copia **terminal**: con
+  importe, saldo pendiente, **boletos en conflicto marcados** (`conflicto: true`)
+  y ocupación por tramo. Lleva `generado_en` (las ventas posteriores no salen en
+  el papel). Las paradas de ascenso son todas menos el destino; una parada sin
+  nadie se lista vacía.
+- `core.generar_manifiestos(salida, usuario, ahora?)` — encola los dos
+  `print_job` (`manifiesto_conductor` / `manifiesto_terminal`) en la sucursal de
+  origen; al regenerar da de baja (`activo=false`) los manifiestos pendientes
+  previos.
+- **`src/fleet/manifiesto.ts`**: `salidasDelDia`, `datosManifiesto`,
+  `generarManifiestos`.
+- **Pruebas** (`tests/fleet/manifiesto.test.ts`, 9).
+
+### Slice 2 — abordaje + estado del viaje (`0027`, `src/fleet/abordaje.ts`)
+
+- `core.registrar_abordaje(boleto, abordo, usuario, sucursal, ahora?)` — captura
+  (append-only, clase C). `core.corregir_abordaje(evento, ...)` — hecho nuevo con
+  `anula_evento_id`, **nunca un UPDATE**; el último no anulado manda
+  (`v_boleto_abordaje`).
+- `core.marcar_en_ruta(salida, usuario, conductor?, ahora?)` — INSERT
+  `evento_salida` tipo `en_ruta`; UPDATE `salida` estado + `salida_real_en` +
+  conductor. **Bloquea la venta** desde ahí (ya lo respetan `registrar_venta`,
+  `buscar_salidas`, `adquirir_lease`). `core.finalizar_salida(...)`.
+- Vista `core.v_checklist_abordaje` — por boleto vivo: `abordo` / `no_presento`
+  / `pendiente`, con flag `conflicto`.
+- **`src/fleet/abordaje.ts`**: `registrarAbordaje`, `corregirAbordaje`,
+  `marcarEnRuta`, `finalizarSalida`, `checklistAbordaje`.
+- **Pruebas** (`tests/fleet/abordaje.test.ts`, 11): pendiente por defecto,
+  abordó / no se presentó, la corrección manda, el evento sube a `sync.outbox`,
+  boleto inexistente / cancelado, marcar en ruta fija estado+hora+conductor,
+  **una salida en ruta ya no vende**, no re-marcar en ruta, finalizar solo si
+  está en ruta.
+
+### Cierre
+
+F7 cerrada. Suite: **309 verdes, 0 rojas, 18 `it.todo`**. `tsc` limpio.
+Migraciones `0026`–`0027` en local y nube. Mergeada a `main` el 2026-09-01
+(PR #5, merge commit `1bbadd1`); rama `f7-viajes` eliminada.
+
+**Pendiente (F5/F9):** imprimir físicamente manifiestos y tickets — mismo estado
+que los boletos de F4, esperando la impresora.
+
+---
+
 ## Pendientes de F1
 
 - `src/sync/engine.ts` funciona pero no cumple el `ContratoEngine` propuesto en
