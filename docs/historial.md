@@ -1116,6 +1116,43 @@ Tabla resumen y cierre (~20–22 semanas) actualizados. Sin código todavía.
 
 ---
 
+## Sesión 27 — 2026-08-28 · F2b slice 1 (a): `auth_local.credencial` → clase A
+
+Primer hueco de cableado de F2b. El blueprint (03 §1.2) dice que el hash de
+contraseña se calcula en la nube y baja replicado como clase A, pero nunca se
+cableó: la tabla no tenía columnas de sync, ni trigger de publicación, ni pasaba
+por `sync.es_tabla_ingerible` (que solo admitía `core`). Una terminal reinstalada
+se quedaba sin ninguna contraseña.
+
+- **`src/db/migrations/0034_credencial_clase_a.sql`**:
+  - Columna `id uuid` = `usuario_id` (relación 1:1, uuid ya compartido) + trigger
+    de derivación + `UNIQUE`. Mismo patrón que `core.rol_permiso` en 0012.
+  - `core.registrar_entidad('auth_local.credencial')` — columnas estándar (HLC,
+    versión, auditoría, `activo`) + triggers. El de outbox queda inerte por
+    `es_tabla_config` (0032): esta tabla solo baja.
+  - `sync.es_tabla_ingerible` ampliada de `core` a `core` + `auth_local`. El
+    filtro estructural (las 4 columnas de sync) se mantiene: de `auth_local` solo
+    `credencial` las tiene.
+  - `sync.publicar_a_nodos('auth_local.credencial')`.
+- **`src/sync/clases.ts`** — `'auth_local.credencial': 'A'`.
+- **`src/sync/bootstrap.ts`** — añadida al `ORDEN_TOPOLOGICO` tras `core.usuario`.
+- **`tests/sync/credencial-clase-a.test.ts`** (8): `es_tabla_ingerible` /
+  `es_tabla_config`, derivación de `id`, la config no sube al outbox, la ingesta
+  aplica una credencial que "baja de la nube", y el arbitraje por HLC.
+- El pull (`aplicarFila` → `sync.ingest_fila`) es genérico; no hizo falta tocarlo.
+
+Migración aplicada a **nube primero** (`db:migrate:nube`, Supabase queda en 0034)
+y luego a local, según el orden D-8. `f1-criterios.test.ts` (bootstrap contra
+Supabase real) lo confirma: fallaba con la nube en 0033, verde con la nube en 0034.
+
+Suite: `tsc` limpio; `tests/sync` + `tests/auth` + `tests/api` = **192 verdes,
+1 `it.todo`, 0 rojas**.
+
+Pendiente de slice 1: el helper `escribirConfig({ modo })`, el servicio
+`src/admin/` + Supabase Auth, y el rol de escritura dedicado.
+
+---
+
 ## Pendientes de F1
 
 - El contrato de pruebas del motor está CERRADO: `salud.ts` (Ses. 4), arbitraje
