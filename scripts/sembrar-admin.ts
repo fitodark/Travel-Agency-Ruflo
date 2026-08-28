@@ -2,8 +2,10 @@
  * Siembra un usuario administrador con credencial para poder entrar en DEV.
  *
  *   npm run seed:admin
- *   ADMIN_EMAIL=jefe@donaji.mx ADMIN_PASSWORD='secreta' npm run seed:admin
  *   npm run seed:admin -- --target nube
+ *
+ * Sobrescribe email y contraseña con las variables de entorno ADMIN_EMAIL y
+ * ADMIN_PASSWORD (no las escribas en línea: expórtalas o usa un .env).
  *
  * En producción el hash Argon2id se calcula en la nube al crear la contraseña y
  * baja replicado como cualquier dato de clase A (03 §1.2). En local no hay quien
