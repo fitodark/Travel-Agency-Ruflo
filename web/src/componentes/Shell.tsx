@@ -1,17 +1,19 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { useSesion } from '../auth/sesion';
 
-const NAV = [
+const NAV: { a: string; texto: string; permiso?: string }[] = [
   { a: '/vender', texto: 'Vender' },
   { a: '/caja', texto: 'Caja' },
   { a: '/viajes', texto: 'Viajes' },
+  { a: '/tablero', texto: 'Tablero', permiso: 'dashboard.ver' },
   { a: '/sincronizacion', texto: 'Sincronización' },
   { a: '/clientes', texto: 'Clientes' },
 ];
 
 export function Shell() {
-  const { sesion, cerrar } = useSesion();
+  const { sesion, cerrar, puede } = useSesion();
   const navigate = useNavigate();
+  const nav = NAV.filter((n) => !n.permiso || puede(n.permiso));
 
   const salir = async () => {
     await cerrar();
@@ -25,7 +27,7 @@ export function Shell() {
           Donaji · Terminal
         </div>
         <nav className="flex-1 p-2 space-y-1">
-          {NAV.map((n) => (
+          {nav.map((n) => (
             <NavLink
               key={n.a}
               to={n.a}
