@@ -1,5 +1,11 @@
+import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { estadoSync, excepcionesSync, forzarCiclo } from '../api/sync';
+
+// Refrescos deliberadamente lentos: el estado del motor cambia en segundos, no
+// en milisegundos, y QA no quiere una lluvia de peticiones. Se puede pausar.
+const REFRESCO_ESTADO_MS = 10_000;
+const REFRESCO_EXCEPCIONES_MS = 30_000;
 
 function Dato({ etiqueta, valor, alerta }: { etiqueta: string; valor: string; alerta?: boolean }) {
   return (
@@ -20,17 +26,21 @@ const hace = (iso: string | null): string => {
 
 export function Sincronizacion() {
   const qc = useQueryClient();
+  const [auto, setAuto] = useState(true);
 
   const estado = useQuery({
     queryKey: ['sync', 'estado'],
     queryFn: estadoSync,
-    refetchInterval: 3000,
+    // Solo refresca en primer plano y solo si el auto está activo.
+    refetchInterval: auto ? REFRESCO_ESTADO_MS : false,
+    refetchIntervalInBackground: false,
   });
 
   const excepciones = useQuery({
     queryKey: ['sync', 'excepciones'],
     queryFn: excepcionesSync,
-    refetchInterval: 5000,
+    refetchInterval: auto ? REFRESCO_EXCEPCIONES_MS : false,
+    refetchIntervalInBackground: false,
   });
 
   const ciclo = useMutation({
@@ -46,14 +56,32 @@ export function Sincronizacion() {
     <div className="space-y-6 max-w-4xl">
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-semibold">Sincronización</h1>
-        <button
-          onClick={() => ciclo.mutate()}
-          disabled={ciclo.isPending}
-          className="rounded bg-slate-900 text-white px-4 py-2 text-sm disabled:opacity-50"
-        >
-          {ciclo.isPending ? 'Sincronizando…' : 'Forzar ciclo'}
-        </button>
+        <div className="flex items-center gap-3 text-sm">
+          <label className="flex items-center gap-1 text-slate-500">
+            <input type="checkbox" checked={auto} onChange={(e) => setAuto(e.target.checked)} />
+            auto ({REFRESCO_ESTADO_MS / 1000}s)
+          </label>
+          <button
+            onClick={() => void qc.invalidateQueries({ queryKey: ['sync'] })}
+            className="rounded border px-3 py-2"
+          >
+            Actualizar
+          </button>
+          <button
+            onClick={() => ciclo.mutate()}
+            disabled={ciclo.isPending}
+            className="rounded bg-slate-900 text-white px-4 py-2 disabled:opacity-50"
+          >
+            {ciclo.isPending ? 'Sincronizando…' : 'Forzar ciclo'}
+          </button>
+        </div>
       </div>
+
+      <p className="text-xs text-slate-400">
+        El motor de sincronización corre solo, en segundo plano (servicio{' '}
+        <code>npm run sync</code>). Esta pantalla solo lo observa; "Forzar ciclo"
+        empuja ahora mismo sin esperar el próximo tick.
+      </p>
 
       {ciclo.data && (
         <div
