@@ -1093,6 +1093,29 @@ PR #19 **mergeado** (merge `e42f745`).
 
 ---
 
+## Sesión 26 — 2026-08-28 · Roadmap: fase F2b (consola de administración)
+
+QA preguntó por los módulos de usuarios/accesos y de sucursales, que deben
+funcionar mucho antes que ventas. Al reconstruir el estado: **no existe módulo
+para dar de alta ni editar la configuración clase A** (usuarios, sucursales,
+tarifas, impresora, ticket). El roadmap de F2 lo incluía; solo salió el CRUD de
+clientes (clase B). El resto se difirió a "el dashboard en nube", pero F8 se
+construyó como reportes de solo lectura. Única vía hoy: `scripts/sembrar-admin.ts`
+o `INSERT` a mano.
+
+La maquinaria clase A (`sync.publicar_a_nodos`, `sync.ingest_fila` sin efectos
+locales, el aplicador, `bootstrap.ts`, el RBAC replicado) ya está y está probada.
+Falta solo la superficie de autoría y tres huecos: `auth_local.credencial` no
+está cableada al pipeline de bajada (03 §1.2 lo da por hecho), no hay auth de
+administrador en la nube (Supabase Auth), y la capa 3 de revocación HOTP
+(03 §1.5) quedó sin hacer.
+
+Se añadió **F2b — Consola de administración en la nube** a
+`docs/architecture/04-riesgos-roadmap.md` (4 slices, 2.5–3 semanas, antes de F9).
+Tabla resumen y cierre (~20–22 semanas) actualizados. Sin código todavía.
+
+---
+
 ## Pendientes de F1
 
 - El contrato de pruebas del motor está CERRADO: `salud.ts` (Ses. 4), arbitraje
