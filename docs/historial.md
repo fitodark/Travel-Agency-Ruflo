@@ -1018,7 +1018,57 @@ Pendiente de F5: enganchar un spooler que consuma `core.print_job` y despache po
 transporte de `core.config_impresora`; y un `printer:poc` de manifiesto para la
 aceptación física cuando llegue la Enduro.
 
-Suite backend: **398 verdes, 1 `it.todo`**. `tsc --noEmit` limpio.
+Suite backend: **398 verdes, 1 `it.todo`**. `tsc --noEmit` limpio. PR #17
+**mergeado** (merge `e1ea734`).
+
+---
+
+## Sesión 24 — 2026-08-28 · F5: spooler de impresión
+
+El consumidor de `core.print_job` que faltaba. Alcance acordado con el usuario:
+**solo manifiesto**. La plantilla de boleto y el mapa de asientos siguen
+esperando aprobación del prototipo del cliente, así que el boleto no se cablea
+todavía y `core.snapshot_boleto` no se toca.
+
+- **`src/printing/spooler.ts`**:
+  - `procesarCola(db, opts)` → `ResumenSpooler`. Una pasada: recupera jobs en
+    `imprimiendo` de una corrida interrumpida, agrupa los `pendiente` por
+    sucursal, para cada una carga `core.config_impresora`
+    (`cargarConfigImpresora`), sondea el transporte, y reclama el lote entero con
+    `UPDATE ... estado='imprimiendo', intentos+1 ... FOR UPDATE SKIP LOCKED`.
+  - Por job: `renderPrintJob(template_key, datos, {cols, codePage})` →
+    `open/write/close` → `impreso` con `impreso_en`. Si falla, vuelve a
+    `pendiente`; al llegar a `maxIntentos` (3) → `revision_manual` con
+    `ultimo_error`.
+  - Impresora ausente o que no responde a la sonda: los jobs se quedan en
+    `pendiente` SIN gastar intentos (`sinImpresora` / `impresoraFuera` en el
+    resumen).
+  - `renderPrintJob` solo cablea `manifiesto_conductor` / `manifiesto_terminal`
+    (ver `TEMPLATES_SOPORTADOS`); los `boleto` nunca se reclaman.
+  - Supuesto D-1 (una PC, un spooler): la recuperación de `imprimiendo` no
+    coordina leases.
+- **`src/printing/tools/spooler-run.ts`** — `npm run printer:spooler`
+  (`--once`, `--interval N`). Bucle contra la base LOCAL.
+- **`src/printing/tools/poc-manifiesto.ts`** — `npm run printer:poc-manifiesto
+  -- --salida <uuid> [--copia conductor] [--transport tcp|usb]`. Renderiza una
+  salida real SIN tocar la cola; por defecto captura y vuelca el papel simulado.
+  Es la vía de aceptación física de F5 cuando llegue la Enduro.
+- **`tests/printing/spooler.test.ts`** (8, PostgreSQL real, transporte falso
+  inyectado): imprime y marca `impreso` + `impreso_en`; respeta el ancho de la
+  impresora; sin impresora → sigue en cola; sonda falla → no gasta intentos;
+  fallo de escritura reintenta y agota a `revision_manual`; no toca `boleto`;
+  recupera `imprimiendo`; segunda pasada no reimprime.
+
+Pendiente de F5: cablear el boleto (cuando su plantilla esté aprobada) —
+probablemente exige completar `core.snapshot_boleto` (dirección/teléfono de
+origen, número de unidad, `emitido_en`, hora en la zona de la sucursal, que ya
+vive en `core.sucursal.zona_horaria`); y la aceptación física de ambos
+documentos con la Enduro.
+
+Suite backend: spooler **8/8 verde**, `tsc --noEmit` limpio. (Ajenas a este
+cambio: `tests/api/sync.test.ts` falla 2/4 en `main` por estado real
+compartido, y `tests/auth/login.test.ts` tiene un flake de orden bajo ejecución
+en paralelo.)
 
 ---
 

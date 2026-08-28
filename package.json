@@ -14,6 +14,8 @@
     "test:watch": "vitest",
     "printer:fake": "tsx src/printing/tools/fake-printer.ts",
     "printer:poc": "tsx src/printing/tools/poc-ticket.ts",
+    "printer:poc-manifiesto": "tsx src/printing/tools/poc-manifiesto.ts",
+    "printer:spooler": "tsx src/printing/tools/spooler-run.ts",
     "db:migrate": "tsx src/db/migrate.ts",
     "db:status": "tsx src/db/migrate.ts --status",
     "backup": "tsx src/backup/run.ts",
