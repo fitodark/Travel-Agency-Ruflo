@@ -21,6 +21,7 @@ import { rutasClientes } from './rutas/clientes.js';
 import { rutasSync } from './rutas/sync.js';
 import { rutasVentas } from './rutas/ventas.js';
 import { rutasCaja } from './rutas/caja.js';
+import { rutasViajes } from './rutas/viajes.js';
 import type { BaseDeDatos } from './tipos.js';
 
 export interface OpcionesApp {
@@ -75,6 +76,7 @@ export async function construirApp(opts: OpcionesApp): Promise<FastifyInstance> 
   await app.register(rutasSync, { prefix: '/sync' });
   await app.register(rutasVentas, { prefix: '/ventas' });
   await app.register(rutasCaja, { prefix: '/caja' });
+  await app.register(rutasViajes, { prefix: '/viajes' });
 
   return app;
 }

@@ -7,6 +7,7 @@ import { Sincronizacion } from './paginas/Sincronizacion';
 import { Clientes } from './paginas/Clientes';
 import { Vender } from './paginas/Vender';
 import { Caja } from './paginas/Caja';
+import { Viajes } from './paginas/Viajes';
 
 function Protegida({ children }: { children: React.ReactNode }) {
   const { sesion, cargando, faltaSucursal } = useSesion();
@@ -33,6 +34,7 @@ export function App() {
         <Route index element={<Navigate to="/vender" replace />} />
         <Route path="/vender" element={<Vender />} />
         <Route path="/caja" element={<Caja />} />
+        <Route path="/viajes" element={<Viajes />} />
         <Route path="/sincronizacion" element={<Sincronizacion />} />
         <Route path="/clientes" element={<Clientes />} />
       </Route>
