@@ -12,7 +12,8 @@
  *
  * La reconciliación compara, por tabla y por día operativo, un hash de las filas que la
  * sucursal cree haber creado contra el de las que la nube cree haber recibido. Si
- * difieren, algo se perdió, y se sabe exactamente qué bloque revisar.
+ * difieren, baja al detalle fila a fila (`sync.filas_bloque`) para nombrar exactamente
+ * qué falta de cada lado, y reencola SOLO esas filas — no el día entero.
  */
 
 import type { Client } from 'pg';
@@ -26,6 +27,12 @@ export interface BloqueChecksum {
   hashLocal: string;
   hashNube: string;
   coincide: boolean;
+  /** Ids que el nodo tiene y la nube no: se pueden reenviar. */
+  soloEnLocal: string[];
+  /** Ids que la nube tiene y el nodo no: pérdida local, atención humana. */
+  soloEnNube: string[];
+  /** Ids presentes en ambos con `version` distinta: divergencia de contenido. */
+  versionDistinta: string[];
 }
 
 export interface ReconcileResult {
@@ -49,6 +56,9 @@ interface FilaChecksum {
   hash: string;
 }
 
+type DiffBloque = Pick<BloqueChecksum, 'soloEnLocal' | 'soloEnNube' | 'versionDistinta'>;
+const DIFF_VACIO: DiffBloque = { soloEnLocal: [], soloEnNube: [], versionDistinta: [] };
+
 /**
  * Calcula el checksum de un bloque usando la función que ya vive en la base.
  *
@@ -69,6 +79,52 @@ async function checksumDe(
     [tabla, sucursalId, dia],
   );
   return { filas: rows[0]?.filas ?? 0, hash: rows[0]?.hash ?? '' };
+}
+
+/** `id -> version` de todas las filas de un bloque, para diferenciarlas. */
+async function filasDe(
+  client: Client,
+  tabla: string,
+  sucursalId: string,
+  dia: string,
+): Promise<Map<string, number>> {
+  const { rows } = await client.query<{ id: string; version: number }>(
+    `SELECT id, version FROM sync.filas_bloque($1::regclass, $2::uuid, $3::date)`,
+    [tabla, sucursalId, dia],
+  );
+  return new Map(rows.map((r) => [r.id, r.version]));
+}
+
+/**
+ * Diferencia de conjuntos de un bloque divergente.
+ *
+ * `sync.calcular_checksum` ya dijo que el bloque no coincide; aquí se baja a las filas
+ * para saber QUÉ reenviar. Distinguir "falta en la nube" de "falta en el nodo" importa:
+ * lo primero se repara con un re-push, lo segundo es una pérdida local que exige
+ * restaurar un respaldo y no puede repararse sola.
+ */
+async function diffBloque(
+  node: Client,
+  cloud: Client,
+  tabla: string,
+  sucursalId: string,
+  dia: string,
+): Promise<DiffBloque> {
+  const [locales, remotas] = await Promise.all([
+    filasDe(node, tabla, sucursalId, dia),
+    filasDe(cloud, tabla, sucursalId, dia),
+  ]);
+
+  const soloEnLocal: string[] = [];
+  const versionDistinta: string[] = [];
+  for (const [id, version] of locales) {
+    const enNube = remotas.get(id);
+    if (enNube === undefined) soloEnLocal.push(id);
+    else if (enNube !== version) versionDistinta.push(id);
+  }
+  const soloEnNube = [...remotas.keys()].filter((id) => !locales.has(id));
+
+  return { soloEnLocal, soloEnNube, versionDistinta };
 }
 
 /** Días operativos a comparar, del más reciente hacia atrás. */
@@ -101,30 +157,27 @@ export async function reconciliar(
   for (const tabla of tablas) {
     for (const dia of diasARevisar(dias)) {
       const local = await checksumDe(node, tabla, sucursalId, dia);
+      const nube = await checksumDe(cloud, tabla, sucursalId, dia);
 
       // Un bloque vacío en los dos lados no aporta nada y multiplicaría el ruido:
       // 11 tablas x 7 días son 77 comparaciones, casi todas vacías en una sucursal nueva.
-      if (local.filas === 0) {
-        const nubeVacia = await checksumDe(cloud, tabla, sucursalId, dia);
-        if (nubeVacia.filas === 0) continue;
+      if (local.filas === 0 && nube.filas === 0) continue;
 
-        // Local vacío y nube con filas: la sucursal PERDIÓ datos que ya había subido.
-        // Es el caso más grave y el que un checksum ingenuo se saltaría por optimizar.
-        bloques.push({
-          tabla, dia,
-          filasLocal: 0, filasNube: nubeVacia.filas,
-          hashLocal: local.hash, hashNube: nubeVacia.hash,
-          coincide: false,
-        });
-        continue;
-      }
+      const coincide = local.hash === nube.hash && local.filas === nube.filas;
 
-      const nube = await checksumDe(cloud, tabla, sucursalId, dia);
+      // El diff fila a fila solo se paga cuando el bloque ya se sabe divergente.
+      const diff = coincide
+        ? DIFF_VACIO
+        : await diffBloque(node, cloud, tabla, sucursalId, dia);
+
       bloques.push({
         tabla, dia,
         filasLocal: local.filas, filasNube: nube.filas,
         hashLocal: local.hash, hashNube: nube.hash,
-        coincide: local.hash === nube.hash && local.filas === nube.filas,
+        coincide,
+        soloEnLocal: [...diff.soloEnLocal],
+        soloEnNube: [...diff.soloEnNube],
+        versionDistinta: [...diff.versionDistinta],
       });
     }
   }
@@ -136,7 +189,7 @@ export async function reconciliar(
 
   let reencoladas = 0;
   if (opts.repararAutomaticamente !== false && divergentes.length > 0) {
-    reencoladas = await reencolarDivergentes(node, sucursalId, divergentes);
+    reencoladas = await reencolarDivergentes(node, divergentes);
   }
 
   return { sucursalId, bloques, divergentes, reencoladas };
@@ -168,26 +221,33 @@ async function registrarBloques(
  * Si la reparación fuera silenciosa, un motor que pierde una fila de cada mil se vería
  * perfectamente sano para siempre: el checksum la detecta, el re-push la repone, nadie se
  * entera y el bug de fondo nunca se corrige.
+ *
+ * La severidad distingue el caso reparable (falta en la nube: `alta`) del irreparable
+ * sin intervención (falta en el nodo: `critica`).
  */
 async function levantarExcepciones(
   node: Client,
   sucursalId: string,
   divergentes: BloqueChecksum[],
 ): Promise<void> {
+  const MUESTRA = 50;
   for (const d of divergentes) {
     await node.query(
       `INSERT INTO sync.excepcion (tipo, severidad, sucursal_id, entidad, detalle)
        VALUES ('divergencia_checksum', $1, $2, $3, $4::jsonb)`,
       [
-        d.filasLocal !== d.filasNube ? 'critica' : 'alta',
+        d.soloEnNube.length > 0 ? 'critica' : 'alta',
         sucursalId,
         d.tabla,
         JSON.stringify({
           dia: d.dia,
           filas_local: d.filasLocal,
           filas_nube: d.filasNube,
-          faltan_en_nube: Math.max(d.filasLocal - d.filasNube, 0),
-          sobran_en_nube: Math.max(d.filasNube - d.filasLocal, 0),
+          solo_en_local: d.soloEnLocal.slice(0, MUESTRA),
+          solo_en_nube: d.soloEnNube.slice(0, MUESTRA),
+          version_distinta: d.versionDistinta.slice(0, MUESTRA),
+          faltan_en_nube: d.soloEnLocal.length + d.versionDistinta.length,
+          faltan_en_local: d.soloEnNube.length,
         }),
       ],
     );
@@ -195,34 +255,33 @@ async function levantarExcepciones(
 }
 
 /**
- * Re-push dirigido: devuelve al outbox las filas del bloque divergente.
+ * Re-push dirigido: devuelve al outbox EXACTAMENTE las filas divergentes.
  *
- * No se reenvía el outbox entero ni se reconstruye la tabla: solo las filas del bloque
- * exacto que discrepa. La ingesta en la nube es idempotente, así que reenviar filas que
- * ya llegaron es inofensivo — se ignoran por HLC.
+ * No el día entero, no la tabla: solo los ids que el nodo tiene y la nube necesita
+ * (`soloEnLocal`) más los que existen en ambos lados con contenido distinto
+ * (`versionDistinta`). La ingesta en la nube es idempotente y ordena por HLC, así que
+ * reenviar una fila más nueva la actualiza y una ya igual se ignora.
  *
- * Solo se reponen filas que el nodo TIENE. Si la divergencia es que la nube tiene filas
- * que el nodo perdió, esto no las recupera; eso se resuelve restaurando el respaldo local
- * o bajando de la nube, y por eso la excepción queda abierta para atención humana.
+ * `soloEnNube` no se toca: son filas que el nodo perdió y no puede reponer desde aquí.
+ * Por eso la excepción queda abierta para atención humana (restaurar respaldo o bajar
+ * de la nube).
  */
 async function reencolarDivergentes(
   node: Client,
-  sucursalId: string,
   divergentes: BloqueChecksum[],
 ): Promise<number> {
   let total = 0;
 
   for (const d of divergentes) {
-    if (d.filasLocal === 0) continue;
+    const ids = [...d.soloEnLocal, ...d.versionDistinta];
+    if (ids.length === 0) continue;
 
     const { rowCount } = await node.query(
       `INSERT INTO sync.outbox (tabla, fila_id, payload, hlc_ts, hlc_cnt, estado)
        SELECT $1, t.id, to_jsonb(t), t.hlc_ts, t.hlc_cnt, 'pendiente'
          FROM ${d.tabla} t
-        WHERE t.sync_sucursal_id = $2
-          AND t.creado_en >= $3::date
-          AND t.creado_en <  $3::date + 1`,
-      [d.tabla, sucursalId, d.dia],
+        WHERE t.id = ANY($2::uuid[])`,
+      [d.tabla, ids],
     );
     total += rowCount ?? 0;
   }

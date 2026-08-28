@@ -783,15 +783,102 @@ verdes.
 
 ---
 
+## Sesión 17 — 2026-08-27 · SPA caja, bug de replicación y motor de sync automático
+
+Tres entregas encadenadas (PRs #9, #10, #11).
+
+### SPA — slice de caja (PR #9, rama `spa-caja`)
+
+- `src/api/rutas/caja.ts` (`tests/api/caja.test.ts`, 7): `GET/POST /caja/corte`,
+  `POST /caja/corte/:id/cerrar`, `GET /caja/corte/:id/movimientos` (visibilidad
+  por rol), `POST /caja/corte/:id/egresos`, `POST /caja/movimientos/:id/anular`.
+- `web/src/paginas/Caja.tsx` (`AbrirCorte` / `CorteAbiertoVista`), `web/src/api/caja.ts`.
+
+### Bug: un cliente nuevo no llegaba a Supabase (PR #10, rama `fix-sync-cliente`)
+
+- Causa raíz: `core.cliente.telefono_normalizado` es **columna generada**, y
+  `sync.ingest_fila` la incluía en el `INSERT`, que Postgres rechaza. El outbox
+  quedaba en `rechazado` en silencio.
+- **`0031_ingesta_columnas_generadas.sql`**: reescribe `sync.ingest_fila`
+  (partiendo de la versión 0014, conservando el envoltorio `donaji.replicando`)
+  añadiendo `AND c.is_generated = 'NEVER'` a la lista de columnas. Reencola los
+  `core.cliente` rechazados por ese motivo.
+- **`0032_outbox_no_sube_config.sql`**: `sync.es_tabla_config()` +
+  `sync.trg_outbox()` ya no encola tablas clase A (las que tienen
+  `trg_cambio_log`). Resuelve el conflicto perpetuo de `tipo_unidad_clave_key`.
+- `scripts/limpiar-dev.ts` reemplaza a `limpiar-datos-poc.ts`: purga filas de la
+  PoC (prefijo `01900000-`) **incluyendo `sync.cambio_log`** (en la nube tenía
+  101 entradas que re-propagaban la PoC a cada pull) y, solo en `local`, resetea
+  el runtime de sync.
+
+### Motor de sync automático (PR #11, rama `motor-sync-automatico`)
+
+Requisito de QA: *"el motor automáticamente debe ejecutarla si la conexión es
+estable… QA no debe intervenir en otro proceso adicional"*.
+
+- **`src/sync/servicio.ts`** (nuevo): supervisor `iniciarMotor()`. Conexiones a
+  local y nube, arranca un `SyncEngine`, reconecta desde cero si una se cae,
+  sobrevive a arrancar sin internet.
+- **`src/api/main.ts`**: `npm run api` arranca el motor **embebido por defecto**
+  (con conexión, cada operación llega a la nube en segundos; sin conexión, se
+  encola y la terminal sigue operando). Producción: `API_SIN_SYNC=1` + servicio
+  aparte. Red de seguridad de 5 s al cerrar (el `SyncEngine.detener()` puede
+  esperar a un push contra una nube muda).
+- **`scripts/sync.ts`**: reescrito como envoltura fina sobre `iniciarMotor()`.
+- **`package.json`**: `pretest` → `scripts/limpiar-dev.ts` (la suite arranca
+  siempre contra una base sin ruido de un `npm run api` previo); script `sync`.
+- **Deadlocks en la suite**: causados por `TRUNCATE sync.*` dentro de
+  transacciones de prueba — su `ACCESS EXCLUSIVE`, tomado ANTES del primer INSERT
+  (o sea antes del lock de `sync.hlc_estado`), rompía la serialización que ese
+  lock impone y abría un ciclo entre archivos. Se cambiaron a `DELETE`; el
+  `pretest` deja las tablas limpias.
+
+Suite backend: **346 verdes, 0 rojas, 18 `it.todo`**. `tsc --noEmit` limpio.
+
+### Pendiente de la SPA
+
+- Slices de **Viajes** y **Dashboard** aún sin construir.
+- El mapa visual de asientos sigue esperando el prototipo del cliente.
+- El botón "Forzar ciclo" y `POST /sync/ciclo` quedan como diagnóstico de QA
+  ("pruebas en vivo"); ya no son necesarios para operar.
+
+---
+
+## Sesión 18 — 2026-08-28 · Reconciliación por checksum: diff dirigido (PR #12)
+
+Deuda de F1 (`motor-pendiente.test.ts`): los 6 `it.todo` del checksum de
+`reconcile.ts`. `sync.calcular_checksum` decía SI un bloque diverge; faltaba QUÉ
+fila y de qué lado, que es lo que el §6.1 promete ("el bloque exacto y un re-push
+dirigido").
+
+- **`0033_filas_bloque.sql`**: `sync.filas_bloque(tabla, sucursal, dia)` →
+  `(id, version)` por fila, mismo corte UTC que `calcular_checksum`.
+- **`src/sync/reconcile.ts`**: cuando un bloque no coincide, baja al detalle y
+  clasifica cada id en `soloEnLocal` (el nodo la tiene, la nube no → re-push),
+  `soloEnNube` (pérdida local → excepción crítica, humano) o `versionDistinta`
+  (mismo id, otra `version` → divergencia de contenido). El re-push dirigido
+  reencola SOLO `soloEnLocal ∪ versionDistinta`, no el día entero. La excepción
+  `divergencia_checksum` lleva las listas (recortadas a 50) en el detalle.
+- **`tests/sync/reconcile.test.ts`** (6, nube simulada): los 6 `it.todo` se
+  vuelven pruebas reales. `motor-pendiente.test.ts` los quita.
+- Incidente de la sesión: un motor de sync embebido (`npm run api`) quedó vivo
+  contra la base de dev escribiendo `sync.salud` con la hora real; frente al
+  `AHORA` futuro de las pruebas, 46 fallaron por `bloqueo_degradado`. Se mató el
+  proceso y se restauró el repunte de `sync.nodo` en `seedAuth`/`seedCaja` (ahora
+  DESPUÉS de los INSERT, donde no interbloquea) como defensa permanente.
+
+Suite backend: **352 verdes, 0 rojas, 12 `it.todo`**. `tsc --noEmit` limpio.
+
+---
+
 ## Pendientes de F1
 
 - `src/sync/engine.ts` funciona pero no cumple el `ContratoEngine` propuesto en
   `motor-pendiente.test.ts` (es la clase `SyncEngine`, no `crearMotor`).
-- `src/sync/reconcile.ts` expone el arbitraje como función pura desde F4
-  (`src/sync/arbitraje.ts`), pero el checksum sigue con 6 `it.todo`
-  (`soloEnLocal`, respaldo restaurado, `versionDistinta`, re-push dirigido,
-  excepción `divergencia_checksum`, ambos vacíos).
-- Quedan 18 `it.todo` (engine 12 + reconcile checksum 6).
+- El checksum de `reconcile.ts` ATERRIZÓ en la Sesión 18 (diff dirigido,
+  `tests/sync/reconcile.test.ts`).
+- Quedan 12 `it.todo`, todos de `engine.ts` (cadencia, backoff, degradado,
+  catch-up de pull antes de vender fuera de cupo).
 
 ## Defectos conocidos aún vivos (con su prueba `DEFECTO VIGENTE` en verde)
 

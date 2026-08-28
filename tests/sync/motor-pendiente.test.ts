@@ -105,47 +105,11 @@ export namespace ContratoEngine {
 
 /** `src/sync/reconcile.ts` */
 export namespace ContratoReconcile {
-  export interface Bloque {
-    tabla: string;
-    sucursalId: string;
-    /** Día operativo `YYYY-MM-DD`. */
-    dia: string;
-    filas: number;
-    hash: string;
-  }
-
-  export interface Divergencia {
-    tabla: string;
-    dia: string;
-    filasLocal: number;
-    filasNube: number;
-    hashLocal: string;
-    hashNube: string;
-    /**
-     * Qué filas faltan de cada lado. Sin esto, "los hashes no coinciden" no es
-     * accionable: el §6.1 promete "el bloque exacto y un re-push dirigido", y dirigido
-     * significa saber QUÉ reenviar.
-     */
-    soloEnLocal: string[];
-    soloEnNube: string[];
-    /** `version` distinta con el mismo `id`: divergencia de contenido, no de existencia. */
-    versionDistinta: string[];
-  }
-
-  export type CalcularBloques = (
-    c: Client, sucursalId: string, dias: readonly string[], tablas?: readonly string[],
-  ) => Promise<Bloque[]>;
-
-  export interface ResultadoConciliacion {
-    divergencias: Divergencia[];
-    filasReencoladas: number;
-    excepcionesAbiertas: number;
-  }
-
-  export type Conciliar = (
-    node: Client, cloud: Client,
-    opts: { sucursalId: string; dias: readonly string[]; rePush?: boolean },
-  ) => Promise<ResultadoConciliacion>;
+  // ---- Checksum y diff dirigido (§6.1) ----
+  // ATERRIZÓ en `src/sync/reconcile.ts` (`reconciliar`, `BloqueChecksum` con
+  // `soloEnLocal` / `soloEnNube` / `versionDistinta`) apoyado en
+  // `sync.filas_bloque` (migración 0033). Sus pruebas viven en
+  // `tests/sync/reconcile.test.ts`.
 
   // ---- Arbitraje determinista (01b §6) ----
   // ATERRIZÓ en `src/sync/arbitraje.ts` (`prioridadDe`, `compararOcupaciones`,
@@ -181,12 +145,9 @@ describe('src/sync/engine.ts — ciclo, cadencia y backoff', () => {
 });
 
 describe('src/sync/reconcile.ts — checksum y clases de conflicto', () => {
-  it.todo('detecta una fila presente en el nodo y ausente en la nube, y la nombra en soloEnLocal');
-  it.todo('detecta la divergencia que deja un respaldo restaurado 6 h atrás (§8)');
-  it.todo('distingue divergencia de EXISTENCIA de divergencia de CONTENIDO (versionDistinta)');
-  it.todo('el re-push dirigido reencola exactamente las filas divergentes, no el día entero');
-  it.todo('abre una excepción `divergencia_checksum` con el bloque exacto');
-  it.todo('no reporta divergencia cuando ambos lados están vacíos');
+  // El checksum, el diff fila a fila (`soloEnLocal` / `soloEnNube` /
+  // `versionDistinta`) y el re-push dirigido ATERRIZARON: sus pruebas están en
+  // `tests/sync/reconcile.test.ts`.
 
   // El corazón de F0 y de F4. La APLICACIÓN a la base (el perdedor pasa a
   // `conflicto`, su boleto a `conflicto_sobreventa`, sin borrarse) vive en
