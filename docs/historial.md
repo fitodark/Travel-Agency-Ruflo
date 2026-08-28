@@ -1149,7 +1149,45 @@ Suite: `tsc` limpio; `tests/sync` + `tests/auth` + `tests/api` = **192 verdes,
 1 `it.todo`, 0 rojas**.
 
 Pendiente de slice 1: el helper `escribirConfig({ modo })`, el servicio
-`src/admin/` + Supabase Auth, y el rol de escritura dedicado.
+`src/admin/` + Supabase Auth, y el rol de escritura dedicado. PR #22 mergeado
+(`973d78a`).
+
+---
+
+## Sesión 28 — 2026-08-28 · F2b slice 1 (b): helper `escribirConfig`
+
+La pieza central que usan los slices 2–4: escribir una fila de configuración
+clase A en la nube con la fecha de vigencia que corresponde al modo (§3.1–§3.2).
+
+- **`src/admin/escribir-config.ts`** (primer archivo de `src/admin/`):
+  - `escribirConfig(db, { tabla, fila, modo, vigenciaEn?, zonaHoraria?,
+    fechaProgramada?, confirmarInmediato? })`.
+  - `modo`: `ventana` (default) → `effective_from` = próxima 03:00 hora local;
+    `inmediato` (exige `confirmarInmediato: true`) → ahora; `programado` → fecha
+    dada.
+  - `vigenciaEn`: `effective_from` (alta/cambio) o `effective_until` (baja).
+  - Zona para `ventana`: explícita → `fila.zona_horaria` → zona de
+    `fila.sucursal_id` → `America/Mexico_City` (P12 sin cerrar).
+  - Tablas sin columna de vigencia (`core.config_impresora`): solo admiten
+    `inmediato`; diferir un cambio no tendría dónde anotarse.
+  - Guarda: la tabla debe ser clase A (`claseDe`), el nodo debe ser la nube
+    (`sync.nodo.es_nube`), y las claves de `fila` deben ser columnas reales.
+  - Upsert `ON CONFLICT (id)` → `trg_cambio_log` publica hacia las terminales.
+  - `proximaVentana(db, zona, ahora)` exportada aparte (la usa el cálculo y sirve
+    para previsualizar en la UI).
+- **`tests/admin/escribir-config.test.ts`** (12, PostgreSQL real, nodo marcado
+  como nube en la transacción): los 3 modos, `effective_until` para bajas,
+  publicación en `sync.cambio_log`, upsert idempotente, zona deducida
+  (Tijuana 1 h detrás de CDMX), rechazos (tabla no clase A, columna inexistente,
+  desde una terminal).
+
+Sin migración: el helper es TS puro sobre el esquema existente.
+
+Suite: `tsc` limpio; `tests/admin` + `tests/sync` + `tests/auth` = **148 verdes,
+1 `it.todo`, 0 rojas**.
+
+Pendiente de slice 1: el servicio `src/admin/servidor.ts` + Supabase Auth y el
+rol de Postgres de escritura dedicado.
 
 ---
 
