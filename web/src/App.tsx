@@ -1,0 +1,38 @@
+import { Navigate, Route, Routes } from 'react-router-dom';
+import { useSesion } from './auth/sesion';
+import { Shell } from './componentes/Shell';
+import { Login } from './paginas/Login';
+import { ElegirSucursal } from './paginas/ElegirSucursal';
+import { Sincronizacion } from './paginas/Sincronizacion';
+import { Clientes } from './paginas/Clientes';
+
+function Protegida({ children }: { children: React.ReactNode }) {
+  const { sesion, cargando, faltaSucursal } = useSesion();
+  if (cargando) {
+    return <div className="h-full grid place-items-center text-slate-400">Cargando…</div>;
+  }
+  if (!sesion) return <Navigate to="/login" replace />;
+  if (faltaSucursal) return <Navigate to="/elegir-sucursal" replace />;
+  return <>{children}</>;
+}
+
+export function App() {
+  return (
+    <Routes>
+      <Route path="/login" element={<Login />} />
+      <Route path="/elegir-sucursal" element={<ElegirSucursal />} />
+      <Route
+        element={
+          <Protegida>
+            <Shell />
+          </Protegida>
+        }
+      >
+        <Route index element={<Navigate to="/sincronizacion" replace />} />
+        <Route path="/sincronizacion" element={<Sincronizacion />} />
+        <Route path="/clientes" element={<Clientes />} />
+      </Route>
+      <Route path="*" element={<Navigate to="/" replace />} />
+    </Routes>
+  );
+}
