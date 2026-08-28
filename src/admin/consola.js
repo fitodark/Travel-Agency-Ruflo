@@ -66,6 +66,60 @@
     return '<div class="scroll"><table><thead><tr>' + th + '</tr></thead><tbody>' + tr + '</tbody></table></div>';
   }
 
+  /** Mensaje persistente (contraseña temporal, código de revocación). Se cierra a mano. */
+  function banner(html) {
+    const d = document.createElement('div');
+    d.className = 'banner';
+    d.innerHTML = html + ' <button class="btn link" style="float:right">cerrar</button>';
+    d.querySelector('button').onclick = () => d.remove();
+    $('panel').prepend(d);
+  }
+
+  const campoInput = (c) => {
+    const v = c.valor == null ? '' : c.valor;
+    if (c.tipo === 'select') {
+      return '<select id="ed-' + c.id + '">' + (c.opciones || []).map((o) =>
+        '<option value="' + esc(o.v) + '"' + (String(o.v) === String(v) ? ' selected' : '') + '>' + esc(o.t) + '</option>').join('') + '</select>';
+    }
+    if (c.tipo === 'checkbox') {
+      return '<input type="checkbox" id="ed-' + c.id + '"' + (v ? ' checked' : '') + '>';
+    }
+    return '<input id="ed-' + c.id + '" type="' + (c.tipo || 'text') + '"'
+      + (c.tipo === 'number' ? ' step="0.01"' : '') + ' value="' + esc(v) + '">';
+  };
+
+  /**
+   * Formulario de edición a pantalla completa del panel. `campos`:
+   *   { id, label, tipo?, valor?, opciones?, full? }
+   * `onGuardar(valores, modo)` — `modo` está solo si `conModo` es true.
+   */
+  function editor(o) {
+    const filas = o.campos.map((c) =>
+      '<label' + (c.full ? ' class="full"' : '') + '>' + c.label + campoInput(c) + '</label>').join('');
+    $('panel').innerHTML =
+      '<p><a href="#" id="ed-volver" class="btn link">← volver</a></p>'
+      + '<form class="alta" id="ed-form"><div class="full"><strong>' + esc(o.titulo) + '</strong></div>'
+      + filas
+      + (o.conModo ? modoHtml('ed', o.modoOpts) : '')
+      + '<div class="full"><button class="btn" type="submit">' + esc(o.guardarTxt || 'Guardar') + '</button></div>'
+      + '</form>';
+    $('ed-volver').onclick = (e) => { e.preventDefault(); SECCION.cargar(); };
+    if (o.conModo) modoBind('ed');
+    $('ed-form').onsubmit = async (e) => {
+      e.preventDefault();
+      const val = {};
+      for (const c of o.campos) {
+        const el = $('ed-' + c.id);
+        val[c.id] = c.tipo === 'checkbox' ? el.checked
+          : c.tipo === 'number' ? (el.value === '' ? null : Number(el.value))
+          : el.value;
+      }
+      try {
+        await o.onGuardar(val, o.conModo ? modoLee('ed') : undefined);
+      } catch (err) { if (err.message !== 'sesión') toast(err.message, true); }
+    };
+  }
+
   // ================= SUCURSALES =====================================
   const Sucursales = {
     titulo: 'Sucursales',
@@ -120,9 +174,9 @@
     async cargar() {
       const [lista, sucs] = await Promise.all([
         api('GET', '/usuarios'),
-        window.__sucs ? Promise.resolve(window.__sucs) : api('GET', '/sucursales'),
+        api('GET', '/sucursales'),
       ]);
-      window.__sucs = sucs;
+      window.__sucs = sucs; window.__usrs = lista;
       const checks = sucs.filter((s) => s.activo).map((s) =>
         '<label style="font-weight:400"><input type="checkbox" class="usr-suc" value="' + s.id + '"> ' + esc(s.codigo) + ' ' + esc(s.nombre) + '</label>'
       ).join('');
@@ -308,67 +362,125 @@
     },
   };
 
-  // ---- acciones de fila (prompt/confirm; formularios completos vendrán después)
+  const ROLES = [
+    { v: 'vendedor', t: 'vendedor' }, { v: 'gerente', t: 'gerente' },
+    { v: 'administrador', t: 'administrador' },
+  ];
+
+  // ---- acciones de fila (formularios inline en el panel) ---------------
   async function accion(a, id) {
     try {
+      // ===== sucursales =====
+      if (a === 'suc-edit') {
+        const s = (window.__sucs || []).find((x) => x.id === id) || {};
+        return editor({
+          titulo: 'Editar sucursal ' + (s.codigo || ''),
+          conModo: true,
+          campos: [
+            { id: 'nombre', label: 'Nombre', valor: s.nombre, full: true },
+            { id: 'direccionCompleta', label: 'Dirección completa', valor: s.direccionCompleta, full: true },
+            { id: 'telefonoPrincipal', label: 'Teléfono', valor: s.telefonoPrincipal },
+            { id: 'zonaHoraria', label: 'Zona horaria', valor: s.zonaHoraria },
+          ],
+          onGuardar: async (v, modo) => {
+            await api('PATCH', '/sucursales/' + id, Object.assign(v, modo));
+            toast('Sucursal actualizada.'); SECCION.cargar();
+          },
+        });
+      }
       if (a === 'suc-baja') {
-        if (!confirm('¿Dar de baja esta sucursal?')) return;
+        if (!confirm('¿Dar de baja esta sucursal? (efecto inmediato)')) return;
         await api('POST', '/sucursales/' + id + '/baja', { modo: 'inmediato', confirmarInmediato: true });
         toast('Sucursal dada de baja.'); return SECCION.cargar();
       }
       if (a === 'suc-hotp') {
-        if (!confirm('Regenerar la semilla HOTP invalida los códigos viejos. ¿Continuar?')) return;
+        if (!confirm('Regenerar la semilla HOTP invalida los códigos de revocación viejos. ¿Continuar?')) return;
         await api('POST', '/sucursales/' + id + '/regenerar-hotp');
         toast('Semilla HOTP regenerada.'); return SECCION.cargar();
       }
-      if (a === 'suc-edit') {
-        const s = (window.__sucs || []).find((x) => x.id === id) || {};
-        const nombre = prompt('Nombre', s.nombre); if (nombre === null) return;
-        const tel = prompt('Teléfono', s.telefonoPrincipal); if (tel === null) return;
-        await api('PATCH', '/sucursales/' + id, { nombre, telefonoPrincipal: tel, modo: 'inmediato', confirmarInmediato: true });
-        toast('Sucursal actualizada.'); return SECCION.cargar();
+
+      // ===== usuarios =====
+      if (a === 'usr-edit') {
+        const u = (window.__usrs || []).find((x) => x.id === id) || {};
+        return editor({
+          titulo: 'Editar ' + (u.nombre || 'usuario'),
+          conModo: true,
+          campos: [
+            { id: 'nombre', label: 'Nombre', valor: u.nombre, full: true },
+            { id: 'rol', label: 'Rol', tipo: 'select', valor: u.rol, opciones: ROLES },
+            { id: 'telefono', label: 'Teléfono', valor: u.telefono },
+          ],
+          onGuardar: async (v, modo) => {
+            await api('PATCH', '/usuarios/' + id, Object.assign(v, modo));
+            toast('Usuario actualizado.'); SECCION.cargar();
+          },
+        });
       }
       if (a === 'usr-baja') {
-        if (!confirm('¿Dar de baja este usuario? (inmediato)')) return;
+        if (!confirm('¿Dar de baja este usuario? Se cierra su sesión de inmediato.')) return;
         await api('POST', '/usuarios/' + id + '/baja', {});
         toast('Usuario dado de baja.'); return SECCION.cargar();
       }
-      if (a === 'usr-edit') {
-        const nombre = prompt('Nombre'); if (nombre === null) return;
-        const rol = prompt('Rol (vendedor / gerente / administrador)'); if (rol === null) return;
-        await api('PATCH', '/usuarios/' + id, { nombre, rol, modo: 'inmediato', confirmarInmediato: true });
-        toast('Usuario actualizado.'); return SECCION.cargar();
-      }
       if (a === 'usr-suc') {
-        const sucs = window.__sucs || [];
-        const cod = prompt('Código de sucursal a asignar/quitar:\n' + sucs.filter((s) => s.activa !== false).map((s) => s.codigo + ' ' + s.nombre).join('\n'));
-        if (!cod) return;
-        const s = sucs.find((x) => x.codigo === cod.trim().toUpperCase());
-        if (!s) { toast('No encontré esa sucursal.', true); return; }
-        const quitar = confirm('Aceptar = ASIGNAR a ' + s.nombre + '. Cancelar = QUITAR.');
-        if (quitar) await api('POST', '/usuarios/' + id + '/sucursales', { sucursalId: s.id, modo: 'inmediato', confirmarInmediato: true });
-        else await api('DELETE', '/usuarios/' + id + '/sucursales/' + s.id, {});
-        toast('Asignación actualizada.'); return SECCION.cargar();
+        const [usrs, todas] = await Promise.all([api('GET', '/usuarios'), api('GET', '/sucursales')]);
+        window.__usrs = usrs; window.__sucs = todas;
+        const u = usrs.find((x) => x.id === id) || {};
+        const asignadas = new Set((u.sucursales || []).filter((s) => s.activa).map((s) => s.id));
+        const sucs = todas.filter((s) => s.activo);
+        $('panel').innerHTML =
+          '<p><a href="#" id="ed-volver" class="btn link">← volver</a></p>'
+          + '<p><strong>Sucursales de ' + esc(u.nombre) + '</strong></p>'
+          + tabla([
+            { t: 'Sucursal', v: (s) => '<strong>' + esc(s.codigo) + '</strong> ' + esc(s.nombre) },
+            { t: '', v: (s) => asignadas.has(s.id)
+              ? '<button class="btn link rojo" data-sa="quitar" data-id="' + s.id + '">quitar</button>'
+              : '<button class="btn link" data-sa="asignar" data-id="' + s.id + '">asignar</button>' },
+          ], sucs, 'No hay sucursales activas.');
+        $('ed-volver').onclick = (e) => { e.preventDefault(); SECCION.cargar(); };
+        document.querySelectorAll('[data-sa]').forEach((b) => b.onclick = async () => {
+          try {
+            if (b.dataset.sa === 'asignar') {
+              await api('POST', '/usuarios/' + id + '/sucursales', { sucursalId: b.dataset.id, modo: 'inmediato', confirmarInmediato: true });
+            } else {
+              await api('DELETE', '/usuarios/' + id + '/sucursales/' + b.dataset.id, {});
+            }
+            toast('Asignación actualizada.'); accion('usr-suc', id);
+          } catch (err) { if (err.message !== 'sesión') toast(err.message, true); }
+        });
+        return;
       }
       if (a === 'usr-pass') {
         if (!confirm('¿Generar una contraseña temporal nueva? La actual dejará de valer.')) return;
         const r = await api('POST', '/usuarios/' + id + '/restablecer-password', {});
-        toast('Nueva contraseña temporal: ' + r.passwordTemporal);
+        banner('Nueva contraseña temporal: <code>' + esc(r.passwordTemporal) + '</code> — comunícala al usuario.');
         return;
       }
       if (a === 'usr-revocar') {
-        const sucs = window.__sucs || [];
-        const cod = prompt('Sucursal donde revocar (código):\n' + sucs.map((s) => s.codigo + ' ' + s.nombre).join('\n'));
-        if (!cod) return;
-        const s = sucs.find((x) => x.codigo === cod.trim().toUpperCase());
-        if (!s) { toast('No encontré esa sucursal.', true); return; }
-        const r = await api('POST', '/usuarios/' + id + '/codigo-revocacion', { sucursalId: s.id });
-        window.prompt('Dicta este código por teléfono al gerente de ' + s.nombre + ':', r.codigo);
+        return editor({
+          titulo: 'Código de revocación',
+          guardarTxt: 'Generar código',
+          campos: [{
+            id: 'sucursalId', label: 'Sucursal donde revocar', tipo: 'select',
+            opciones: (window.__sucs || []).map((s) => ({ v: s.id, t: s.codigo + ' · ' + s.nombre })),
+          }],
+          onGuardar: async (v) => {
+            const r = await api('POST', '/usuarios/' + id + '/codigo-revocacion', { sucursalId: v.sucursalId });
+            await SECCION.cargar();
+            banner('Dicta este código de 8 dígitos por teléfono al gerente: <code>' + esc(r.codigo) + '</code>');
+          },
+        });
       }
+
+      // ===== tarifas =====
       if (a === 'tf-baja') {
-        if (!confirm('¿Retirar el precio de este tramo? Entra por la ventana nocturna.')) return;
-        await api('POST', '/tarifas/' + id + '/baja', { modo: 'ventana' });
-        toast('Tarifa retirada (a partir de la próxima ventana).'); return SECCION.cargar();
+        return editor({
+          titulo: 'Retirar el precio de este tramo', guardarTxt: 'Retirar',
+          conModo: true, modoOpts: { soloDiferido: true }, campos: [],
+          onGuardar: async (_v, modo) => {
+            await api('POST', '/tarifas/' + id + '/baja', modo);
+            toast('Tarifa retirada.'); SECCION.cargar();
+          },
+        });
       }
     } catch (err) { if (err.message !== 'sesión') toast(err.message, true); }
   }

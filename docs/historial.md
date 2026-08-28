@@ -1481,7 +1481,24 @@ La consola tenía API pero no interfaz. Primera pasada, vanilla como
   ticket por sus endpoints devuelven 201. `tests/admin/servidor.test.ts`
   actualizado para `/consola.js`.
 
-Pendiente de la UI: formularios de edición completos (hoy `prompt`).
+### Tercera pasada (misma sesión) — formularios inline en vez de `prompt`
+
+- **`editor({ titulo, campos, conModo?, onGuardar })`** en `consola.js`: renderiza
+  un formulario a pantalla completa del panel (con "← volver") a partir de una
+  lista de campos (`text`/`select`/`checkbox`/`number`/`datetime-local`), opcional
+  el widget de modo. Reemplaza los `prompt` de `suc-edit` y `usr-edit`.
+- **`banner(html)`** — mensaje persistente (se cierra a mano) para la contraseña
+  temporal y el código de revocación, en vez de un `toast` de 3,5 s.
+- **`usr-suc`** ahora es una vista con la lista de sucursales y un botón
+  asignar/quitar por fila (refresca en sitio), en vez de un `prompt` + `confirm`.
+- **`usr-revocar`** es un `editor` con un select de sucursal → genera el código y
+  lo muestra en un `banner` sobre la lista.
+- Los `confirm()` de baja / regenerar HOTP se mantienen (son sí/no puro, no
+  recogían texto). Cero `prompt()` en el archivo.
+- Verificado en el navegador: editar sucursal (guarda y vuelve a la lista),
+  vista de sucursales de un usuario, y código de revocación (con la semilla
+  sembrada). `consola.js` queda en ~555 líneas — un poco sobre el límite de 500,
+  pero partir el cierre compartido costaría más de lo que aporta.
 
 ---
 
