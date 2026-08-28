@@ -1275,6 +1275,38 @@ CRUD de `core.sucursal` desde la consola, con la semilla HOTP al alta.
 
 ---
 
+## Sesión 31 — 2026-08-28 · F2b slice 3 (a): usuarios y accesos (CRUD)
+
+La mitad de CRUD del slice 3 — lo que QA necesita para probar permisos, caja y
+viajes con usuarios reales. La capa 3 de revocación HOTP (§1.5) es la otra mitad,
+pendiente.
+
+- **`src/admin/usuarios.ts`**:
+  - `crearUsuario` — la fila (`core.usuario`), las asignaciones a sucursales
+    (`core.usuario_sucursal`), y una CREDENCIAL TEMPORAL: `hashPassword` (Argon2id,
+    en la nube) + `debe_cambiar = true`. Devuelve la contraseña en claro UNA vez
+    para que el administrador la comunique. `contraseñaTemporal()` genera
+    `XXXX-XXXX-XXXX` con un alfabeto sin caracteres que se confunden al dictar.
+  - `editarUsuario` (parcial), `darDeBajaUsuario` (INMEDIATA por defecto, §3.4;
+    el aplicador del nodo cierra la sesión viva), `asignarSucursal` /
+    `quitarSucursal` (reactivar limpia `effective_until`), `restablecerPassword`,
+    `listarUsuarios` (con `tieneCredencial` y las sucursales con flag `activa`).
+  - Credencial: siempre inmediata, `id = usuario_id` explícito para que un
+    restablecimiento sea UPDATE y no choque contra la PK.
+- **`src/admin/rutas-usuarios.ts`** — `GET/POST /api/usuarios`, `PATCH /:id`,
+  `POST /:id/baja`, `POST /:id/sucursales`, `DELETE /:id/sucursales/:sucursalId`,
+  `POST /:id/restablecer-password`. Registradas en `servidor.ts`.
+- **`tests/admin/usuarios.test.ts`** (14: dominio + HTTP). `describe` con
+  `timeout: 30_000` (Argon2id + varias escrituras por alta).
+
+`npm test`: **49 archivos, 466 verdes, 1 `it.todo`, 0 rojas**.
+
+Pendiente de slice 3: **capa 3 de revocación HOTP** (§1.5) — generador de código
+fuera de banda en la consola + validador nuevo en el nodo, consumido en
+`src/auth/login.ts`. La semilla ya baja replicada (0035, slice 2).
+
+---
+
 ## Pendientes de F1
 
 - El contrato de pruebas del motor está CERRADO: `salud.ts` (Ses. 4), arbitraje
