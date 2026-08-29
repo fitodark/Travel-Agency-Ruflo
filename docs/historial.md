@@ -1890,6 +1890,34 @@ Puebla, cualquier fecha desde hoy.
 
 ---
 
+## Sesión 42 — 2026-08-29 · seed:qa reventaba en el bootstrap por ids divergentes
+
+Al correr `npm run seed:qa` (nube): `sembrar()` de la nube OK, pero
+`prepararNodoLocal` → `bootstrap(local, nube)` reventaba con
+`Bootstrap en conflicto en core.usuario: usuario_email_key`. Causa: un
+`seed:qa --target local` anterior había creado `gerente@`, `vendedor.oax@`, etc.
+en LOCAL con ids generados en local; la nube les dio OTROS ids. El bootstrap copia
+por `id`, así que al insertar el usuario de la nube chocaba contra el mismo
+`email` (UNIQUE) con id distinto → `conflicto` → abortaba. Y realinear caso por
+caso no escala: `usuario_sucursal` tiene su propia clave natural, `credencial` la
+suya, etc. Rama `qa-bootstrap-reset`.
+
+- **`scripts/sembrar-qa.ts`**: `prepararNodoLocal` ahora, ANTES del bootstrap,
+  **vacía por completo** el nodo local — `TRUNCATE ... CASCADE` de cada tabla de
+  `core.*` y `auth_local.*` (un `DO $$` sobre `pg_tables`). La clase A del nodo es
+  por diseño una copia de la nube; `seed:qa` prepara un entorno de PRUEBA, así que
+  las ventas/cortes locales son desechables. El `bootstrap` reconstruye todo desde
+  la nube — exactamente lo que hace una terminal al reinstalarse. `sync.*` (nodo,
+  cursor, hlc) no se toca: no tiene FK a `core`/`auth_local`.
+- Verificado: TRUNCATE + `bootstrap` copia 93+ filas de config + 31 salidas del
+  viaje; los usuarios locales quedan con el id de la nube; `buscar_salidas`
+  Oaxaca→Puebla devuelve la salida ($650, 18 asientos, `seleccionable`).
+
+**Para QA**: `npm run seed:qa` ahora completa. La base local queda como copia
+exacta de la nube.
+
+---
+
 ## F1 — CERRADA
 
 Los cinco criterios de aceptación verdes contra Supabase real

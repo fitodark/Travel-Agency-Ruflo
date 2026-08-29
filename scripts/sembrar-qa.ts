@@ -18,6 +18,12 @@
  * Este script escribe DIRECTO en la base —igual que `sembrar-admin.ts`— en vez de
  * pasar por la consola, para que QA tenga el escenario en un comando.
  *
+ * OJO — modo nube (por defecto): tras sembrar la nube, este script VACÍA por
+ * completo la base LOCAL (`core.*` y `auth_local.*`) y la reconstruye con un
+ * bootstrap desde la nube, igual que una terminal al reinstalarse. Es un entorno
+ * de PRUEBA: las ventas / cortes locales previos se pierden. Así el nodo queda
+ * como copia exacta de la nube y no arrastra ids divergentes de seeds anteriores.
+ *
  * Limpieza: `npm run limpiar:qa` borra este escenario de la nube Y de local.
  *
  * ESCENARIO
@@ -287,7 +293,39 @@ async function sembrarViajeVendible(c: Client, sucursal: Map<string, string>): P
 }
 
 /**
- * Deja el nodo local listo: fija su sucursal y hace un bootstrap desde la nube.
+ * Vacía TODO `core.*` y `auth_local.*` del nodo local antes del bootstrap.
+ *
+ * POR QUÉ TAN AGRESIVO: el `bootstrap` copia la clase A de la nube fila por fila
+ * por `id`. Si el nodo ya tiene esas filas con OTRO id —un `seed:qa --target
+ * local` previo, restos de la PoC, un seed de otra máquina— choca contra las
+ * constraints de clave natural (`usuario_email_key`, `usuario_sucursal_..._key`,
+ * `credencial` por `usuario_id`, …) y el bootstrap revienta. Realinear caso por
+ * caso es un pozo sin fondo: hay una constraint natural en casi cada tabla.
+ *
+ * La clase A del nodo es, por diseño, una COPIA de la nube (el nodo nunca la
+ * escribe). Y `seed:qa` prepara un entorno de PRUEBA: las ventas / cortes locales
+ * son desechables. Así que se vacía todo y el bootstrap lo reconstruye desde la
+ * nube — que es exactamente lo que hace una terminal al reinstalarse. `sync.*`
+ * (nodo, cursor, hlc) no se toca.
+ */
+async function resetNodoLocal(local: Client): Promise<void> {
+  await local.query(`
+    DO $$
+    DECLARE t text;
+    BEGIN
+      FOR t IN
+        SELECT format('%I.%I', schemaname, tablename)
+          FROM pg_tables WHERE schemaname IN ('core', 'auth_local')
+      LOOP
+        EXECUTE 'TRUNCATE ' || t || ' CASCADE';
+      END LOOP;
+    END $$;
+  `);
+}
+
+/**
+ * Deja el nodo local listo: fija su sucursal, lo vacía y hace un bootstrap desde
+ * la nube.
  *
  * El bootstrap copia el estado ACTUAL de la nube (identidades deterministas de
  * 0039) y pone el cursor de pull en el `max(seq)` de ese momento, así el nodo se
@@ -302,12 +340,13 @@ async function prepararNodoLocal(sucursalId: string): Promise<void> {
   await local.connect();
   await nube.connect();
   try {
+    await resetNodoLocal(local);
     await local.query(
       `UPDATE sync.nodo SET sucursal_id = $1, es_nube = false WHERE singleton`,
       [sucursalId],
     );
     const r = await bootstrap(local, nube);
-    console.log(`  bootstrap del nodo local: ${r.total} filas copiadas, cursor en ${r.cursorInicial}`);
+    console.log(`  nodo local vaciado + bootstrap: ${r.total} filas copiadas, cursor en ${r.cursorInicial}`);
   } finally {
     await local.end().catch(() => { /* nada */ });
     await nube.end().catch(() => { /* nada */ });
