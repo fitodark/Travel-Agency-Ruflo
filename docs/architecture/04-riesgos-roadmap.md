@@ -250,10 +250,18 @@ reportes de solo lectura y ese alcance quedó sin hacer. Se retoma en F2b.
 > eso no se prueban en serio los permisos, la caja, los viajes ni los cierres.
 >
 > **Cerrada el 2026-08-28** (PRs #21–#30, migraciones 0034–0038). `src/admin/` con
-> los cuatro slices + la deuda (rol `donaji_consola`, `rbac.activo`) + la UI web
-> (`consola.html`/`consola.js`, 5 pestañas). `npm run admin`. Solo falta el
-> despliegue: `ALTER ROLE donaji_consola ... LOGIN PASSWORD` y las variables de
-> entorno de la consola. Ver `docs/historial.md` §"F2b — CERRADA".
+> los cuatro slices + la deuda (rol `donaji_consola`, `rbac.activo`).
+>
+> **Unificada en la SPA (F2c, 2026):** la consola dejó de ser un proceso y una UI
+> aparte (`src/admin/{servidor,consola.html,consola.js,main}.ts`, `npm run admin`,
+> login con Supabase Auth). Ahora es la sección **Administración** de la SPA de la
+> terminal: un administrador llega a la PC de una sucursal, inicia sesión en la
+> misma app (`auth_local`, offline), edita configuración clase A —que se escribe en
+> la NUBE con esa sesión local (rutas `/admin/*` de `src/api/`, sobre `dbNube`), no
+> en la base local— y las demás sucursales la ven al sincronizarse. Los módulos de
+> dominio de `src/admin/` (`escribirConfig`, `sucursales`, `usuarios`, `tarifas`,
+> `impresion`, `revocacion`) se reusan intactos. Editar exige conexión; sin nube la
+> sección queda solo-lectura. Ver `docs/historial.md`.
 
 **Ya está y no se rehace**: `sync.publicar_a_nodos`, `sync.ingest_fila` sin
 efectos locales (0014), el aplicador de configuración, las vistas `v_*_vigente`

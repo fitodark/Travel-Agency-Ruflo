@@ -8,17 +8,12 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import 'dotenv/config';
 import { Client } from 'pg';
-import type { FastifyInstance } from 'fastify';
 import { resolveConnection } from '../../src/db/connection.js';
 import { verifyPassword } from '../../src/auth/passwords.js';
 import {
   asignarSucursal, contraseñaTemporal, crearUsuario, darDeBajaUsuario, editarUsuario,
   listarUsuarios, quitarSucursal, restablecerPassword,
 } from '../../src/admin/usuarios.js';
-import { construirServidorAdmin } from '../../src/admin/servidor.js';
-import { firmarTokenSupabase } from '../../src/admin/auth-supabase.js';
-
-const SECRETO = 'secreto-de-prueba-suficientemente-largo-2026';
 const local = process.env['LOCAL_DATABASE_URL'];
 const run = local ? describe : describe.skip;
 const AHORA = new Date('2026-09-10T16:00:00.000Z');
@@ -162,74 +157,5 @@ run('consola · usuarios (PostgreSQL real)', () => {
       `SELECT DISTINCT tabla FROM sync.cambio_log WHERE fila_id = $1`, [id],
     );
     expect(rows.map((r) => r.tabla).sort()).toEqual(['auth_local.credencial', 'core.usuario']);
-  });
-}, 30_000);
-
-run('consola · usuarios por HTTP (PostgreSQL real)', () => {
-  let db: Client;
-  let app: FastifyInstance;
-  let sucursalId: string;
-
-  beforeAll(async () => {
-    db = new Client(resolveConnection('local').config);
-    await db.connect();
-  });
-  afterAll(async () => { await db.end(); });
-
-  beforeEach(async () => {
-    await db.query('BEGIN');
-    const { rows } = await db.query<{ id: string }>(
-      `SELECT id FROM core.sucursal WHERE activo ORDER BY creado_en LIMIT 1`,
-    );
-    sucursalId = rows[0]!.id;
-    app = construirServidorAdmin({ db, jwtSecret: SECRETO, adminsIniciales: ['jefe@donaji.mx'], ahora });
-  });
-  afterEach(async () => { await app.close(); await db.query('ROLLBACK'); });
-
-  const auth = { authorization: `Bearer ${firmarTokenSupabase({ sub: 's', email: 'jefe@donaji.mx' }, SECRETO, ahora)}` };
-  const body = (extra: Record<string, unknown> = {}) => ({
-    nombre: 'HTTP', email: `h-${Math.floor(Math.random() * 1e9)}@donaji.test`, rol: 'vendedor',
-    ...extra,
-  });
-
-  it('POST /api/usuarios crea (201) y devuelve la contraseña temporal', async () => {
-    const r = await app.inject({ method: 'POST', url: '/api/usuarios', headers: auth, payload: body() });
-    expect(r.statusCode).toBe(201);
-    expect(r.json().passwordTemporal).toMatch(/^[A-Z2-9]{4}(-[A-Z2-9]{4}){2}$/);
-  });
-
-  it('flujo completo: PATCH, asignar sucursal, quitar, restablecer, baja', async () => {
-    const { id } = (await app.inject({
-      method: 'POST', url: '/api/usuarios', headers: auth,
-      payload: body({ modo: 'inmediato', confirmarInmediato: true }),
-    })).json();
-
-    for (const [method, url, payload] of [
-      ['PATCH', `/api/usuarios/${id}`, { nombre: 'Nuevo', modo: 'inmediato', confirmarInmediato: true }],
-      ['POST', `/api/usuarios/${id}/sucursales`, { sucursalId, modo: 'inmediato', confirmarInmediato: true }],
-      ['DELETE', `/api/usuarios/${id}/sucursales/${sucursalId}`, {}],
-      ['POST', `/api/usuarios/${id}/restablecer-password`, {}],
-      ['POST', `/api/usuarios/${id}/baja`, {}],
-    ] as const) {
-      const res = await app.inject({ method, url, headers: auth, payload });
-      expect([200, 201], `${method} ${url} → ${res.statusCode} ${res.body}`).toContain(res.statusCode);
-    }
-  });
-
-  it('rol inválido en el body → 400', async () => {
-    const r = await app.inject({
-      method: 'POST', url: '/api/usuarios', headers: auth, payload: body({ rol: 'root' }),
-    });
-    expect(r.statusCode).toBe(400);
-  });
-
-  it('email repetido → 409', async () => {
-    const email = `dup-${Math.floor(Math.random() * 1e9)}@donaji.test`;
-    expect((await app.inject({ method: 'POST', url: '/api/usuarios', headers: auth, payload: body({ email }) })).statusCode).toBe(201);
-    expect((await app.inject({ method: 'POST', url: '/api/usuarios', headers: auth, payload: body({ email }) })).statusCode).toBe(409);
-  });
-
-  it('sin token → 401', async () => {
-    expect((await app.inject({ method: 'GET', url: '/api/usuarios' })).statusCode).toBe(401);
   });
 }, 30_000);

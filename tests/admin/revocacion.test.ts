@@ -7,16 +7,12 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import 'dotenv/config';
 import { Client } from 'pg';
-import type { FastifyInstance } from 'fastify';
 import { resolveConnection } from '../../src/db/connection.js';
 import { generarCodigo } from '../../src/auth/hotp.js';
 import { generarCodigoRevocacion } from '../../src/admin/revocacion.js';
 import { crearSucursal } from '../../src/admin/sucursales.js';
 import { crearUsuario } from '../../src/admin/usuarios.js';
-import { construirServidorAdmin } from '../../src/admin/servidor.js';
-import { firmarTokenSupabase } from '../../src/admin/auth-supabase.js';
 
-const SECRETO = 'secreto-de-prueba-suficientemente-largo-2026';
 const local = process.env['LOCAL_DATABASE_URL'];
 const run = local ? describe : describe.skip;
 const AHORA = new Date('2026-09-10T16:00:00.000Z');
@@ -76,29 +72,5 @@ run('consola · códigos de revocación (PostgreSQL real)', () => {
         sucursalId: '00000000-0000-7000-8000-000000000000', usuarioId: agenciaId, ahora,
       }),
     ).rejects.toThrow(/semilla/i);
-  });
-
-  it('POST /api/usuarios/:id/codigo-revocacion devuelve el código', async () => {
-    const app: FastifyInstance = construirServidorAdmin({
-      db, jwtSecret: SECRETO, adminsIniciales: ['jefe@donaji.mx'], ahora,
-    });
-    try {
-      const suc = await crearSucursal(db, {
-        agenciaId, nombre: 'S', direccionCompleta: 'x', telefonoPrincipal: 'x', codigo: 'Y',
-      }, { modo: 'inmediato', confirmarInmediato: true, ahora });
-      const usr = await crearUsuario(db, {
-        nombre: 'U', email: `rvh-${Math.floor(Math.random() * 1e9)}@donaji.test`, rol: 'vendedor',
-      }, { modo: 'inmediato', confirmarInmediato: true, ahora });
-
-      const r = await app.inject({
-        method: 'POST', url: `/api/usuarios/${usr.id}/codigo-revocacion`,
-        headers: { authorization: `Bearer ${firmarTokenSupabase({ sub: 's', email: 'jefe@donaji.mx' }, SECRETO, ahora)}` },
-        payload: { sucursalId: suc.id },
-      });
-      expect(r.statusCode, r.body).toBe(200);
-      expect(r.json().codigo).toMatch(/^\d{8}$/);
-    } finally {
-      await app.close();
-    }
   });
 }, 30_000);

@@ -8,15 +8,11 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import 'dotenv/config';
 import { Client } from 'pg';
-import type { FastifyInstance } from 'fastify';
 import { resolveConnection } from '../../src/db/connection.js';
 import {
   crearSucursal, darDeBajaSucursal, editarSucursal, listarSucursales, regenerarHotp,
 } from '../../src/admin/sucursales.js';
-import { construirServidorAdmin } from '../../src/admin/servidor.js';
-import { firmarTokenSupabase } from '../../src/admin/auth-supabase.js';
 
-const SECRETO = 'secreto-de-prueba-suficientemente-largo-2026';
 const local = process.env['LOCAL_DATABASE_URL'];
 const run = local ? describe : describe.skip;
 const AHORA = new Date('2026-09-10T16:00:00.000Z');
@@ -155,94 +151,4 @@ run('consola · sucursales (PostgreSQL real)', () => {
   // Cada alta son dos escrituras (sucursal + semilla), y toda escritura de la
   // base serializa en la fila única `sync.hlc_estado` (defecto vigente de F1).
   // Bajo la suite en paralelo, el timeout de 5 s por defecto se queda corto.
-}, 25_000);
-
-run('consola · sucursales por HTTP (PostgreSQL real)', () => {
-  let db: Client;
-  let app: FastifyInstance;
-  let agenciaId: string;
-
-  beforeAll(async () => {
-    db = new Client(resolveConnection('local').config);
-    await db.connect();
-  });
-  afterAll(async () => { await db.end(); });
-
-  beforeEach(async () => {
-    await db.query('BEGIN');
-    const { rows } = await db.query<{ id: string }>(
-      `SELECT id FROM core.agencia WHERE activo ORDER BY creado_en LIMIT 1`,
-    );
-    agenciaId = rows[0]!.id;
-    app = construirServidorAdmin({ db, jwtSecret: SECRETO, adminsIniciales: ['jefe@donaji.mx'], ahora });
-  });
-  afterEach(async () => { await app.close(); await db.query('ROLLBACK'); });
-
-  const auth = { authorization: `Bearer ${firmarTokenSupabase({ sub: 's', email: 'jefe@donaji.mx' }, SECRETO, ahora)}` };
-
-  it('POST /api/sucursales crea (201) y GET /api/sucursales la lista', async () => {
-    const c = await app.inject({
-      method: 'POST', url: '/api/sucursales', headers: auth,
-      payload: {
-        agenciaId, nombre: 'HTTP Term', direccionCompleta: 'Av 1', telefonoPrincipal: '953 9',
-        codigo: 'Z', modo: 'inmediato', confirmarInmediato: true,
-      },
-    });
-    expect(c.statusCode).toBe(201);
-    const { id } = c.json();
-
-    const l = await app.inject({ method: 'GET', url: '/api/sucursales', headers: auth });
-    expect(l.statusCode).toBe(200);
-    expect((l.json() as { id: string }[]).some((s) => s.id === id)).toBe(true);
-  });
-
-  it('POST /api/sucursales sin agenciaId usa la única agencia', async () => {
-    const c = await app.inject({
-      method: 'POST', url: '/api/sucursales', headers: auth,
-      payload: {
-        nombre: 'Sin agencia', direccionCompleta: 'x', telefonoPrincipal: 'x',
-        codigo: 'W', modo: 'inmediato', confirmarInmediato: true,
-      },
-    });
-    expect(c.statusCode, c.body).toBe(201);
-  });
-
-  it('PATCH, /baja y /regenerar-hotp responden', async () => {
-    const c = await app.inject({
-      method: 'POST', url: '/api/sucursales', headers: auth,
-      payload: {
-        agenciaId, nombre: 'X', direccionCompleta: 'X', telefonoPrincipal: 'X',
-        codigo: 'Y', modo: 'inmediato', confirmarInmediato: true,
-      },
-    });
-    const { id } = c.json();
-
-    expect((await app.inject({
-      method: 'PATCH', url: `/api/sucursales/${id}`, headers: auth,
-      payload: { nombre: 'Editada', modo: 'inmediato', confirmarInmediato: true },
-    })).statusCode).toBe(200);
-
-    expect((await app.inject({
-      method: 'POST', url: `/api/sucursales/${id}/baja`, headers: auth,
-      payload: { modo: 'inmediato', confirmarInmediato: true },
-    })).statusCode).toBe(200);
-
-    expect((await app.inject({
-      method: 'POST', url: `/api/sucursales/${id}/regenerar-hotp`, headers: auth,
-    })).statusCode).toBe(200);
-  });
-
-  it('POST /api/sucursales con código inválido → 400', async () => {
-    const r = await app.inject({
-      method: 'POST', url: '/api/sucursales', headers: auth,
-      payload: { agenciaId, nombre: 'x', direccionCompleta: 'x', telefonoPrincipal: 'x', codigo: 'I' },
-    });
-    expect(r.statusCode).toBe(400);
-    expect(r.json().error).toBe('sucursal_invalida');
-  });
-
-  it('sin token → 401', async () => {
-    const r = await app.inject({ method: 'GET', url: '/api/sucursales' });
-    expect(r.statusCode).toBe(401);
-  });
 }, 25_000);

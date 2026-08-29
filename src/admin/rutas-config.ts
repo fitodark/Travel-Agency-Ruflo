@@ -1,7 +1,7 @@
 /**
  * Rutas de impresora, ticket y tarifas de la consola (F2b, slice 4).
  *
- * Se registran dentro del bloque `/api` de `servidor.ts` — heredan la auth.
+ * Se registran bajo `/admin` en `src/api/rutas/admin.ts`, que aporta la auth
  *
  * `core.parametro` y `core.rol_permiso` NO tienen rutas dedicadas: se escriben
  * por el endpoint genérico `POST /api/config/:tabla`. (Revocar un permiso además

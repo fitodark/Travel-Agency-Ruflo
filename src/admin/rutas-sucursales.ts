@@ -1,7 +1,7 @@
 /**
  * Rutas de sucursales de la consola de administración (F2b, slice 2).
  *
- * Se registra dentro del bloque `/api` de `servidor.ts`, así que hereda el
+ * Se registran bajo `/admin` en `src/api/rutas/admin.ts`, que aporta la auth
  * `preHandler` de autenticación: todo lo de aquí exige un admin.
  */
 

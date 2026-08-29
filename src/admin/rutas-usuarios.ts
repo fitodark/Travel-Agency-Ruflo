@@ -1,7 +1,7 @@
 /**
  * Rutas de usuarios y accesos de la consola de administración (F2b, slice 3).
  *
- * Se registra dentro del bloque `/api` de `servidor.ts` — hereda la auth.
+ * Se registran bajo `/admin` en `src/api/rutas/admin.ts`, que aporta la auth
  */
 
 import type { FastifyInstance } from 'fastify';

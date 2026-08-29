@@ -7,17 +7,13 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import 'dotenv/config';
 import { Client } from 'pg';
-import type { FastifyInstance } from 'fastify';
 import { resolveConnection } from '../../src/db/connection.js';
 import {
   configurarImpresora, configurarTicket, listarImpresoras, ticketVigente,
 } from '../../src/admin/impresion.js';
 import { crearTarifa, darDeBajaTarifa, listarTarifas } from '../../src/admin/tarifas.js';
-import { construirServidorAdmin } from '../../src/admin/servidor.js';
-import { firmarTokenSupabase } from '../../src/admin/auth-supabase.js';
 import { seedRuta } from '../fleet/fixture.js';
 
-const SECRETO = 'secreto-de-prueba-suficientemente-largo-2026';
 const local = process.env['LOCAL_DATABASE_URL'];
 const run = local ? describe : describe.skip;
 const AHORA = new Date('2026-09-10T16:00:00.000Z');
@@ -131,71 +127,5 @@ run('consola · impresora / ticket / tarifas (PostgreSQL real)', () => {
     expect(rows[0]!.activo).toBe(false);
     expect(new Date(rows[0]!.eu!).getTime()).toBe(new Date(baja.effectiveUntil).getTime());
     expect((await listarTarifas(db, fx.rutaId)).length).toBeGreaterThanOrEqual(1);
-  });
-}, 30_000);
-
-run('consola · impresora / ticket / tarifas por HTTP (PostgreSQL real)', () => {
-  let db: Client;
-  let app: FastifyInstance;
-  let agenciaId: string;
-  let sucursalId: string;
-
-  beforeAll(async () => {
-    db = new Client(resolveConnection('local').config);
-    await db.connect();
-  });
-  afterAll(async () => { await db.end(); });
-
-  beforeEach(async () => {
-    await db.query('BEGIN');
-    const ids = await db.query<{ agencia: string; sucursal: string }>(
-      `SELECT (SELECT id FROM core.agencia WHERE activo ORDER BY creado_en LIMIT 1) AS agencia,
-              (SELECT id FROM core.sucursal WHERE activo ORDER BY creado_en LIMIT 1) AS sucursal`,
-    );
-    agenciaId = ids.rows[0]!.agencia;
-    sucursalId = ids.rows[0]!.sucursal;
-    app = construirServidorAdmin({ db, jwtSecret: SECRETO, adminsIniciales: ['jefe@donaji.mx'], ahora });
-  });
-  afterEach(async () => { await app.close(); await db.query('ROLLBACK'); });
-
-  const auth = { authorization: `Bearer ${firmarTokenSupabase({ sub: 's', email: 'jefe@donaji.mx' }, SECRETO, ahora)}` };
-
-  it('impresora, ticket y tarifa por HTTP', async () => {
-    const imp = await app.inject({
-      method: 'POST', url: '/api/impresoras', headers: auth,
-      payload: { sucursalId, nombre: 'Enduro', transporte: 'tcp', ip: '10.0.0.5' },
-    });
-    expect(imp.statusCode, imp.body).toBe(201);
-    expect((await app.inject({ method: 'GET', url: `/api/impresoras?sucursalId=${sucursalId}`, headers: auth })).statusCode).toBe(200);
-
-    const tk = await app.inject({
-      method: 'POST', url: '/api/ticket', headers: auth,
-      payload: { agenciaId, leyendaPie: 'X', modo: 'inmediato', confirmarInmediato: true },
-    });
-    expect(tk.statusCode, tk.body).toBe(201);
-    expect((await app.inject({ method: 'GET', url: `/api/ticket?agenciaId=${agenciaId}`, headers: auth })).json().leyenda_pie).toBe('X');
-
-    const fx = await seedRuta(db, { paradas: 2 });
-    const tf = await app.inject({
-      method: 'POST', url: '/api/tarifas', headers: auth,
-      payload: { rutaId: fx.rutaId, paradaOrigenOrden: 0, paradaDestinoOrden: 1, importe: 320 },
-    });
-    expect(tf.statusCode, tf.body).toBe(201);
-    expect((await app.inject({
-      method: 'POST', url: `/api/tarifas/${tf.json().id}/baja`, headers: auth, payload: {},
-    })).statusCode).toBe(200);
-  });
-
-  it('POST /api/tarifas con modo inmediato → 400', async () => {
-    const fx = await seedRuta(db, { paradas: 2 });
-    const r = await app.inject({
-      method: 'POST', url: '/api/tarifas', headers: auth,
-      payload: { rutaId: fx.rutaId, paradaOrigenOrden: 0, paradaDestinoOrden: 1, importe: 1, modo: 'inmediato' },
-    });
-    expect(r.statusCode).toBe(400); // el schema rechaza el enum
-  });
-
-  it('sin token → 401', async () => {
-    expect((await app.inject({ method: 'GET', url: '/api/impresoras' })).statusCode).toBe(401);
   });
 }, 30_000);

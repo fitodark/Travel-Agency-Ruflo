@@ -23,13 +23,28 @@
 
 import type { FastifyInstance } from 'fastify';
 import type { Consultable } from '../../db/consulta.js';
-import type { AdminAutenticado } from '../../admin/servidor.js';
 import { escribirConfig, TABLAS_ADMINISTRABLES } from '../../admin/escribir-config.js';
 import { rutasConfig } from '../../admin/rutas-config.js';
 import { rutasSucursales } from '../../admin/rutas-sucursales.js';
 import { rutasUsuarios } from '../../admin/rutas-usuarios.js';
 import { exige } from '../autenticar.js';
 import { entradaInvalida, prohibido } from '../errores.js';
+
+/**
+ * Identidad del administrador que hace la escritura. Se sintetiza de la sesión
+ * local; los handlers reutilizados de `src/admin/` solo leen `.email` para el
+ * campo informativo `escritoPor`.
+ */
+export interface AdminAutenticado {
+  email: string;
+  usuarioId: string;
+}
+
+declare module 'fastify' {
+  interface FastifyRequest {
+    admin: AdminAutenticado;
+  }
+}
 
 export interface OpcionesAdmin {
   /** Conexión a la NUBE (rol `donaji_consola` / `DATABASE_URL`), o `null` si no hay. */
@@ -77,12 +92,9 @@ export async function rutasAdmin(app: FastifyInstance, opts: OpcionesAdmin): Pro
         `SELECT email FROM core.usuario WHERE id = $1`, [req.sesion.usuarioId],
       );
       req.admin = {
-        sub: req.sesion.usuarioId,
         email: rows[0]?.email ?? req.sesion.usuarioId,
-        rol: 'administrador',
-        exp: 0,
         usuarioId: req.sesion.usuarioId,
-      } satisfies AdminAutenticado;
+      };
     });
 
     prot.get('/yo', async (req) => ({
