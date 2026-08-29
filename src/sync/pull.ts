@@ -11,11 +11,20 @@
  */
 
 import type { Client } from 'pg';
+import { claseDe } from './clases.js';
 
 export interface PullResult {
   aplicadas: number;
   ignoradas: number;
   rechazadas: number;
+  /**
+   * Filas de clase A que la nube publicó pero el nodo no pudo aplicar por un
+   * choque de unicidad (típicamente una entrada OBSOLETA del `cambio_log`: una
+   * identidad no determinista de antes de la migración 0039). No bloquean: la
+   * nube es la autoridad de la clase A y una publicación posterior trae el estado
+   * bueno. Se registra una excepción `divergencia_checksum` y el cursor avanza.
+   */
+  omitidas: number;
   porTabla: Record<string, number>;
   cursorFinal: number;
   /**
@@ -44,7 +53,9 @@ export async function pull(node: Client, cloud: Client, opts: PullOptions = {}):
   const batchSize = opts.batchSize ?? 500;
   const maxBatches = opts.maxBatches ?? 20;
 
-  const result: PullResult = { aplicadas: 0, ignoradas: 0, rechazadas: 0, porTabla: {}, cursorFinal: 0 };
+  const result: PullResult = {
+    aplicadas: 0, ignoradas: 0, rechazadas: 0, omitidas: 0, porTabla: {}, cursorFinal: 0,
+  };
 
   // Un solo cursor global sobre `seq`. El esquema lo permite por tabla, pero avanzar
   // uno global mantiene el orden entre tablas, que es lo que hace que una `salida`
@@ -96,6 +107,14 @@ export async function pull(node: Client, cloud: Client, opts: PullOptions = {}):
         result.porTabla[row.tabla] = (result.porTabla[row.tabla] ?? 0) + 1;
       } else if (estado === 'ignorada') {
         result.ignoradas++;
+      } else if (estado === 'omitida') {
+        // Choque de unicidad en una tabla de clase A. NO bloquea: la nube es la
+        // única autoridad de la clase A y siempre gana; una publicación posterior
+        // (p. ej. la re-clave determinista de 0039) trae el estado correcto.
+        // Bloquear el pull para siempre en una entrada obsoleta que NUNCA va a
+        // aplicar es estrictamente peor. Se deja constancia y el cursor avanza.
+        result.omitidas++;
+        await registrarDivergencia(node, row.tabla, row.seq, motivo);
       } else {
         // PÉRDIDA SILENCIOSA — el modo de falla que este motor no puede permitirse.
         //
@@ -182,7 +201,7 @@ async function aplicarFila(
   node: Client,
   tabla: string,
   payload: unknown,
-): Promise<{ estado: 'aplicada' | 'ignorada' | 'rechazada'; motivo: string | null }> {
+): Promise<{ estado: 'aplicada' | 'ignorada' | 'omitida' | 'rechazada'; motivo: string | null }> {
   const { rows } = await node.query<{ estado: string; motivo: string | null }>(
     `SELECT estado, motivo FROM sync.ingest_fila($1, ($2::jsonb->>'id')::uuid, $2::jsonb)`,
     [tabla, JSON.stringify(payload)],
@@ -191,5 +210,33 @@ async function aplicarFila(
   const motivo = rows[0]?.motivo ?? null;
   if (estado === 'aceptada') return { estado: 'aplicada', motivo };
   if (estado === 'ignorada_hlc') return { estado: 'ignorada', motivo };
+  // Un `conflicto` (choque de unicidad) en una tabla de clase A NO debe bloquear
+  // el pull: el nodo nunca gana la clase A, así que reintentar no va a servir.
+  if (estado === 'conflicto' && claseDe(tabla) === 'A') return { estado: 'omitida', motivo };
   return { estado: 'rechazada', motivo };
+}
+
+/**
+ * Deja constancia de una fila de clase A que no se pudo aplicar por choque de
+ * unicidad. Deduplicada por `(tabla)`: la causa suele repetirse (varias entradas
+ * obsoletas seguidas) y no vale ahogar la cola.
+ */
+async function registrarDivergencia(
+  node: Client, tabla: string, seq: string, motivo: string | null,
+): Promise<void> {
+  const { rows } = await node.query<{ n: string }>(
+    `SELECT count(*) AS n FROM sync.excepcion
+      WHERE tipo = 'divergencia_checksum' AND estado = 'abierta' AND entidad = $1`,
+    [tabla],
+  );
+  if (Number(rows[0]!.n) > 0) return;
+
+  await node.query(
+    `INSERT INTO sync.excepcion (tipo, severidad, sucursal_id, entidad, detalle)
+     VALUES ('divergencia_checksum', 'media', sync.sucursal_local(), $1, $2::jsonb)`,
+    [tabla, JSON.stringify({
+      seq, motivo,
+      efecto: 'entrada de cambio_log omitida (clase A); el pull siguió avanzando',
+    })],
+  );
 }

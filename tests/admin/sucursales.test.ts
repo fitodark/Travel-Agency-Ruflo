@@ -28,16 +28,31 @@ run('consola · sucursales (PostgreSQL real)', () => {
   });
   afterAll(async () => { await db.end(); });
 
+  // Códigos de sucursal LIBRES (char(1) UNIQUE del alfabeto sin ambiguos). No se
+  // hardcodean: la base compartida puede tener cualquier sucursal (p. ej. lo que
+  // copió un `npm run seed:qa`), así que se piden a la base los que quedan libres.
+  let libres: string[] = [];
+  const codigoLibre = (): string => {
+    const c = libres.shift();
+    if (!c) throw new Error('no quedan códigos de sucursal libres para la prueba');
+    return c;
+  };
+
   beforeEach(async () => {
     await db.query('BEGIN');
-    const { rows } = await db.query<{ id: string }>(
+    const ag = await db.query<{ id: string }>(
       `SELECT id FROM core.agencia WHERE activo ORDER BY creado_en LIMIT 1`,
     );
-    agenciaId = rows[0]!.id;
+    agenciaId = ag.rows[0]!.id;
+    const { rows } = await db.query<{ c: string }>(
+      `SELECT c FROM unnest(string_to_array('ABCDEFGHJKMNPQRSTVWXYZ23456789', NULL)) AS c
+        WHERE c NOT IN (SELECT codigo FROM core.sucursal) ORDER BY c LIMIT 8`,
+    );
+    libres = rows.map((r) => r.c);
   });
   afterEach(async () => { await db.query('ROLLBACK'); });
 
-  const datos = (codigo: string, extra: Record<string, unknown> = {}) => ({
+  const datos = (codigo: string | undefined = codigoLibre(), extra: Record<string, unknown> = {}) => ({
     agenciaId,
     nombre: `Terminal ${codigo}`,
     direccionCompleta: `Calle ${codigo} 100, Centro`,
@@ -56,13 +71,14 @@ run('consola · sucursales (PostgreSQL real)', () => {
 
   // ---- dominio -----------------------------------------------------------
   it('crearSucursal da de alta la sucursal y genera su semilla HOTP de 20 bytes', async () => {
-    const r = await crearSucursal(db, datos('Z'), { ahora });
-    expect(r.codigo).toBe('Z');
+    const cod = codigoLibre();
+    const r = await crearSucursal(db, datos(cod), { ahora });
+    expect(r.codigo).toBe(cod);
 
     const { rows } = await db.query<{ nombre: string; zona: string }>(
       `SELECT nombre, zona_horaria AS zona FROM core.sucursal WHERE id = $1`, [r.id],
     );
-    expect(rows[0]!.nombre).toBe('Terminal Z');
+    expect(rows[0]!.nombre).toBe(`Terminal ${cod}`);
     expect(rows[0]!.zona).toBe('America/Mexico_City');
 
     const s = await semilla(r.id);
@@ -82,21 +98,21 @@ run('consola · sucursales (PostgreSQL real)', () => {
     await expect(crearSucursal(db, datos('I'), { ahora })).rejects.toThrow(/código/i);
     await expect(crearSucursal(db, datos('AB'), { ahora })).rejects.toThrow(/código/i);
     await expect(
-      crearSucursal(db, datos('Y', { zonaHoraria: 'Marte/Olympus' }), { ahora }),
+      crearSucursal(db, datos(undefined, { zonaHoraria: 'Marte/Olympus' }), { ahora }),
     ).rejects.toThrow(/zona horaria/i);
   });
 
   it('el modo de propagación llega hasta el alta', async () => {
-    const v = await crearSucursal(db, datos('X'), { modo: 'ventana', ahora });
+    const v = await crearSucursal(db, datos(), { modo: 'ventana', ahora });
     expect(new Date(v.effectiveFrom).getTime()).toBeGreaterThan(AHORA.getTime());
 
     await expect(
-      crearSucursal(db, datos('W'), { modo: 'inmediato', ahora }),
+      crearSucursal(db, datos(), { modo: 'inmediato', ahora }),
     ).rejects.toThrow(/confirmarInmediato/);
   });
 
   it('editarSucursal cambia campos y sube la versión', async () => {
-    const { id } = await crearSucursal(db, datos('Z'), { ahora });
+    const { id } = await crearSucursal(db, datos(), { ahora });
     await editarSucursal(db, id, { nombre: 'Renombrada', telefonoPrincipal: '953 111 2222' },
       { modo: 'inmediato', confirmarInmediato: true, ahora });
 
@@ -107,7 +123,7 @@ run('consola · sucursales (PostgreSQL real)', () => {
   });
 
   it('darDeBajaSucursal marca activo=false con effective_until', async () => {
-    const { id } = await crearSucursal(db, datos('Z'), { ahora });
+    const { id } = await crearSucursal(db, datos(), { ahora });
     const r = await darDeBajaSucursal(db, id, { modo: 'inmediato', confirmarInmediato: true, ahora });
     expect(new Date(r.effectiveUntil).getTime()).toBe(AHORA.getTime());
 
@@ -119,7 +135,7 @@ run('consola · sucursales (PostgreSQL real)', () => {
   });
 
   it('regenerarHotp cambia la semilla', async () => {
-    const { id } = await crearSucursal(db, datos('Z'), { ahora });
+    const { id } = await crearSucursal(db, datos(), { ahora });
     const antes = await semilla(id);
     await regenerarHotp(db, id, { ahora });
     const despues = await semilla(id);
@@ -128,7 +144,7 @@ run('consola · sucursales (PostgreSQL real)', () => {
   });
 
   it('listarSucursales incluye las inactivas y marca si tienen HOTP', async () => {
-    const { id } = await crearSucursal(db, datos('Z'), { ahora });
+    const { id } = await crearSucursal(db, datos(), { ahora });
     await darDeBajaSucursal(db, id, { modo: 'inmediato', confirmarInmediato: true, ahora });
 
     const lista = await listarSucursales(db);
@@ -140,7 +156,7 @@ run('consola · sucursales (PostgreSQL real)', () => {
 
   it('el alta publica la sucursal y su semilla a las terminales', async () => {
     await db.query("SET LOCAL donaji.forzar_nube = 'on'");
-    const { id } = await crearSucursal(db, datos('Z'), { ahora });
+    const { id } = await crearSucursal(db, datos(), { ahora });
 
     const { rows } = await db.query<{ tabla: string }>(
       `SELECT DISTINCT tabla FROM sync.cambio_log WHERE fila_id = $1`, [id],

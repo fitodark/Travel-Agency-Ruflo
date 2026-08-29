@@ -1733,6 +1733,49 @@ config en producción, `src/api/` (la terminal) necesita `ADMIN_DATABASE_URL`
 
 ---
 
+## Sesión 39 — 2026-08-29 · El pull no bajaba nada: bloqueado por una entrada obsoleta
+
+QA corrió `seed:qa` (→ nube) y los datos locales no coincidían con la nube.
+Diagnóstico: **el pull estaba atascado desde el 29-08 07:42** en `sync.cambio_log`
+seq 33 — una entrada vieja de `core.tipo_unidad` con el `id` ALEATORIO de antes de
+0039. El nodo ya tiene la Sprinter con el `id` determinista (`md5(...)`), así que
+aplicar la entrada vieja por `id` crea un duplicado del `clave` (`UNIQUE`) →
+`conflicto`. `pull.ts` DETIENE el cursor en la primera fila que no aplica y no
+avanza — pensado para un rechazo por FK que el siguiente ciclo resuelve. Pero un
+`conflicto` de clase A nunca se resuelve reintentando (el nodo no gana la clase
+A), así que el pull quedaba muerto y NADA posterior (incluido el escenario de QA)
+bajaba. Rama `fix-pull-clase-a-obsoleto`.
+
+- **`src/sync/pull.ts`**: una fila de **clase A** en `conflicto` (choque de
+  unicidad) ya NO bloquea — se **omite** (nuevo estado `omitida`, contador
+  `PullResult.omitidas`), se abre una excepción `divergencia_checksum` (severidad
+  **media**, deduplicada por tabla) y el cursor avanza. La nube es la autoridad de
+  la clase A; una publicación posterior trae el estado bueno (0039 lo hizo). Un
+  rechazo por FK (`rechazada`) sigue bloqueando como antes.
+- **`scripts/sembrar-qa.ts`**: con `--target nube` y `LOCAL_DATABASE_URL`, ahora
+  también hace un **`bootstrap(local, nube)`**: copia el estado ACTUAL de la nube
+  (ids deterministas) y deja el cursor en el `max(seq)` de ese momento, así el
+  nodo se salta TODO el `sync.cambio_log` histórico de la PoC —lleno de entradas
+  obsoletas que referencian ids muertos— y solo procesa lo nuevo. Es la
+  preparación que un nodo real hace al instalarse. Sustituye al viejo
+  `fijarNodoLocal`.
+- **`tests/admin/sucursales.test.ts`**: dejó de hardcodear los códigos de
+  sucursal (W/X/Y/Z); ahora pide a la base los LIBRES (como `seedAuth`), porque un
+  `bootstrap` puede haber copiado cualquier sucursal a la base compartida.
+- `tests/sync/caos-perdida.test.ts` +1: un `conflicto` de clase A se omite y el
+  pull sigue con lo que venía detrás.
+- Limpieza puntual de la base local de dev (sucursales V/W/X/Y y cruft de
+  ruta/horario/salida que un bootstrap de prueba copió de la nube).
+
+Pendiente (no bloqueante): el `sync.cambio_log` de la Supabase compartida tiene
+~1270 entradas históricas de la PoC, muchas con ids muertos. Un nodo que hace
+bootstrap las ignora (cursor en el máximo). Convendría un `DELETE FROM
+sync.cambio_log WHERE seq < <corte>` de higiene, pero no es urgente.
+
+`tsc` limpio. `npm test`: **54 archivos, 481 verdes, 1 `it.todo`, 0 rojas**.
+
+---
+
 ## F1 — CERRADA
 
 Los cinco criterios de aceptación verdes contra Supabase real
