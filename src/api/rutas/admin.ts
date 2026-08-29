@@ -25,6 +25,7 @@ import type { FastifyInstance } from 'fastify';
 import type { Consultable } from '../../db/consulta.js';
 import { escribirConfig, TABLAS_ADMINISTRABLES } from '../../admin/escribir-config.js';
 import { rutasConfig } from '../../admin/rutas-config.js';
+import { rutasHorarios } from '../../admin/rutas-horarios.js';
 import { rutasSucursales } from '../../admin/rutas-sucursales.js';
 import { rutasUsuarios } from '../../admin/rutas-usuarios.js';
 import { exige } from '../autenticar.js';
@@ -106,6 +107,7 @@ export async function rutasAdmin(app: FastifyInstance, opts: OpcionesAdmin): Pro
     rutasSucursales(prot, { db: dbNube, ahora });
     rutasUsuarios(prot, { db: dbNube, ahora });
     rutasConfig(prot, { db: dbNube, ahora });
+    rutasHorarios(prot, { db: dbNube });
 
     // Endpoint genérico para las tablas sin ruta dedicada (parámetros, permisos).
     // Sin schema sobre `fila`: lleva columnas arbitrarias y `escribirConfig` ya

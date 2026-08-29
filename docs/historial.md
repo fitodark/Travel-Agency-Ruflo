@@ -1698,17 +1698,33 @@ corrigió:
   credenciales/sesiones/asignaciones/folios/HOTP), y en la nube también las filas
   de `sync.cambio_log` de esas entidades. No toca `admin@donaji.local`.
 
-### Fase 3 — DIFERIDA
+### Fase 3 — autoría de rutas y horarios (rama `admin-rutas-horarios`)
 
-Autoría de rutas/horarios (`core.ruta`, `core.horario` + sus paradas). No se hizo:
-`escribirConfig` es mal encaje para tablas estructurales multi-fila
-(`ruta_parada`, `horario_parada`) — necesita funciones SQL dedicadas (patrón
-`materializar_salidas`) y un diseño de UX de paradas. Es un PR propio y no
-bloquea las pruebas de QA (login, usuarios, sucursales, tarifas, impresora,
-ticket ya cubiertos).
+Sin migración: las 4 tablas (`core.ruta`, `ruta_parada`, `horario`,
+`horario_parada`) ya son clase A (`registrar_entidad` + `publicar_a_nodos`,
+0004/0008). Se evitó `escribirConfig` (mal encaje para tablas estructurales
+multi-fila): las inserciones compuestas van en **una sentencia con CTEs**
+(`WITH r AS (INSERT ruta …), p AS (INSERT ruta_parada …)`) — atómicas y sin pedir
+un `Client` del pool; cada `INSERT` publica igual por `trg_cambio_log`.
 
-`tsc` limpio (raíz + `web/`), `vite build` OK. `npm test`: **54 archivos, 478
-verdes, 1 `it.todo`** (la prueba de cadencia del motor sigue flaky bajo carga).
+- **`src/admin/horarios.ts`**: `crearRuta({nombre, sucursalIds})` (≥2, distintas),
+  `editarRuta`, `darDeBajaRuta`, `listarRutasDetalle` (ruta + paradas con
+  `ruta_parada_id`); `crearHorario({rutaId, horaSalida, diasSemana, conductorId?,
+  unidadId?, vigenteDesde?, vigenteHasta?, pasos})`, `editarHorario` (parcial),
+  `darDeBajaHorario`, `listarHorarios`, `listarConductores`, `listarUnidades`.
+- **`src/admin/rutas-horarios.ts`** + registrada en `src/api/rutas/admin.ts`
+  (`/admin/rutas-detalle`, `/admin/horarios`, `/admin/conductores`,
+  `/admin/unidades`).
+- **`web/src/paginas/admin/Horarios.tsx`**: lista de rutas con "nueva ruta"
+  (nombre + lista ordenada de sucursales) y, por ruta, sus horarios + "nuevo
+  horario" (hora, días como toggles, conductor/unidad opcionales, vigencia, hora
+  de paso por parada). Nav "Rutas y horarios" (`config.horarios`).
+- Aviso en la UI: cambiar una ruta/horario **no** re-materializa salidas ya
+  creadas (D-7); el job nocturno toma los cambios para las futuras.
+- `tests/api/admin.test.ts` +2 (crear ruta + horario; rechazo de ruta de 1 parada).
+
+`tsc` limpio (raíz + `web/`), `vite build` OK. `npm test`: **54 archivos, 480
+verdes, 1 `it.todo`, 0 rojas**.
 
 **Despliegue**: la consola ya no necesita despliegue propio; para escribir
 config en producción, `src/api/` (la terminal) necesita `ADMIN_DATABASE_URL`

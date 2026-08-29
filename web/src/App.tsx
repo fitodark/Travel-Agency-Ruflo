@@ -15,6 +15,7 @@ import { AdminUsuarios } from './paginas/admin/Usuarios';
 import { AdminImpresoras } from './paginas/admin/Impresoras';
 import { AdminTicket } from './paginas/admin/Ticket';
 import { AdminTarifas } from './paginas/admin/Tarifas';
+import { AdminHorarios } from './paginas/admin/Horarios';
 
 function Protegida({ children }: { children: React.ReactNode }) {
   const { sesion, cargando, faltaSucursal } = useSesion();
@@ -49,6 +50,7 @@ export function App() {
           <Route index element={<Navigate to="/admin/sucursales" replace />} />
           <Route path="sucursales" element={<AdminSucursales />} />
           <Route path="usuarios" element={<AdminUsuarios />} />
+          <Route path="rutas" element={<AdminHorarios />} />
           <Route path="impresoras" element={<AdminImpresoras />} />
           <Route path="ticket" element={<AdminTicket />} />
           <Route path="tarifas" element={<AdminTarifas />} />
