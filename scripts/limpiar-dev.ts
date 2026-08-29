@@ -13,6 +13,9 @@
  *    `sync.lote_recibido`, `sync.checksum_bloque`, y `sync.config_aplicado`.
  *    Se ensucia cada vez que corres `npm run sync` o un push/pull a mano contra
  *    la misma base que usa la suite.
+ *  - Las SESIONES e INTENTOS de login (`auth_local.sesion`, `auth_local.intento`).
+ *    Un login manual —`npm run seed:qa` + la SPA— deja sesiones abiertas que
+ *    `tests/config/aplicador.test.ts` cuenta al hacer su pasada global.
  *
  * NO toca la configuración normal de dev (agencia "Donaji (dev)", sucursal `D`,
  * `admin@donaji.local`) ni los datos de negocio con id de prefijo real.
@@ -57,6 +60,8 @@ const POC: Array<[string, string]> = [
 ];
 
 const SYNC: Array<[string, string]> = [
+  ['auth_local.sesion', `DELETE FROM auth_local.sesion`],
+  ['auth_local.intento', `DELETE FROM auth_local.intento`],
   ['sync.outbox', `DELETE FROM sync.outbox WHERE estado IN ('rechazado', 'enviado')`],
   ['sync.excepcion', `TRUNCATE sync.excepcion`],
   ['sync.salud', `TRUNCATE sync.salud`],
