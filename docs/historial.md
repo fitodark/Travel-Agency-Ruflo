@@ -1601,14 +1601,37 @@ transacción abierta sobre `core` no bloquea otra fila; el bootstrap con seeds
 converge sin colisión de identidad; la terminal reinstalada rehidrata folios y
 sube sin conflicto.
 
-`tsc` limpio. `npm test` sin `f1-criterios` (necesita la nube en 0041):
-**53 archivos, 485 verdes, 1 `it.todo`, 0 rojas.**
+Migraciones 0039–0041 aplicadas a **nube y local**. `tsc` limpio. `npm test`
+completo (con `f1-criterios` contra Supabase real, 15/15): **54 archivos, 500
+verdes, 1 `it.todo`, 0 rojas.** Mergeado a `main` (PR #32, merge `bcac125`).
 
-### Pendiente de despliegue
+---
 
-`npm run db:migrate:nube` para aplicar 0039–0041 a Supabase (bloqueado para el
-asistente por política; lo corre el usuario). Hasta entonces `f1-criterios.test.ts`
-—bootstrap contra Supabase real— corre contra una nube en 0038.
+## Sesión 37 — 2026-08-28 · Seed de QA para el inicio de sesión
+
+QA necesitaba probar login con usuarios y sucursales reales. El módulo existe
+—la consola de F2b (`src/admin/`)— pero escribe en la nube y necesita despliegue
++ sync para llegar a un nodo. Se optó por un seed local (como `sembrar-admin.ts`).
+
+- **`scripts/sembrar-qa.ts`** (`npm run seed:qa`, `--target nube`, `--sucursal N`):
+  3 sucursales (códigos `1`/`2`/`3` — no chocan con los que hardcodean las
+  pruebas de `tests/admin/`) y 6 usuarios que cubren cada caso del login:
+  administrador en las 3 (picker de 3), gerente/vendedores atados a una
+  (sesión directa), un vendedor multisucursal (picker sin ser admin) y uno sin
+  sucursal (login rechazado `sin_sucursal_activa`). Idempotente: reactiva lo que
+  un test haya dado de baja, refresca hashes, y ajusta las asignaciones
+  `usuario_sucursal` al conjunto deseado. Contraseña `donaji-qa` (o `QA_PASSWORD`).
+  Fija `sync.nodo.sucursal_id` a la sucursal `1` (Oaxaca) por defecto.
+- **`scripts/limpiar-dev.ts`**: el `pretest` ahora también vacía
+  `auth_local.sesion` y `auth_local.intento`. Un login manual dejaba sesiones
+  abiertas que `tests/config/aplicador.test.ts` contaba en su pasada global
+  (fallo de 6 pruebas destapado por el seed).
+- Decisión (con el usuario): el login **no** se restringe a la sucursal del nodo
+  —devuelve todas las asignadas al usuario, como dice el blueprint §1.3—; el
+  administrador "ve todas" desde la consola/tablero en nube, no desde la terminal.
+- Verificado: los 6 escenarios de login dan el resultado esperado. `npm test`:
+  **54 archivos, 500 verdes, 1 `it.todo`** (una prueba de cadencia del motor es
+  flaky bajo carga; pasa en aislamiento).
 
 ---
 
