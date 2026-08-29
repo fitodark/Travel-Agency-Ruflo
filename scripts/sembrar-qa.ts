@@ -31,6 +31,14 @@
  *     vendedor.tux@donaji.local vendedor        2         -> puede entrar en cualquier nodo
  *     multi@donaji.local        vendedor        1, 3      -> picker con 2 opciones (no admin)
  *     sin.sucursal@donaji.local vendedor        (ninguna) -> login rechazado: sin_sucursal_activa
+ *
+ *   Viaje vendible (para probar el flujo de venta de punta a punta):
+ *     Ruta "QA Oaxaca-Puebla"  Oaxaca Centro (0) -> Puebla (1)
+ *     Unidad QA-01 (SPRINTER-18)  ·  Conductor "Conductor QA"
+ *     Horario 07:00 todos los días, CON conductor, vigente desde hoy
+ *     Tarifa Oaxaca->Puebla $650, vigente desde hoy
+ *     -> el seed materializa 30 días de salidas: `buscar_salidas` ya las
+ *        encuentra en cuanto el nodo hace pull (o el bootstrap del final).
  */
 
 import 'dotenv/config';
@@ -61,6 +69,26 @@ const SUCURSALES: DefSucursal[] = [
   { codigo: '2', nombre: 'Tuxtepec', direccion: 'Blvd. Benito Juárez 200', telefono: '287 200 0002' },
   { codigo: '3', nombre: 'Puebla', direccion: 'Calz. Zaragoza 300', telefono: '222 300 0003' },
 ];
+
+/**
+ * Ids fijos del viaje vendible. Deterministas para que re-correr el seed sea
+ * idempotente (`ON CONFLICT (id)`), y reconocibles (`d0d0da01-…`) para saber de
+ * un vistazo que son de QA. `limpiar-qa.ts` los borra por estos mismos ids.
+ */
+const VIAJE = {
+  ruta:      'd0d0da01-0000-7000-8000-000000000001',
+  paradaOax: 'd0d0da01-0000-7000-8000-0000000000a0',
+  paradaPue: 'd0d0da01-0000-7000-8000-0000000000b0',
+  unidad:    'd0d0da01-0000-7000-8000-000000000010',
+  conductor: 'd0d0da01-0000-7000-8000-000000000020',
+  horario:   'd0d0da01-0000-7000-8000-000000000030',
+  hpOax:     'd0d0da01-0000-7000-8000-0000000000a1',
+  hpPue:     'd0d0da01-0000-7000-8000-0000000000b1',
+  tarifa:    'd0d0da01-0000-7000-8000-000000000040',
+} as const;
+
+/** Días de salidas que materializa el seed. QA no necesita el horizonte de 90. */
+const DIAS_MATERIALIZACION = 30;
 
 const USUARIOS: DefUsuario[] = [
   { email: 'admin@donaji.local', nombre: 'Administrador QA', rol: 'administrador', sucursales: ['1', '2', '3'] },
@@ -145,12 +173,117 @@ async function sembrar(c: Client): Promise<Map<string, string>> {
       }
     }
 
+    // 4 · Un viaje vendible: flota + ruta + horario CON conductor + tarifa, y sus
+    // salidas materializadas. Sin esto, `buscar_salidas` nunca devuelve nada
+    // porque no hay `core.salida` (y no se puede materializar un horario sin
+    // conductor: D-7).
+    await sembrarViajeVendible(c, sucursalId);
+
     await c.query('COMMIT');
   } catch (err) {
     await c.query('ROLLBACK').catch(() => { /* ya revertida */ });
     throw err;
   }
   return sucursalId;
+}
+
+/**
+ * Siembra un viaje que se puede vender: unidad + conductor + ruta + horario (con
+ * conductor, para que se pueda materializar) + tarifa vigente, y materializa
+ * `DIAS_MATERIALIZACION` días de salidas. Corre dentro de la transacción de
+ * `sembrar` (todo visible dentro de la tx; en la nube cada INSERT publica igual
+ * por `trg_cambio_log`).
+ *
+ * Todo con ids fijos + `ON CONFLICT (id)`, así que re-correr el seed no duplica:
+ * la ruta/horario se actualizan en sitio y `materializar_salidas` es idempotente
+ * por `UNIQUE (horario_id, fecha_operacion)`.
+ */
+async function sembrarViajeVendible(c: Client, sucursal: Map<string, string>): Promise<void> {
+  const oaxaca = sucursal.get('1')!;
+  const puebla = sucursal.get('3')!;
+
+  const { rows: tu } = await c.query<{ id: string }>(
+    `SELECT id FROM core.tipo_unidad WHERE clave = 'SPRINTER-18'`,
+  );
+  if (!tu[0]) {
+    throw new Error(
+      'falta el tipo de unidad SPRINTER-18. Corré `npm run db:migrate` ' +
+      '(aplica los seeds) contra esta base antes del seed de QA.',
+    );
+  }
+  const tipoUnidadId = tu[0].id;
+
+  // `unidad`, `conductor`, `ruta`, `ruta_parada` y `horario_parada` NO tienen
+  // `effective_until` (solo `activo` + `desactivado_*`); `horario` y `tarifa` sí.
+  const REACTIVAR = 'activo = true, desactivado_en = NULL, desactivado_por = NULL, desactivado_motivo = NULL';
+
+  await c.query(
+    `INSERT INTO core.unidad (id, tipo_unidad_id, numero_economico, placas, sucursal_base_id)
+     VALUES ($1, $2, 'QA-01', 'QA-0001', $3)
+     ON CONFLICT (id) DO UPDATE
+        SET tipo_unidad_id = EXCLUDED.tipo_unidad_id, ${REACTIVAR}`,
+    [VIAJE.unidad, tipoUnidadId, oaxaca],
+  );
+
+  await c.query(
+    `INSERT INTO core.conductor (id, nombre, telefono, tipo_unidad_id, unidad_habitual_id)
+     VALUES ($1, 'Conductor QA', '951 000 0000', $2, $3)
+     ON CONFLICT (id) DO UPDATE
+        SET tipo_unidad_id = EXCLUDED.tipo_unidad_id, unidad_habitual_id = EXCLUDED.unidad_habitual_id,
+            ${REACTIVAR}`,
+    [VIAJE.conductor, tipoUnidadId, VIAJE.unidad],
+  );
+
+  // Ruta Oaxaca (0) -> Puebla (1), con sus dos paradas.
+  await c.query(
+    `INSERT INTO core.ruta (id, nombre, sucursal_origen_id, sucursal_destino_id)
+     VALUES ($1, 'QA Oaxaca-Puebla', $2, $3)
+     ON CONFLICT (id) DO UPDATE SET nombre = EXCLUDED.nombre, ${REACTIVAR}`,
+    [VIAJE.ruta, oaxaca, puebla],
+  );
+  await c.query(
+    `INSERT INTO core.ruta_parada (id, ruta_id, sucursal_id, orden)
+     VALUES ($1, $3, $4, 0), ($2, $3, $5, 1)
+     ON CONFLICT (id) DO UPDATE SET sucursal_id = EXCLUDED.sucursal_id, orden = EXCLUDED.orden, ${REACTIVAR}`,
+    [VIAJE.paradaOax, VIAJE.paradaPue, VIAJE.ruta, oaxaca, puebla],
+  );
+
+  // Horario 07:00 todos los días, CON conductor, vigente desde hoy.
+  await c.query(
+    `INSERT INTO core.horario (id, ruta_id, hora_salida, dias_semana, conductor_id, unidad_id, vigente_desde)
+     VALUES ($1, $2, '07:00', '{1,2,3,4,5,6,7}', $3, $4, current_date)
+     ON CONFLICT (id) DO UPDATE
+        SET conductor_id = EXCLUDED.conductor_id, unidad_id = EXCLUDED.unidad_id,
+            vigente_desde = EXCLUDED.vigente_desde, vigente_hasta = NULL,
+            effective_until = NULL, ${REACTIVAR}`,
+    [VIAJE.horario, VIAJE.ruta, VIAJE.conductor, VIAJE.unidad],
+  );
+  await c.query(
+    `INSERT INTO core.horario_parada (id, horario_id, ruta_parada_id, orden, hora_paso)
+     VALUES ($1, $3, $4, 0, '07:00'), ($2, $3, $5, 1, '13:00')
+     ON CONFLICT (id) DO UPDATE SET ruta_parada_id = EXCLUDED.ruta_parada_id,
+                                    orden = EXCLUDED.orden, hora_paso = EXCLUDED.hora_paso`,
+    [VIAJE.hpOax, VIAJE.hpPue, VIAJE.horario, VIAJE.paradaOax, VIAJE.paradaPue],
+  );
+
+  // Tarifa Oaxaca (0) -> Puebla (1), vigente desde ya.
+  await c.query(
+    `INSERT INTO core.tarifa (id, ruta_id, parada_origen_orden, parada_destino_orden, importe, effective_from)
+     VALUES ($1, $2, 0, 1, 650, now())
+     ON CONFLICT (id) DO UPDATE
+        SET importe = EXCLUDED.importe, effective_from = EXCLUDED.effective_from,
+            effective_until = NULL, ${REACTIVAR}`,
+    [VIAJE.tarifa, VIAJE.ruta],
+  );
+
+  const { rows: mat } = await c.query<{ creadas: number; ya_existentes: number }>(
+    `SELECT creadas, ya_existentes FROM core.materializar_salidas($1::uuid, $2::int)`,
+    [VIAJE.horario, DIAS_MATERIALIZACION],
+  );
+  console.log(
+    `  viaje vendible: ruta "QA Oaxaca-Puebla" + horario 07:00 · ` +
+    `salidas materializadas: ${mat[0]!.creadas} nuevas, ${mat[0]!.ya_existentes} ya estaban`,
+  );
 }
 
 /**
@@ -228,6 +361,12 @@ async function main(): Promise<void> {
     sin.sucursal@donaji.local  -> login rechazado: "sin_sucursal_activa"
 
   RBAC: administrador ve Administración y el Tablero; gerente/vendedor no.
+
+  Venta de punta a punta: en Vender, origen "Oaxaca Centro" -> destino "Puebla",
+  cualquier fecha desde hoy. Sale el horario de las 07:00 con tarifa $650.
+  (Si no aparece de inmediato, el nodo aún no hizo pull: espera un ciclo o
+  vuelve a correr el seed, que hace bootstrap.)
+
   Limpieza: npm run limpiar:qa (borra el escenario de nube y de local).`);
 }
 
