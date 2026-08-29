@@ -1820,6 +1820,38 @@ al reiniciar resuelve la excepción huérfana). Opcional: `npm run sanear:nube -
 
 ---
 
+## Sesión 40 — 2026-08-29 · SPA: menú lateral colapsable + sistema de diseño
+
+Petición: que el menú lateral se pueda colapsar y que los componentes no luzcan
+tan genéricos. Solo `web/` — sin tocar backend ni datos. Rama
+`ui-menu-colapsable`.
+
+- **`web/tailwind.config.js`**: paleta de marca `brand` (teal, `brand-600
+  #1b766e`, `brand-950 #082726`), `arena` (cálidos), `lienzo #f6f5f2`, `tinta
+  #1c2523`; `borderRadius.xl`, sombras `tarjeta`/`panel`.
+- **`web/src/index.css`**: capa de componentes — `.btn` + variantes
+  (`.btn-primario`, `.btn-fantasma`, `.btn-peligro`, `.btn-sutil`), `.campo` /
+  `.campo-sm` (inputs), `.tarjeta`, `.chip` + estados
+  (`chip-ok`/`baja`/`alerta`/`error`), anillo de foco accesible.
+- **`web/src/componentes/ui.tsx`** (nuevo): primitivos —
+  `Boton`, `Tarjeta`, `EncabezadoPagina`, `Campo`, `CampoSelect`, `Chip`,
+  `Tabla<T>`, `Aviso`, `Cargando`.
+- **`web/src/componentes/iconos.tsx`** (nuevo): iconos SVG en línea (sin
+  dependencia — la terminal opera offline), uno por sección del nav.
+- **`web/src/componentes/Shell.tsx`**: `<aside>` colapsable `w-60` ↔ `w-16`,
+  estado en `localStorage` (`donaji.nav.colapsado`); iconos + tooltip al
+  colapsar; grupos "Operación" / "Administración"; sidebar teal oscuro; header
+  con chip de rol y selector de sucursal reestilizado.
+- **`Login.tsx`, `ElegirSucursal.tsx`, `admin/AdminLayout.tsx`** y el resto de
+  páginas: fondo `lienzo`, tarjetas con borde suave y sombra, tablas con
+  encabezado en versalitas y `hover` de fila, botones/inputs/chips a las nuevas
+  clases. Steppers y selección de asiento en `Vender` pasan a teal.
+
+`tsc` limpio en `web/`, `vite build` OK (CSS 27.35 kB). Sin cambios de lógica ni
+de rutas API.
+
+---
+
 ## F1 — CERRADA
 
 Los cinco criterios de aceptación verdes contra Supabase real

@@ -39,15 +39,15 @@ export function AdminTicket() {
     <div className="space-y-4 max-w-xl">
       <p className="text-sm text-slate-500">Datos del pie del boleto. Cada guardado publica una versión nueva (versionado por fecha).</p>
       {error && <p className="text-sm text-red-600">{error}</p>}
-      <form onSubmit={enviar} className="rounded border bg-white p-4 grid gap-3 text-sm">
-        <label>Leyenda de pie<input value={f.leyendaPie} onChange={set('leyendaPie')} className="mt-1 w-full rounded border px-2 py-1" /></label>
-        <label>Teléfono de atención<input value={f.telefonoAtencion} onChange={set('telefonoAtencion')} className="mt-1 w-full rounded border px-2 py-1" /></label>
-        <label>Créditos del proveedor<input value={f.credencialesProveedor} onChange={set('credencialesProveedor')} className="mt-1 w-full rounded border px-2 py-1" /></label>
-        <label>URL del logo<input value={f.logoUrl} onChange={set('logoUrl')} className="mt-1 w-full rounded border px-2 py-1" /></label>
-        <label>Secreto HMAC del QR<input value={f.hmacQrSecreto} onChange={set('hmacQrSecreto')} className="mt-1 w-full rounded border px-2 py-1" /></label>
+      <form onSubmit={enviar} className="tarjeta p-4 grid gap-3 text-sm">
+        <label>Leyenda de pie<input value={f.leyendaPie} onChange={set('leyendaPie')} className="campo mt-1" /></label>
+        <label>Teléfono de atención<input value={f.telefonoAtencion} onChange={set('telefonoAtencion')} className="campo mt-1" /></label>
+        <label>Créditos del proveedor<input value={f.credencialesProveedor} onChange={set('credencialesProveedor')} className="campo mt-1" /></label>
+        <label>URL del logo<input value={f.logoUrl} onChange={set('logoUrl')} className="campo mt-1" /></label>
+        <label>Secreto HMAC del QR<input value={f.hmacQrSecreto} onChange={set('hmacQrSecreto')} className="campo mt-1" /></label>
         {modo.nodo}
         <div className="flex items-center gap-3">
-          <button type="submit" disabled={m.isPending} className="rounded bg-slate-900 text-white px-4 py-1.5 disabled:opacity-50">
+          <button type="submit" disabled={m.isPending} className="btn-primario">
             {m.isPending ? 'Publicando…' : 'Publicar versión'}
           </button>
           <span className="text-slate-400 text-xs">

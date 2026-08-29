@@ -43,14 +43,14 @@ export function Clientes() {
     <div className="space-y-6 max-w-4xl">
       <h1 className="text-xl font-semibold">Clientes</h1>
 
-      <form onSubmit={registrar} className="rounded border bg-white p-4 grid grid-cols-4 gap-3 items-end">
+      <form onSubmit={registrar} className="tarjeta p-4 grid grid-cols-4 gap-3 items-end">
         <label className="text-sm col-span-1">
           Nombre
           <input
             required
             value={nombre}
             onChange={(e) => setNombre(e.target.value)}
-            className="mt-1 w-full rounded border px-3 py-2"
+            className="campo mt-1"
           />
         </label>
         <label className="text-sm col-span-1">
@@ -58,7 +58,7 @@ export function Clientes() {
           <input
             value={telefono}
             onChange={(e) => setTelefono(e.target.value)}
-            className="mt-1 w-full rounded border px-3 py-2"
+            className="campo mt-1"
           />
         </label>
         <label className="text-sm col-span-1">
@@ -67,13 +67,13 @@ export function Clientes() {
             type="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            className="mt-1 w-full rounded border px-3 py-2"
+            className="campo mt-1"
           />
         </label>
         <button
           type="submit"
           disabled={alta.isPending}
-          className="rounded bg-slate-900 text-white py-2 text-sm disabled:opacity-50"
+          className="btn-primario w-full"
         >
           {alta.isPending ? 'Guardando…' : 'Registrar'}
         </button>
@@ -85,28 +85,28 @@ export function Clientes() {
           placeholder="Buscar por nombre…"
           value={busqueda}
           onChange={(e) => setBusqueda(e.target.value)}
-          className="w-full max-w-sm rounded border px-3 py-2 text-sm mb-3"
+          className="w-full max-w-sm campo mb-3"
         />
 
         {lista.isLoading && <p className="text-sm text-slate-400">Cargando…</p>}
         {lista.isError && <p className="text-sm text-red-600">No se pudo cargar la lista.</p>}
 
-        <table className="w-full text-sm bg-white rounded border overflow-hidden">
-          <thead className="bg-slate-50 text-left text-slate-500">
+        <table className="w-full text-sm overflow-hidden">
+          <thead className="border-b border-slate-200 bg-slate-50/70 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
             <tr>
-              <th className="px-3 py-2">Nombre</th>
-              <th className="px-3 py-2">Teléfono</th>
-              <th className="px-3 py-2">Correo</th>
-              <th className="px-3 py-2">Registrado</th>
+              <th className="px-4 py-2.5">Nombre</th>
+              <th className="px-4 py-2.5">Teléfono</th>
+              <th className="px-4 py-2.5">Correo</th>
+              <th className="px-4 py-2.5">Registrado</th>
             </tr>
           </thead>
           <tbody>
             {lista.data?.map((c) => (
-              <tr key={c.id} className="border-t">
-                <td className="px-3 py-2">{c.nombre}</td>
-                <td className="px-3 py-2">{c.telefono ?? '—'}</td>
-                <td className="px-3 py-2">{c.email ?? '—'}</td>
-                <td className="px-3 py-2 text-slate-400">
+              <tr key={c.id} className="border-t border-slate-100 transition hover:bg-brand-50/40">
+                <td className="px-4 py-3">{c.nombre}</td>
+                <td className="px-4 py-3">{c.telefono ?? '—'}</td>
+                <td className="px-4 py-3">{c.email ?? '—'}</td>
+                <td className="px-4 py-3 text-slate-400">
                   {new Date(c.creadoEn).toLocaleDateString()}
                 </td>
               </tr>

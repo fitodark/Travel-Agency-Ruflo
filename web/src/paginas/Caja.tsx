@@ -9,7 +9,7 @@ import { useSesion } from '../auth/sesion';
 
 function Cifra({ etiqueta, valor, fuerte }: { etiqueta: string; valor: number; fuerte?: boolean }) {
   return (
-    <div className="rounded border bg-white p-3">
+    <div className="tarjeta p-3">
       <div className="text-xs uppercase tracking-wide text-slate-400">{etiqueta}</div>
       <div className={`mt-1 ${fuerte ? 'text-lg font-semibold' : 'text-base'}`}>${valor}</div>
     </div>
@@ -59,7 +59,7 @@ function AbrirCorte({ onListo, onError }: { onListo: () => void; onError: (e: un
   return (
     <form
       onSubmit={(e: FormEvent) => { e.preventDefault(); m.mutate(); }}
-      className="rounded border bg-white p-4 space-y-3"
+      className="tarjeta p-4 space-y-3"
     >
       <p className="text-sm text-slate-500">No hay corte abierto en esta sucursal.</p>
       <label className="block text-sm">
@@ -75,7 +75,7 @@ function AbrirCorte({ onListo, onError }: { onListo: () => void; onError: (e: un
       <button
         type="submit"
         disabled={m.isPending}
-        className="rounded bg-slate-900 text-white px-4 py-2 text-sm disabled:opacity-50"
+        className="btn-primario"
       >
         Abrir corte
       </button>
@@ -145,7 +145,7 @@ function CorteAbiertoVista({
 
       <form
         onSubmit={(e: FormEvent) => { e.preventDefault(); egreso.mutate(); }}
-        className="rounded border bg-white p-4 flex gap-3 items-end"
+        className="tarjeta p-4 flex gap-3 items-end"
       >
         <label className="text-sm">
           Monto
@@ -160,13 +160,13 @@ function CorteAbiertoVista({
           <input
             required maxLength={500}
             value={descripcion} onChange={(e) => setDescripcion(e.target.value)}
-            className="mt-1 w-full rounded border px-3 py-2"
+            className="campo mt-1"
           />
         </label>
         <button
           type="submit"
           disabled={egreso.isPending}
-          className="rounded bg-slate-900 text-white px-4 py-2 text-sm disabled:opacity-50"
+          className="btn-primario"
         >
           Registrar egreso
         </button>
@@ -174,22 +174,22 @@ function CorteAbiertoVista({
 
       <div>
         <h2 className="text-sm font-semibold text-slate-600 mb-2">Movimientos</h2>
-        <table className="w-full text-sm bg-white rounded border">
-          <thead className="bg-slate-50 text-left text-slate-500">
+        <table className="w-full text-sm">
+          <thead className="border-b border-slate-200 bg-slate-50/70 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
             <tr>
-              <th className="px-3 py-2">Tipo</th>
-              <th className="px-3 py-2">Concepto</th>
+              <th className="px-4 py-2.5">Tipo</th>
+              <th className="px-4 py-2.5">Concepto</th>
               <th className="px-3 py-2 text-right">Monto</th>
-              <th className="px-3 py-2" />
+              <th className="px-4 py-2.5" />
             </tr>
           </thead>
           <tbody>
             {movs.data?.map((m) => (
               <tr key={m.id} className={`border-t ${m.activo ? '' : 'text-slate-400 line-through'}`}>
-                <td className="px-3 py-2">{m.tipo}</td>
-                <td className="px-3 py-2">{m.descripcion ?? m.origenTipo}</td>
-                <td className="px-3 py-2 text-right">${m.monto}</td>
-                <td className="px-3 py-2 text-right">
+                <td className="px-4 py-3">{m.tipo}</td>
+                <td className="px-4 py-3">{m.descripcion ?? m.origenTipo}</td>
+                <td className="px-4 py-3 text-right">${m.monto}</td>
+                <td className="px-4 py-3 text-right">
                   {m.activo && m.tipo === 'egreso' && puedeAnular && (
                     <button
                       onClick={() => anular.mutate(m.id)}
@@ -211,7 +211,7 @@ function CorteAbiertoVista({
 
       <form
         onSubmit={(e: FormEvent) => { e.preventDefault(); cerrar.mutate(); }}
-        className="rounded border bg-white p-4 flex gap-3 items-end"
+        className="tarjeta p-4 flex gap-3 items-end"
       >
         <label className="text-sm">
           Saldo declarado (efectivo contado)
