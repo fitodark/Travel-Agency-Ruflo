@@ -9,7 +9,7 @@ const REFRESCO_EXCEPCIONES_MS = 30_000;
 
 function Dato({ etiqueta, valor, alerta }: { etiqueta: string; valor: string; alerta?: boolean }) {
   return (
-    <div className="rounded border bg-white p-3">
+    <div className="tarjeta p-3">
       <div className="text-xs uppercase tracking-wide text-slate-400">{etiqueta}</div>
       <div className={`mt-1 text-lg font-semibold ${alerta ? 'text-red-600' : ''}`}>{valor}</div>
     </div>
@@ -70,7 +70,7 @@ export function Sincronizacion() {
           <button
             onClick={() => ciclo.mutate()}
             disabled={ciclo.isPending}
-            className="rounded bg-slate-900 text-white px-4 py-2 disabled:opacity-50"
+            className="btn-primario"
           >
             {ciclo.isPending ? 'Sincronizando…' : 'Forzar ciclo'}
           </button>
@@ -144,7 +144,7 @@ export function Sincronizacion() {
         )}
         <ul className="space-y-2">
           {excepciones.data?.map((e) => (
-            <li key={e.id} className="rounded border bg-white p-3 text-sm">
+            <li key={e.id} className="tarjeta p-3 text-sm">
               <span
                 className={`inline-block rounded px-2 py-0.5 text-xs font-medium mr-2 ${
                   e.severidad === 'critica'

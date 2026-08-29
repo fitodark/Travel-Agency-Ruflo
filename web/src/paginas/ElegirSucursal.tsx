@@ -50,28 +50,32 @@ export function ElegirSucursal() {
   }
 
   return (
-    <div className="h-full flex items-center justify-center">
-      <div className="w-80 bg-white rounded-lg shadow p-6 space-y-3">
-        <h1 className="text-lg font-semibold">Elige tu sucursal</h1>
+    <div className="flex h-full items-center justify-center bg-gradient-to-br from-lienzo via-lienzo to-brand-50 p-6">
+      <div className="tarjeta w-[22rem] space-y-3 p-6 shadow-panel">
+        <h1 className="text-base font-semibold tracking-tight">Elige tu sucursal</h1>
+        <p className="text-xs text-slate-500">Vas a operar la terminal como esta sucursal.</p>
         {sucursales.length === 0 && (
           <p className="text-sm text-slate-500">
             No se recibió la lista de sucursales. Vuelve a{' '}
-            <button className="underline" onClick={() => navigate('/login')}>
+            <button className="text-brand-700 underline" onClick={() => navigate('/login')}>
               iniciar sesión
             </button>
             .
           </p>
         )}
-        {sucursales.map((s) => (
-          <button
-            key={s.id}
-            onClick={() => void elegir(s.id)}
-            disabled={eligiendo !== null}
-            className="w-full text-left rounded border px-3 py-2 text-sm hover:bg-slate-50 disabled:opacity-50"
-          >
-            {s.nombre}
-          </button>
-        ))}
+        <div className="space-y-2 pt-1">
+          {sucursales.map((s) => (
+            <button
+              key={s.id}
+              onClick={() => void elegir(s.id)}
+              disabled={eligiendo !== null}
+              className="flex w-full items-center justify-between rounded-lg border border-slate-200 px-3.5 py-2.5 text-left text-sm transition hover:border-brand-300 hover:bg-brand-50/50 disabled:opacity-50"
+            >
+              <span className="font-medium text-slate-700">{s.nombre}</span>
+              <span className="text-brand-500">→</span>
+            </button>
+          ))}
+        </div>
         {error && <p className="text-sm text-red-600">{error}</p>}
       </div>
     </div>

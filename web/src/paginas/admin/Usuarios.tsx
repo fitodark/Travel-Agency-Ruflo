@@ -49,39 +49,39 @@ export function AdminUsuarios() {
       )}
 
       {usuarios.isLoading && <p className="text-sm text-slate-400">Cargando…</p>}
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm bg-white rounded border">
-          <thead className="bg-slate-50 text-left text-slate-500">
+      <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-tarjeta">
+        <table className="w-full text-sm">
+          <thead className="border-b border-slate-200 bg-slate-50/70 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
             <tr>
-              <th className="px-3 py-2">Nombre</th><th className="px-3 py-2">Rol</th>
-              <th className="px-3 py-2">Sucursales</th><th className="px-3 py-2">Credencial</th>
-              <th className="px-3 py-2">Estado</th><th className="px-3 py-2"></th>
+              <th className="px-4 py-2.5">Nombre</th><th className="px-4 py-2.5">Rol</th>
+              <th className="px-4 py-2.5">Sucursales</th><th className="px-4 py-2.5">Credencial</th>
+              <th className="px-4 py-2.5">Estado</th><th className="px-4 py-2.5"></th>
             </tr>
           </thead>
           <tbody>
             {usuarios.data?.map((u) => (
-              <tr key={u.id} className="border-t align-top">
-                <td className="px-3 py-2">{u.nombre}<br /><span className="text-slate-400 text-xs">{u.email}</span></td>
-                <td className="px-3 py-2">{u.rol}</td>
-                <td className="px-3 py-2">
+              <tr key={u.id} className="border-t border-slate-100 align-top transition hover:bg-brand-50/40">
+                <td className="px-4 py-3">{u.nombre}<br /><span className="text-slate-400 text-xs">{u.email}</span></td>
+                <td className="px-4 py-3">{u.rol}</td>
+                <td className="px-4 py-3">
                   {u.sucursales.filter((s) => s.activa).map((s) => (
-                    <span key={s.id} className="inline-block rounded bg-slate-100 px-1.5 py-0.5 text-xs mr-1">{s.codigo}</span>
+                    <span key={s.id} className="inline-block chip-baja mr-1">{s.codigo}</span>
                   ))}
                   {u.sucursales.filter((s) => s.activa).length === 0 && <span className="text-slate-400">—</span>}
                 </td>
-                <td className="px-3 py-2">
+                <td className="px-4 py-3">
                   {!u.tieneCredencial ? <span className="text-red-600">falta</span>
-                    : u.debeCambiarPassword ? <span className="rounded bg-amber-100 text-amber-800 px-1.5 py-0.5 text-xs">temporal</span>
+                    : u.debeCambiarPassword ? <span className="chip-alerta">temporal</span>
                     : 'ok'}
                 </td>
-                <td className="px-3 py-2">
+                <td className="px-4 py-3">
                   {u.activo
-                    ? <span className="rounded bg-green-100 text-green-700 px-2 py-0.5 text-xs">alta</span>
-                    : <span className="rounded bg-slate-200 text-slate-600 px-2 py-0.5 text-xs">baja</span>}
+                    ? <span className="chip-ok">alta</span>
+                    : <span className="chip-baja">baja</span>}
                 </td>
-                <td className="px-3 py-2 whitespace-nowrap text-sm">
-                  <button className="underline text-slate-700 mr-3" onClick={() => setEdit(u)}>editar</button>
-                  <button className="underline text-slate-700 mr-3" onClick={() => setAccesos(u)}>sucursales</button>
+                <td className="px-4 py-3 whitespace-nowrap text-sm">
+                  <button className="btn-sutil mr-3" onClick={() => setEdit(u)}>editar</button>
+                  <button className="btn-sutil mr-3" onClick={() => setAccesos(u)}>sucursales</button>
                   <AccionFila texto="contraseña" confirmar="¿Generar una contraseña temporal nueva?"
                     fn={() => restablecerPassword(u.id)}
                     onOk={(r) => setBanner(`Nueva contraseña temporal: ${(r as { passwordTemporal: string }).passwordTemporal}`)}
@@ -110,7 +110,7 @@ function AccionFila(
 ) {
   const m = useMutation({ mutationFn: fn, onSuccess: onOk, onError: (e) => onError(msg(e)) });
   return (
-    <button className="underline text-slate-700 mr-3 disabled:opacity-50" disabled={m.isPending}
+    <button className="btn-sutil mr-3 disabled:opacity-50" disabled={m.isPending}
       onClick={() => { if (window.confirm(confirmar)) m.mutate(); }}>{texto}</button>
   );
 }
@@ -127,14 +127,14 @@ function RevocacionBoton(
     onError: (e) => onError(msg(e)),
   });
   if (!abierto) {
-    return <button className="underline text-slate-700" onClick={() => setAbierto(true)}>código revocación</button>;
+    return <button className="btn-sutil" onClick={() => setAbierto(true)}>código revocación</button>;
   }
   return (
     <span className="inline-flex items-center gap-1">
-      <select value={sucursalId} onChange={(e) => setSucursalId(e.target.value)} className="rounded border px-1 py-0.5 text-xs">
+      <select value={sucursalId} onChange={(e) => setSucursalId(e.target.value)} className="campo-sm">
         {sucursales.map((s) => <option key={s.id} value={s.id}>{s.codigo}</option>)}
       </select>
-      <button className="underline text-slate-700" disabled={m.isPending || !sucursalId} onClick={() => m.mutate()}>generar</button>
+      <button className="btn-sutil" disabled={m.isPending || !sucursalId} onClick={() => m.mutate()}>generar</button>
       <button className="underline text-slate-400" onClick={() => setAbierto(false)}>×</button>
     </span>
   );
@@ -159,17 +159,17 @@ function NuevoUsuario(
   const enviar = (e: FormEvent) => { e.preventDefault(); m.mutate(); };
 
   return (
-    <details className="rounded border bg-white p-4">
+    <details className="tarjeta p-4">
       <summary className="cursor-pointer text-sm font-medium">+ Nuevo usuario</summary>
       <form onSubmit={enviar} className="mt-3 grid gap-3 sm:grid-cols-2 text-sm">
-        <label>Nombre<input required value={f.nombre} onChange={set('nombre')} className="mt-1 w-full rounded border px-2 py-1" /></label>
-        <label>Correo<input required type="email" value={f.email} onChange={set('email')} className="mt-1 w-full rounded border px-2 py-1" /></label>
+        <label>Nombre<input required value={f.nombre} onChange={set('nombre')} className="campo mt-1" /></label>
+        <label>Correo<input required type="email" value={f.email} onChange={set('email')} className="campo mt-1" /></label>
         <label>Rol
-          <select value={f.rol} onChange={set('rol')} className="mt-1 w-full rounded border px-2 py-1">
+          <select value={f.rol} onChange={set('rol')} className="campo mt-1">
             {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
           </select>
         </label>
-        <label>Teléfono<input value={f.telefono} onChange={set('telefono')} className="mt-1 w-full rounded border px-2 py-1" /></label>
+        <label>Teléfono<input value={f.telefono} onChange={set('telefono')} className="campo mt-1" /></label>
         <div className="sm:col-span-2">
           <span className="text-slate-500">Sucursales</span>
           <div className="mt-1 flex flex-wrap gap-3">
@@ -184,7 +184,7 @@ function NuevoUsuario(
           </div>
         </div>
         <div className="sm:col-span-2">{modo.nodo}</div>
-        <button type="submit" disabled={m.isPending} className="rounded bg-slate-900 text-white px-4 py-1.5 disabled:opacity-50 justify-self-start">
+        <button type="submit" disabled={m.isPending} className="btn-primario justify-self-start">
           {m.isPending ? 'Creando…' : 'Crear'}
         </button>
       </form>
@@ -205,18 +205,18 @@ function EditarUsuario(
     onError: (e) => onError(msg(e)),
   });
   return (
-    <form onSubmit={(e) => { e.preventDefault(); m.mutate(); }} className="rounded border bg-white p-4 grid gap-3 sm:grid-cols-2 text-sm">
+    <form onSubmit={(e) => { e.preventDefault(); m.mutate(); }} className="tarjeta p-4 grid gap-3 sm:grid-cols-2 text-sm">
       <div className="sm:col-span-2 font-medium">Editar {u.nombre}</div>
-      <label>Nombre<input value={f.nombre} onChange={set('nombre')} className="mt-1 w-full rounded border px-2 py-1" /></label>
+      <label>Nombre<input value={f.nombre} onChange={set('nombre')} className="campo mt-1" /></label>
       <label>Rol
-        <select value={f.rol} onChange={set('rol')} className="mt-1 w-full rounded border px-2 py-1">
+        <select value={f.rol} onChange={set('rol')} className="campo mt-1">
           {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
         </select>
       </label>
-      <label>Teléfono<input value={f.telefono} onChange={set('telefono')} className="mt-1 w-full rounded border px-2 py-1" /></label>
+      <label>Teléfono<input value={f.telefono} onChange={set('telefono')} className="campo mt-1" /></label>
       <div className="sm:col-span-2">{modo.nodo}</div>
       <div className="sm:col-span-2 flex gap-2">
-        <button type="submit" disabled={m.isPending} className="rounded bg-slate-900 text-white px-4 py-1.5 disabled:opacity-50">Guardar</button>
+        <button type="submit" disabled={m.isPending} className="btn-primario">Guardar</button>
         <button type="button" onClick={onCancelar} className="rounded border px-4 py-1.5">Cancelar</button>
       </div>
     </form>
@@ -239,15 +239,15 @@ function Accesos(
     onError: (e) => onError(msg(e)),
   });
   return (
-    <div className="rounded border bg-white p-4 space-y-3">
-      <button className="underline text-slate-700 text-sm" onClick={onVolver}>← volver</button>
+    <div className="tarjeta p-4 space-y-3">
+      <button className="btn-sutil text-sm" onClick={onVolver}>← volver</button>
       <p className="font-medium">Sucursales de {u.nombre}</p>
       <ul className="space-y-1 text-sm">
         {sucursales.map((s) => (
           <li key={s.id} className="flex items-center gap-3">
             <span className="w-48"><b>{s.codigo}</b> {s.nombre}</span>
             <button
-              className="underline text-slate-700 disabled:opacity-50"
+              className="btn-sutil disabled:opacity-50"
               disabled={toggle.isPending}
               onClick={() => toggle.mutate({ id: s.id, quitar: asignadas.has(s.id) })}
             >

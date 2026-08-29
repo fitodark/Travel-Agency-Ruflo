@@ -5,6 +5,65 @@
 html, body, #root {
   height: 100%;
 }
+
 body {
-  @apply bg-slate-100 text-slate-900 antialiased;
+  @apply bg-lienzo text-tinta antialiased;
+  font-feature-settings: 'cv02', 'cv03', 'cv04', 'ss01';
+}
+
+@layer base {
+  /* Anillo de foco consistente y visible sin ser estridente. */
+  :where(button, a, input, select, textarea, summary):focus-visible {
+    @apply outline-none ring-2 ring-brand-400/70 ring-offset-1 ring-offset-white;
+  }
+
+  /* Controles de formulario: base compartida para no repetir clases en cada input. */
+  .campo {
+    @apply w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm
+           shadow-sm transition placeholder:text-slate-400
+           focus:border-brand-500 focus:ring-2 focus:ring-brand-400/40
+           disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-500;
+  }
+
+  .campo-sm {
+    @apply rounded-md border border-slate-300 bg-white px-2 py-1 text-sm transition
+           focus:border-brand-500 focus:ring-2 focus:ring-brand-400/40;
+  }
+}
+
+@layer components {
+  /* Botones — usar via <Boton>, o directamente estas clases. */
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm
+           font-medium transition select-none
+           disabled:cursor-not-allowed disabled:opacity-50;
+  }
+  .btn-primario {
+    @apply btn bg-brand-600 text-white shadow-sm hover:bg-brand-700 active:bg-brand-800;
+  }
+  .btn-fantasma {
+    @apply btn border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 hover:border-slate-400;
+  }
+  .btn-peligro {
+    @apply btn bg-white border border-red-300 text-red-700 hover:bg-red-50;
+  }
+  .btn-sutil {
+    @apply inline-flex items-center gap-1 text-sm font-medium text-brand-700
+           underline-offset-2 hover:text-brand-800 hover:underline
+           disabled:opacity-50 disabled:no-underline;
+  }
+
+  /* Superficies */
+  .tarjeta {
+    @apply rounded-xl border border-slate-200/80 bg-white shadow-tarjeta;
+  }
+
+  /* Chips de estado */
+  .chip {
+    @apply inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium;
+  }
+  .chip-ok     { @apply chip bg-brand-100 text-brand-800; }
+  .chip-baja   { @apply chip bg-slate-200 text-slate-600; }
+  .chip-alerta { @apply chip bg-arena-100 text-arena-800; }
+  .chip-error  { @apply chip bg-red-100 text-red-700; }
 }

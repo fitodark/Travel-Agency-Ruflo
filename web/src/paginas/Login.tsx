@@ -44,44 +44,48 @@ export function Login() {
   };
 
   return (
-    <div className="h-full flex items-center justify-center">
+    <div className="flex h-full items-center justify-center bg-gradient-to-br from-lienzo via-lienzo to-brand-50 p-6">
       <form
         onSubmit={(e) => void enviar(e)}
-        className="w-80 bg-white rounded-lg shadow p-6 space-y-4"
+        className="tarjeta w-[22rem] space-y-5 p-7 shadow-panel"
       >
-        <h1 className="text-xl font-semibold">Donaji · Terminal</h1>
+        <div className="flex items-center gap-3">
+          <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-brand-600 text-lg font-bold text-white">D</span>
+          <div>
+            <h1 className="text-lg font-semibold tracking-tight">Donaji</h1>
+            <p className="text-xs text-slate-500">Terminal de venta</p>
+          </div>
+        </div>
 
         <label className="block text-sm">
-          Correo
+          <span className="mb-1 block font-medium text-slate-700">Correo</span>
           <input
             type="email"
             autoComplete="username"
             required
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            className="mt-1 w-full rounded border px-3 py-2"
+            className="campo"
           />
         </label>
 
         <label className="block text-sm">
-          Contraseña
+          <span className="mb-1 block font-medium text-slate-700">Contraseña</span>
           <input
             type="password"
             autoComplete="current-password"
             required
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            className="mt-1 w-full rounded border px-3 py-2"
+            className="campo"
           />
         </label>
 
-        {error && <p className="text-sm text-red-600">{error}</p>}
+        {error && (
+          <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>
+        )}
 
-        <button
-          type="submit"
-          disabled={enviando}
-          className="w-full rounded bg-slate-900 text-white py-2 text-sm disabled:opacity-50"
-        >
+        <button type="submit" disabled={enviando} className="btn-primario w-full">
           {enviando ? 'Entrando…' : 'Entrar'}
         </button>
       </form>

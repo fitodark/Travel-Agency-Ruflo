@@ -94,9 +94,9 @@ function Tabla<T>({
     return <p className="text-sm text-slate-400">Sin datos en el rango.</p>;
   }
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-sm bg-white rounded border">
-        <thead className="bg-slate-50 text-left text-slate-500">
+    <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-tarjeta">
+      <table className="w-full text-sm">
+        <thead className="border-b border-slate-200 bg-slate-50/70 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
           <tr>
             {columnas.map((c) => (
               <th key={c.titulo} className={`px-3 py-2 ${c.alDerecha ? 'text-right' : ''}`}>
@@ -107,7 +107,7 @@ function Tabla<T>({
         </thead>
         <tbody>
           {q.data.map((fila, i) => (
-            <tr key={i} className="border-t">
+            <tr key={i} className="border-t border-slate-100 transition hover:bg-brand-50/40">
               {columnas.map((c) => (
                 <td key={c.titulo} className={`px-3 py-2 ${c.alDerecha ? 'text-right' : ''}`}>
                   {c.celda(fila)}
@@ -252,7 +252,7 @@ function Excepciones() {
       ) : (
         <ul className="space-y-2">
           {q.data.abiertas.map((e) => (
-            <li key={e.excepcionId} className="rounded border bg-white p-3 text-sm">
+            <li key={e.excepcionId} className="tarjeta p-3 text-sm">
               <span className={`inline-block rounded px-2 py-0.5 text-xs mr-2 ${SEV_COLOR[e.severidad]}`}>
                 {e.severidad}
               </span>

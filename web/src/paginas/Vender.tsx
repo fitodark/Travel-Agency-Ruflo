@@ -23,7 +23,7 @@ function Pasos({ actual }: { actual: Paso }) {
           <li
             key={n}
             className={`rounded px-2 py-1 ${
-              aqui ? 'bg-slate-900 text-white' : hecho ? 'bg-green-100 text-green-700' : 'bg-slate-200 text-slate-500'
+              aqui ? 'bg-brand-600 text-white' : hecho ? 'bg-green-100 text-green-700' : 'bg-slate-200 text-slate-500'
             }`}
           >
             {i + 1}. {n}
@@ -131,7 +131,7 @@ export function Vender() {
             e.preventDefault();
             busqueda.mutate();
           }}
-          className="space-y-4 rounded border bg-white p-4"
+          className="space-y-4 tarjeta p-4"
         >
           <div className="grid grid-cols-2 gap-3">
             <label className="text-sm">
@@ -140,7 +140,7 @@ export function Vender() {
                 type="date"
                 value={fecha}
                 onChange={(e) => setFecha(e.target.value)}
-                className="mt-1 w-full rounded border px-3 py-2"
+                className="campo mt-1"
               />
             </label>
             <label className="text-sm">
@@ -151,7 +151,7 @@ export function Vender() {
                 max={18}
                 value={personas}
                 onChange={(e) => setPersonas(Math.max(1, Number(e.target.value)))}
-                className="mt-1 w-full rounded border px-3 py-2"
+                className="campo mt-1"
               />
             </label>
             <label className="text-sm">
@@ -160,7 +160,7 @@ export function Vender() {
                 value={origen}
                 onChange={(e) => setOrigen(e.target.value)}
                 required
-                className="mt-1 w-full rounded border px-3 py-2"
+                className="campo mt-1"
               >
                 <option value="">—</option>
                 {sucursales.data?.map((s) => (
@@ -174,7 +174,7 @@ export function Vender() {
                 value={destino}
                 onChange={(e) => setDestino(e.target.value)}
                 required
-                className="mt-1 w-full rounded border px-3 py-2"
+                className="campo mt-1"
               >
                 <option value="">—</option>
                 {sucursales.data?.map((s) => (
@@ -204,7 +204,7 @@ export function Vender() {
           <button
             type="submit"
             disabled={busqueda.isPending}
-            className="rounded bg-slate-900 text-white px-4 py-2 text-sm disabled:opacity-50"
+            className="btn-primario"
           >
             {busqueda.isPending ? 'Buscando…' : 'Buscar horarios'}
           </button>
@@ -246,7 +246,7 @@ export function Vender() {
       )}
 
       {paso === 3 && salida && (
-        <div className="space-y-4 rounded border bg-white p-4">
+        <div className="space-y-4 tarjeta p-4">
           <p className="text-sm text-slate-500">
             Elige {personas} asiento{personas > 1 ? 's' : ''} (mapa pendiente del prototipo; por
             ahora, lista de disponibles).
@@ -257,7 +257,7 @@ export function Vender() {
                 key={n}
                 onClick={() => toggleAsiento(n)}
                 className={`h-10 w-10 rounded border text-sm ${
-                  asientos.includes(n) ? 'bg-slate-900 text-white' : 'bg-white hover:bg-slate-100'
+                  asientos.includes(n) ? 'bg-brand-600 text-white border-brand-600' : 'bg-white hover:bg-brand-50'
                 }`}
               >
                 {n}
@@ -267,7 +267,7 @@ export function Vender() {
           <button
             disabled={asientos.length !== personas}
             onClick={() => setPaso(4)}
-            className="rounded bg-slate-900 text-white px-4 py-2 text-sm disabled:opacity-50"
+            className="btn-primario"
           >
             Continuar ({asientos.length}/{personas})
           </button>
@@ -275,14 +275,14 @@ export function Vender() {
       )}
 
       {paso === 4 && (
-        <div className="space-y-3 rounded border bg-white p-4">
+        <div className="space-y-3 tarjeta p-4">
           {asientos.map((a) => (
             <label key={a} className="block text-sm">
               Asiento {a} — nombre del pasajero
               <input
                 value={nombres[a] ?? ''}
                 onChange={(e) => setNombres((p) => ({ ...p, [a]: e.target.value }))}
-                className="mt-1 w-full rounded border px-3 py-2"
+                className="campo mt-1"
               />
             </label>
           ))}
@@ -291,13 +291,13 @@ export function Vender() {
             <input
               value={contacto}
               onChange={(e) => setContacto(e.target.value)}
-              className="mt-1 w-full rounded border px-3 py-2"
+              className="campo mt-1"
             />
           </label>
           <button
             disabled={asientos.some((a) => !nombres[a]?.trim()) || !contacto.trim()}
             onClick={() => setPaso(5)}
-            className="rounded bg-slate-900 text-white px-4 py-2 text-sm disabled:opacity-50"
+            className="btn-primario"
           >
             Continuar
           </button>
@@ -305,7 +305,7 @@ export function Vender() {
       )}
 
       {paso === 5 && salida && (
-        <div className="space-y-3 rounded border bg-white p-4 text-sm">
+        <div className="space-y-3 tarjeta p-4 text-sm">
           <div>Salida: {new Date(salida.horaSalidaOrigen).toLocaleString()}</div>
           <ul className="divide-y">
             {asientos.map((a) => (
@@ -321,7 +321,7 @@ export function Vender() {
           </div>
           <button
             onClick={() => setPaso(6)}
-            className="rounded bg-slate-900 text-white px-4 py-2 text-sm"
+            className="btn-primario"
           >
             Confirmar y pagar
           </button>
@@ -329,7 +329,7 @@ export function Vender() {
       )}
 
       {paso === 6 && (
-        <div className="space-y-4 rounded border bg-white p-4 text-sm">
+        <div className="space-y-4 tarjeta p-4 text-sm">
           <div className="space-y-2">
             {(['efectivo', 'transferencia'] as const).map((m) => (
               <label key={m} className="flex items-center gap-2">
@@ -360,7 +360,7 @@ export function Vender() {
               <input
                 value={referencia}
                 onChange={(e) => setReferencia(e.target.value)}
-                className="mt-1 w-full rounded border px-3 py-2"
+                className="campo mt-1"
               />
             </label>
           )}
@@ -370,7 +370,7 @@ export function Vender() {
           <button
             onClick={() => venta.mutate()}
             disabled={venta.isPending}
-            className="rounded bg-slate-900 text-white px-4 py-2 text-sm disabled:opacity-50"
+            className="btn-primario"
           >
             {venta.isPending ? 'Registrando…' : 'Registrar venta'}
           </button>
@@ -393,7 +393,7 @@ export function Vender() {
           <div className="text-slate-600">
             Total ${resultado.importeTotal} · pagado ${resultado.pagado} · saldo ${resultado.saldoPendiente}
           </div>
-          <button onClick={reiniciar} className="rounded bg-slate-900 text-white px-4 py-2 text-sm">
+          <button onClick={reiniciar} className="btn-primario">
             Nueva venta
           </button>
         </div>
