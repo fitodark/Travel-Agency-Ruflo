@@ -9,7 +9,7 @@ import 'dotenv/config';
 import { Client } from 'pg';
 import { resolveConnection } from '../../src/db/connection.js';
 import {
-  abrirSesion, cerrarSesion, cerrarSesionesDe, seleccionarSucursal, verificarSesion,
+  abrirSesion, cerrarSesion, cerrarSesionesDe, seleccionarSucursal, sucursalesDe, verificarSesion,
 } from '../../src/auth/sesion.js';
 import { seedAuth } from './fixture.js';
 
@@ -67,6 +67,30 @@ run('sesiones (PostgreSQL real)', () => {
     const s = await abrirSesion(db, { usuarioId: fx.usuarioId, sucursalId: fx.sucursalAId, ahora });
     const sel = await seleccionarSucursal(db, { token: s.id, sucursalId: fx.sucursalBId, ahora });
     expect(sel).toEqual({ ok: false, motivo: 'ya_elegida' });
+  });
+
+  it('con permitirCambio sí reelige, pero solo entre las asignadas', async () => {
+    const fx = await seedAuth(db, { sucursales: 2 });
+    const s = await abrirSesion(db, { usuarioId: fx.usuarioId, sucursalId: fx.sucursalAId, ahora });
+
+    const ok = await seleccionarSucursal(db, {
+      token: s.id, sucursalId: fx.sucursalBId, ahora, permitirCambio: true,
+    });
+    expect(ok).toEqual({ ok: true, sucursalId: fx.sucursalBId });
+    expect((await verificarSesion(db, s.id, { ahora }))?.sucursalId).toBe(fx.sucursalBId);
+
+    const otra = await seedAuth(db, { sucursales: 1 });
+    const mala = await seleccionarSucursal(db, {
+      token: s.id, sucursalId: otra.sucursalAId, ahora, permitirCambio: true,
+    });
+    expect(mala).toEqual({ ok: false, motivo: 'sucursal_no_asignada' });
+  });
+
+  it('sucursalesDe lista solo las asignadas y vigentes', async () => {
+    const fx = await seedAuth(db, { sucursales: 2 });
+    const lista = await sucursalesDe(db, fx.usuarioId, AHORA);
+    expect(lista.map((x) => x.id).sort()).toEqual([fx.sucursalAId, fx.sucursalBId].sort());
+    expect(lista.every((x) => typeof x.nombre === 'string' && x.nombre.length > 0)).toBe(true);
   });
 
   it('un token que no corresponde a ninguna sesión se rechaza', async () => {

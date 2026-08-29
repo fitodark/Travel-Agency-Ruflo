@@ -1,4 +1,6 @@
+import { useState } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
+import { cambiarSucursal } from '../api/auth';
 import { useSesion } from '../auth/sesion';
 
 const NAV: { a: string; texto: string; permiso?: string }[] = [
@@ -9,6 +11,51 @@ const NAV: { a: string; texto: string; permiso?: string }[] = [
   { a: '/sincronizacion', texto: 'Sincronización' },
   { a: '/clientes', texto: 'Clientes' },
 ];
+
+function SelectorSucursal() {
+  const { sesion, refrescar } = useSesion();
+  const [cambiando, setCambiando] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  if (!sesion) return null;
+
+  const sucursales = sesion.sucursales;
+  const nombre = sesion.sucursalNombre ?? '—';
+
+  if (sucursales.length <= 1) {
+    return <span className="font-medium text-slate-700">{nombre}</span>;
+  }
+
+  const elegir = async (id: string) => {
+    if (id === sesion.sucursalId) return;
+    setError(null);
+    setCambiando(true);
+    try {
+      await cambiarSucursal(id);
+      await refrescar();
+    } catch {
+      setError('No se pudo cambiar (¿corte de caja abierto?)');
+    } finally {
+      setCambiando(false);
+    }
+  };
+
+  return (
+    <span className="flex items-center gap-2">
+      <select
+        value={sesion.sucursalId ?? ''}
+        disabled={cambiando}
+        onChange={(e) => void elegir(e.target.value)}
+        className="rounded border bg-white px-2 py-1 text-sm font-medium text-slate-700 disabled:opacity-50"
+        aria-label="Sucursal"
+      >
+        {sucursales.map((s) => (
+          <option key={s.id} value={s.id}>{s.nombre}</option>
+        ))}
+      </select>
+      {error && <span className="text-xs text-red-600">{error}</span>}
+    </span>
+  );
+}
 
 export function Shell() {
   const { sesion, cerrar, puede } = useSesion();
@@ -50,12 +97,10 @@ export function Shell() {
       </aside>
 
       <div className="flex-1 flex flex-col min-w-0">
-        <header className="h-12 shrink-0 bg-white border-b flex items-center justify-end px-4 gap-4 text-sm text-slate-600">
+        <header className="h-12 shrink-0 bg-white border-b flex items-center justify-end px-4 gap-3 text-sm text-slate-600">
           <span className="capitalize">{sesion?.rol}</span>
           <span className="text-slate-300">·</span>
-          <span className="font-mono text-xs">
-            sucursal {sesion?.sucursalId?.slice(0, 8) ?? '—'}
-          </span>
+          <SelectorSucursal />
         </header>
         <main className="flex-1 overflow-auto p-6">
           <Outlet />

@@ -15,7 +15,7 @@
  */
 
 import type { Consultable } from '../db/consulta.js';
-import { abrirSesion } from './sesion.js';
+import { abrirSesion, sucursalesDe } from './sesion.js';
 import { verifyPassword } from './passwords.js';
 
 /** Fallos permitidos por email antes de bloquear temporalmente. */
@@ -181,16 +181,7 @@ export async function login(args: LoginArgs): Promise<LoginResult> {
 
   // 4 · Sucursal activa (req: "los usuarios solo podrán ingresar si tienen una
   //     sucursal activa").
-  const { rows: sucs } = await node.query<{ id: string; nombre: string }>(
-    `SELECT s.id, s.nombre
-       FROM core.usuario_sucursal us
-       JOIN core.sucursal s ON s.id = us.sucursal_id
-      WHERE us.usuario_id = $1 AND us.activo AND s.activo
-        AND us.effective_from <= $2 AND (us.effective_until IS NULL OR us.effective_until > $2)
-        AND s.effective_from  <= $2 AND (s.effective_until  IS NULL OR s.effective_until  > $2)
-      ORDER BY s.nombre`,
-    [c.id, ahora],
-  );
+  const sucs = await sucursalesDe(node, c.id, ahora);
   if (sucs.length === 0) {
     await registrarIntento(node, email, false, ip, ahora);
     return { ok: false, motivo: 'sin_sucursal_activa' };
