@@ -13,8 +13,10 @@ import { login } from '../../src/auth/login.js';
 import { seleccionarSucursal } from '../../src/auth/sesion.js';
 import { PASSWORD_OK } from '../auth/fixture.js';
 
-export async function abrirApp(db: Client, ahora: () => Date): Promise<FastifyInstance> {
-  return construirApp({ db, ahora, logger: false });
+export async function abrirApp(
+  db: Client, ahora: () => Date, opts: { dbNube?: Client | null } = {},
+): Promise<FastifyInstance> {
+  return construirApp({ db, ahora, logger: false, ...(opts.dbNube !== undefined ? { dbNube: opts.dbNube } : {}) });
 }
 
 /** Entra por el módulo de auth (no por HTTP) y devuelve un token ya completo. */

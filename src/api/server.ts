@@ -15,6 +15,7 @@
 import Fastify, { type FastifyError, type FastifyInstance } from 'fastify';
 import { ErrorHttp } from './errores.js';
 import type { ContextoSesion } from './tipos.js';
+import { rutasAdmin } from './rutas/admin.js';
 import { rutasAuth } from './rutas/auth.js';
 import { rutasCatalogos } from './rutas/catalogos.js';
 import { rutasClientes } from './rutas/clientes.js';
@@ -27,6 +28,12 @@ import type { BaseDeDatos } from './tipos.js';
 
 export interface OpcionesApp {
   db: BaseDeDatos;
+  /**
+   * Conexión a la NUBE para la sección de administración (`/admin/*`). `null` o
+   * ausente = la terminal no puede editar configuración clase A ahora mismo y las
+   * rutas de admin responden 503. El resto de la API no la usa nunca.
+   */
+  dbNube?: BaseDeDatos | null;
   /** Reloj inyectable, para las pruebas de vigencia y stale-guard. */
   ahora?: () => Date;
   logger?: boolean;
@@ -72,6 +79,10 @@ export async function construirApp(opts: OpcionesApp): Promise<FastifyInstance> 
   app.get('/salud', async () => ({ ok: true, ahora: app.ahora().toISOString() }));
 
   await app.register(rutasAuth, { prefix: '/auth' });
+  await app.register(
+    (a) => rutasAdmin(a, { dbNube: opts.dbNube ?? null, ahora: app.ahora }),
+    { prefix: '/admin' },
+  );
   await app.register(rutasClientes, { prefix: '/clientes' });
   await app.register(rutasCatalogos, { prefix: '/catalogos' });
   await app.register(rutasSync, { prefix: '/sync' });

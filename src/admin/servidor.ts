@@ -23,27 +23,14 @@ import { fileURLToPath } from 'node:url';
 import Fastify, { type FastifyError, type FastifyInstance, type FastifyRequest } from 'fastify';
 import type { Consultable } from '../db/consulta.js';
 import {
-  escribirConfig, type ModoPropagacion,
+  escribirConfig, TABLAS_ADMINISTRABLES, type ModoPropagacion,
 } from './escribir-config.js';
 import { rutasConfig } from './rutas-config.js';
 import { rutasSucursales } from './rutas-sucursales.js';
 import { rutasUsuarios } from './rutas-usuarios.js';
 import { TokenInvalido, verificarTokenSupabase, type IdentidadSupabase } from './auth-supabase.js';
 
-/** Tablas de configuración que la consola puede escribir. Allowlist explícita. */
-export const TABLAS_ADMINISTRABLES: readonly string[] = [
-  'core.agencia',
-  'core.sucursal',
-  'core.usuario',
-  'core.usuario_sucursal',
-  'core.rol_permiso',
-  'core.config_impresora',
-  'core.config_ticket',
-  'core.tarifa',
-  'core.parametro',
-  'auth_local.credencial',
-  'auth_local.revocacion_hotp',
-];
+export { TABLAS_ADMINISTRABLES };
 
 export interface AdminAutenticado extends IdentidadSupabase {
   /** `core.usuario.id` si el email corresponde a un usuario; `null` si entró por la lista de arranque. */
