@@ -88,6 +88,45 @@ run('API · /admin (PostgreSQL real)', () => {
     expect(nuevo.json().passwordTemporal).toBeTruthy();
   });
 
+  it('un administrador crea una ruta con paradas y un horario', async () => {
+    const admin = await seedAuth(db, { rol: 'administrador', sucursales: 2 });
+    const tok = await tokenDe(db, admin.email, admin.sucursalAId, ahora);
+
+    const ruta = await app.inject({
+      method: 'POST', url: '/admin/rutas-detalle', headers: bearer(tok),
+      payload: { nombre: `Ruta QA ${Date.now()}`, sucursalIds: [admin.sucursalAId, admin.sucursalBId] },
+    });
+    expect(ruta.statusCode, ruta.body).toBe(201);
+    const rutaId = ruta.json().id as string;
+
+    const detalle = await app.inject({ method: 'GET', url: '/admin/rutas-detalle', headers: bearer(tok) });
+    const r = (detalle.json() as { id: string; paradas: { id: string; orden: number }[] }[]).find((x) => x.id === rutaId)!;
+    expect(r.paradas).toHaveLength(2);
+
+    const horario = await app.inject({
+      method: 'POST', url: '/admin/horarios', headers: bearer(tok),
+      payload: {
+        rutaId, horaSalida: '07:00', diasSemana: [1, 2, 3, 4, 5],
+        pasos: r.paradas.map((p) => ({ rutaParadaId: p.id, orden: p.orden, horaPaso: p.orden === 0 ? '07:00' : '09:30' })),
+      },
+    });
+    expect(horario.statusCode, horario.body).toBe(201);
+
+    const lista = await app.inject({ method: 'GET', url: `/admin/horarios?rutaId=${rutaId}`, headers: bearer(tok) });
+    expect(lista.json()).toHaveLength(1);
+    expect(lista.json()[0].pasos).toHaveLength(2);
+  });
+
+  it('POST /admin/rutas-detalle rechaza una ruta con una sola parada', async () => {
+    const admin = await seedAuth(db, { rol: 'administrador' });
+    const tok = await tokenDe(db, admin.email, admin.sucursalAId, ahora);
+    const r = await app.inject({
+      method: 'POST', url: '/admin/rutas-detalle', headers: bearer(tok),
+      payload: { nombre: 'x', sucursalIds: [admin.sucursalAId] },
+    });
+    expect(r.statusCode).toBe(400);
+  });
+
   it('POST /admin/config/:tabla rechaza una tabla fuera de la lista', async () => {
     const admin = await seedAuth(db, { rol: 'administrador' });
     const tok = await tokenDe(db, admin.email, admin.sucursalAId, ahora);

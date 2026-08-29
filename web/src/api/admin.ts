@@ -167,3 +167,47 @@ export const crearTarifa = (
 
 export const bajaTarifa = (id: string, modo: { modo?: 'ventana' | 'programado'; fechaProgramada?: string }): Promise<unknown> =>
   api(`/admin/tarifas/${id}/baja`, { method: 'POST', body: JSON.stringify(modo) });
+
+// ---- rutas y horarios ---------------------------------------------
+
+export interface RutaDetalle {
+  id: string;
+  nombre: string;
+  activo: boolean;
+  paradas: { id: string; orden: number; sucursalId: string; sucursal: string }[];
+}
+
+export interface HorarioDetalle {
+  id: string;
+  rutaId: string;
+  rutaNombre: string;
+  horaSalida: string;
+  diasSemana: number[];
+  conductor: string | null;
+  unidad: string | null;
+  vigenteDesde: string | null;
+  vigenteHasta: string | null;
+  activo: boolean;
+  pasos: { orden: number; horaPaso: string; sucursal: string }[];
+}
+
+export const listarRutasDetalle = (): Promise<RutaDetalle[]> => api('/admin/rutas-detalle');
+export const listarConductores = (): Promise<{ id: string; nombre: string }[]> => api('/admin/conductores');
+export const listarUnidades = (): Promise<{ id: string; nombre: string }[]> => api('/admin/unidades');
+export const listarHorarios = (rutaId?: string): Promise<HorarioDetalle[]> =>
+  api(`/admin/horarios${rutaId ? `?rutaId=${rutaId}` : ''}`);
+
+export const crearRuta = (d: { nombre: string; sucursalIds: string[] }): Promise<{ id: string }> =>
+  api('/admin/rutas-detalle', { method: 'POST', body: JSON.stringify(d) });
+
+export const bajaRuta = (id: string): Promise<unknown> =>
+  api(`/admin/rutas-detalle/${id}/baja`, { method: 'POST', body: '{}' });
+
+export const crearHorario = (d: {
+  rutaId: string; horaSalida: string; diasSemana: number[];
+  conductorId?: string; unidadId?: string; vigenteDesde?: string; vigenteHasta?: string;
+  pasos: { rutaParadaId: string; orden: number; horaPaso: string }[];
+}): Promise<{ id: string }> => api('/admin/horarios', { method: 'POST', body: JSON.stringify(d) });
+
+export const bajaHorario = (id: string): Promise<unknown> =>
+  api(`/admin/horarios/${id}/baja`, { method: 'POST', body: '{}' });

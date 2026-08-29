@@ -19,6 +19,7 @@ const NAV_OPERACION: ItemNav[] = [
 const NAV_ADMIN: ItemNav[] = [
   { a: '/admin/sucursales', texto: 'Sucursales', permiso: 'config.sucursales' },
   { a: '/admin/usuarios', texto: 'Usuarios', permiso: 'config.usuarios' },
+  { a: '/admin/rutas', texto: 'Rutas y horarios', permiso: 'config.horarios' },
   { a: '/admin/impresoras', texto: 'Impresoras', permiso: 'config.impresoras' },
   { a: '/admin/ticket', texto: 'Ticket', permiso: 'config.impresoras' },
   { a: '/admin/tarifas', texto: 'Tarifas', permiso: 'config.tarifas' },
