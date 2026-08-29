@@ -7,6 +7,8 @@ const SUB: { a: string; t: string }[] = [
   { a: '/admin/sucursales', t: 'Sucursales' },
   { a: '/admin/usuarios', t: 'Usuarios' },
   { a: '/admin/rutas', t: 'Rutas y horarios' },
+  { a: '/admin/unidades', t: 'Unidades' },
+  { a: '/admin/conductores', t: 'Conductores' },
   { a: '/admin/impresoras', t: 'Impresoras' },
   { a: '/admin/ticket', t: 'Ticket' },
   { a: '/admin/tarifas', t: 'Tarifas' },
