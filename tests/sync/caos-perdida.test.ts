@@ -320,6 +320,176 @@ run('pérdida silenciosa de datos', () => {
     );
 
     it(
+      'un bloqueo por FK que YA lleva rato atascado se omite en vez de quedarse muerto',
+      async () => {
+        // Un rechazo por FK legítimo se resuelve en uno o dos ciclos (el padre llega
+        // o su transacción termina). Si tras la gracia la MISMA fila sigue sin poder
+        // aplicarse, es una entrada obsoleta que referencia un id que la nube borró
+        // o re-clavó: el pull no puede quedarse muerto ahí para siempre.
+        const cursorAntes = await cursorDe(s1);
+        const { rows: base } = await nube.query<{ p: Record<string, unknown> }>(
+          `SELECT to_jsonb(t) AS p FROM core.salida t WHERE id = $1`, [IDS.salida],
+        );
+        const { rows: ids } = await nube.query<{ salida: string; horario: string }>(
+          `SELECT core.uuid_v7() AS salida, core.uuid_v7() AS horario`,
+        );
+        const huerfana = { ...base[0]!.p, id: ids[0]!.salida, horario_id: ids[0]!.horario };
+        const telefono = `953 ${String((Date.now() + 2) % 1000).padStart(3, '0')} 9999`;
+        try {
+          const { rows: pub } = await nube.query<{ seq: string }>(
+            `INSERT INTO sync.cambio_log (tabla, fila_id, payload)
+             VALUES ('core.salida', $1, $2::jsonb) RETURNING seq`,
+            [ids[0]!.salida, JSON.stringify(huerfana)],
+          );
+          const seqHuerfana = Number(pub[0]!.seq);
+          await nube.query(
+            `UPDATE core.sucursal SET telefono_principal = $2 WHERE id = $1`,
+            [IDS.sucursales[0], telefono],
+          );
+
+          // Primer encuentro: bloquea (podría ser un problema de orden).
+          let r = await pull(s1, nube);
+          for (let i = 0; i < 30 && !r.bloqueadoEn; i++) r = await pull(s1, nube);
+          expect(r.bloqueadoEn?.seq, 'primero bloquea').toBe(seqHuerfana);
+
+          // "Pasa el tiempo": se envejece la excepción del bloqueo.
+          await s1.query(
+            `UPDATE sync.excepcion SET creado_en = now() - interval '20 minutes'
+              WHERE tipo = 'rechazo_ingesta' AND estado = 'abierta' AND entidad = 'core.salida'`,
+          );
+
+          // Ahora el pull la OMITE y sigue con lo que venía detrás.
+          const r2 = await pullHasta(
+            s1, nube,
+            async () => (await contar(
+              s1, `SELECT count(*) AS n FROM core.sucursal WHERE id = $1 AND telefono_principal = $2`,
+              [IDS.sucursales[0], telefono],
+            )) === 1,
+            { descripcion: 'el cambio que venía detrás de la fila envejecida' },
+          );
+          expect(r2.aplicadas, 'lo de atrás pasó').toBeGreaterThanOrEqual(1);
+          expect(await cursorDe(s1), 'el cursor pasó de largo la huérfana')
+            .toBeGreaterThan(seqHuerfana);
+          expect(
+            await contar(s1, `SELECT count(*) AS n FROM core.salida WHERE id = $1`, [ids[0]!.salida]),
+            'la salida huérfana nunca se aplicó',
+          ).toBe(0);
+          expect(
+            await contar(s1, `SELECT count(*) AS n FROM sync.excepcion
+                              WHERE entidad = 'core.salida' AND estado = 'resuelta'`),
+            'el bloqueo previo quedó marcado resuelto',
+          ).toBeGreaterThanOrEqual(1);
+          expect(cursorAntes).toBeLessThan(seqHuerfana);
+        } finally {
+          await nube.query(`DELETE FROM sync.cambio_log WHERE fila_id = $1`, [ids[0]!.salida]).catch(() => { /* limpieza */ });
+          await nube.query(`UPDATE core.sucursal SET telefono_principal = '953 000 0000' WHERE id = $1`, [IDS.sucursales[0]]).catch(() => { /* limpieza */ });
+          await s1.query(`DELETE FROM sync.excepcion WHERE entidad = 'core.salida'`).catch(() => { /* limpieza */ });
+          await silenciarEcoDeConfiguracion(s1).catch(() => { /* limpieza */ });
+        }
+      },
+      180_000,
+    );
+
+    it(
+      'un choque de unicidad en una tabla de clase A NO bloquea: se omite y el pull sigue',
+      async () => {
+        // Después de una re-clave de identidad (migración 0039), el `sync.cambio_log`
+        // puede tener entradas OBSOLETAS que referencian el id viejo. Aplicarlas por id
+        // crea un duplicado del `codigo` (UNIQUE) → `conflicto`. Antes eso bloqueaba el
+        // pull para siempre: el nodo nunca gana la clase A, así que reintentar no sirve.
+        //
+        // Ahora una fila de clase A en `conflicto` se OMITE (excepción
+        // `divergencia_checksum`, severidad media) y el cursor avanza. La nube es la
+        // autoridad y una publicación posterior trae el estado bueno.
+        const telefono = `953 ${String((Date.now() + 1) % 1000).padStart(3, '0')} 8888`;
+        try {
+          // Fila obsoleta: el `codigo` de una sucursal que el nodo ya tiene, con OTRO id.
+          const { rows: base } = await nube.query<{ p: Record<string, unknown> }>(
+            `SELECT to_jsonb(t) AS p FROM core.sucursal t WHERE id = $1`, [IDS.sucursales[0]],
+          );
+          const obsoleta = { ...base[0]!.p, id: '019caff0-0000-7000-8000-0000000c0de5' };
+          const { rows: pub } = await nube.query<{ seq: string }>(
+            `INSERT INTO sync.cambio_log (tabla, fila_id, payload)
+             VALUES ('core.sucursal', $1, $2::jsonb) RETURNING seq`,
+            [obsoleta['id'], JSON.stringify(obsoleta)],
+          );
+          const seqObsoleta = Number(pub[0]!.seq);
+
+          // Un cambio legítimo DESPUÉS de la obsoleta.
+          await nube.query(
+            `UPDATE core.sucursal SET telefono_principal = $2 WHERE id = $1`,
+            [IDS.sucursales[1], telefono],
+          );
+
+          const r = await pullHasta(
+            s1, nube,
+            async () => (await contar(
+              s1, `SELECT count(*) AS n FROM core.sucursal WHERE id = $1 AND telefono_principal = $2`,
+              [IDS.sucursales[1], telefono],
+            )) === 1,
+            { descripcion: 'el cambio legítimo que venía detrás de la fila obsoleta' },
+          );
+
+          // No se aplicó una segunda sucursal con id fabricado.
+          expect(
+            await contar(s1, `SELECT count(*) AS n FROM core.sucursal WHERE id = $1`, [obsoleta['id']]),
+            'la fila obsoleta no se aplicó (id fabricado)',
+          ).toBe(0);
+          // El cursor pasó de largo.
+          expect(await cursorDe(s1), 'el cursor avanzó por encima de la fila obsoleta')
+            .toBeGreaterThanOrEqual(seqObsoleta);
+          expect(r.rechazadas, 'no cuenta como rechazo bloqueante').toBe(0);
+          // Queda constancia, con severidad media (no crítica ni bloqueante).
+          expect(
+            await contar(s1, `SELECT count(*) AS n FROM sync.excepcion
+                              WHERE tipo = 'divergencia_checksum' AND estado = 'abierta'
+                                AND entidad = 'core.sucursal' AND severidad = 'media'`),
+            'la omisión deja una excepción divergencia_checksum media',
+          ).toBeGreaterThanOrEqual(1);
+
+          await nube.query(`UPDATE core.sucursal SET telefono_principal = '953 000 0000' WHERE id = $1`, [IDS.sucursales[1]]);
+          await silenciarEcoDeConfiguracion(s1);
+          await s1.query(`DELETE FROM sync.excepcion WHERE tipo = 'divergencia_checksum'`);
+        } finally {
+          await nube.query(`DELETE FROM sync.cambio_log WHERE payload->>'id' = '019caff0-0000-7000-8000-0000000c0de5'`).catch(() => { /* limpieza */ });
+        }
+      },
+      180_000,
+    );
+
+    it(
+      'un bloqueo que el cursor ya dejó atrás (bootstrap) se marca resuelto solo',
+      async () => {
+        // Un `bootstrap` salta el cursor al máximo. Si en su momento había un
+        // bloqueo abierto en un `seq` intermedio, la excepción `rechazo_ingesta`
+        // queda huérfana: `abierta` para siempre, y el tablero de salud muestra
+        // una terminal "atascada" que en realidad está al día. El pull, al ver
+        // que su `seq` ya quedó por debajo del cursor, la resuelve.
+        await pull(s1, nube);
+        const cursor = await cursorDe(s1);
+        expect(cursor, 'hay algo de historia sincronizada').toBeGreaterThan(0);
+
+        await s1.query(
+          `INSERT INTO sync.excepcion (tipo, severidad, sucursal_id, entidad, detalle)
+           VALUES ('rechazo_ingesta', 'alta', sync.sucursal_local(), 'core.cupo_offline',
+                   $1::jsonb)`,
+          [JSON.stringify({ seq: String(cursor - 1), efecto: 'el pull no avanza hasta resolverlo' })],
+        );
+
+        await pull(s1, nube);
+
+        expect(
+          await contar(s1, `SELECT count(*) AS n FROM sync.excepcion
+                            WHERE tipo = 'rechazo_ingesta' AND estado = 'abierta'
+                              AND entidad = 'core.cupo_offline'`),
+          'la excepción huérfana quedó resuelta',
+        ).toBe(0);
+        await s1.query(`DELETE FROM sync.excepcion WHERE entidad = 'core.cupo_offline'`);
+      },
+      120_000,
+    );
+
+    it(
       'NO se salta filas de transacciones todavía abiertas (y sin el filtro, sí se las saltaría)',
       async () => {
         // El escenario que el blueprint §3.2 declara como la razón de no usar

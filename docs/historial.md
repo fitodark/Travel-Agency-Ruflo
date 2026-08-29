@@ -1733,6 +1733,93 @@ config en producción, `src/api/` (la terminal) necesita `ADMIN_DATABASE_URL`
 
 ---
 
+## Sesión 39 — 2026-08-29 · El pull no bajaba nada: bloqueado por una entrada obsoleta
+
+QA corrió `seed:qa` (→ nube) y los datos locales no coincidían con la nube.
+Diagnóstico: **el pull estaba atascado desde el 29-08 07:42** en `sync.cambio_log`
+seq 33 — una entrada vieja de `core.tipo_unidad` con el `id` ALEATORIO de antes de
+0039. El nodo ya tiene la Sprinter con el `id` determinista (`md5(...)`), así que
+aplicar la entrada vieja por `id` crea un duplicado del `clave` (`UNIQUE`) →
+`conflicto`. `pull.ts` DETIENE el cursor en la primera fila que no aplica y no
+avanza — pensado para un rechazo por FK que el siguiente ciclo resuelve. Pero un
+`conflicto` de clase A nunca se resuelve reintentando (el nodo no gana la clase
+A), así que el pull quedaba muerto y NADA posterior (incluido el escenario de QA)
+bajaba. Rama `fix-pull-clase-a-obsoleto`.
+
+- **`src/sync/pull.ts`**: una fila de **clase A** en `conflicto` (choque de
+  unicidad) ya NO bloquea — se **omite** (nuevo estado `omitida`, contador
+  `PullResult.omitidas`), se abre una excepción `divergencia_checksum` (severidad
+  **media**, deduplicada por tabla) y el cursor avanza. La nube es la autoridad de
+  la clase A; una publicación posterior trae el estado bueno (0039 lo hizo). Un
+  rechazo por FK (`rechazada`) sigue bloqueando como antes.
+- **`scripts/sembrar-qa.ts`**: con `--target nube` y `LOCAL_DATABASE_URL`, ahora
+  también hace un **`bootstrap(local, nube)`**: copia el estado ACTUAL de la nube
+  (ids deterministas) y deja el cursor en el `max(seq)` de ese momento, así el
+  nodo se salta TODO el `sync.cambio_log` histórico de la PoC —lleno de entradas
+  obsoletas que referencian ids muertos— y solo procesa lo nuevo. Es la
+  preparación que un nodo real hace al instalarse. Sustituye al viejo
+  `fijarNodoLocal`.
+- **`src/sync/pull.ts` (2ª parte)**: además del `conflicto` de clase A, un
+  **rechazo por FK** que ya lleva `GRACIA_BLOQUEO_MIN` (10 min) atascado en la
+  MISMA fila se omite también (para cualquier tabla que baje por pull — todas son
+  autoridad de la nube). Un rechazo por FK legítimo se resuelve en uno o dos
+  ciclos; si tras 10 min sigue igual, es cruft que referencia un id muerto. Al
+  omitir se marca `resuelta` la excepción `rechazo_ingesta` previa y se abre una
+  `divergencia_checksum`.
+- **`scripts/limpiar-dev.ts`**: el `pretest` **ya NO resetea `sync.cursor`**.
+  Resetearlo obligaba al pull a re-procesar todo el `cambio_log` histórico y
+  dejaba el nodo de dev atascado en cada `npm test`. La suite usa nodos
+  desechables, no ese cursor.
+- **`scripts/sanear-nube.ts`** (`npm run sanear:nube [-- --aplicar]`): borra del
+  `sync.cambio_log` de la nube las entradas HUÉRFANAS —`fila_id` que ya no existe
+  como fila en su tabla— por cada tabla de clase A. Dry-run por defecto. En la
+  Supabase compartida son ~392 (usuario, ruta, horario, salida, tipo_unidad).
+- **`tests/admin/{sucursales,escribir-config,revocacion,rol-consola}.test.ts`**:
+  dejaron de hardcodear los códigos de sucursal (W/X/Y/Z); piden los LIBRES a la
+  base o dejan que `crearSucursal` auto-asigne. Un `bootstrap` (o pruebas en
+  paralelo) puede tener cualquier código ocupado.
+- `tests/sync/caos-perdida.test.ts` +2: un `conflicto` de clase A se omite; un
+  bloqueo por FK envejecido se omite y el pull sigue.
+- Limpieza puntual de la base local de dev (sucursales V/W/X/Y y cruft de
+  ruta/horario/salida que un bootstrap de prueba copió de la nube).
+
+### Segunda pasada — el motor SÍ sincroniza, pero el tablero lo mostraba "atascado"
+
+QA reportó "outbox atascado" y una config nueva (ruta + horario + tarifa) que "no
+aparece en ventas". Diagnóstico contra la base viva: **el motor está al día** —
+cursor local = `max(seq)` de la nube; la ruta, los dos horarios (uno vigente, el
+otro creado y dado de baja) y la tarifa bajaron correctos e idénticos. Dos
+espejismos y una confusión de flujo:
+
+- **`src/api/rutas/sync.ts` + `src/sync/salud.ts`**: el conteo de `outbox
+  atascado` era `estado = 'rechazado' OR intentos >= 5`. Una fila **`confirmado`**
+  con muchos `intentos` (reenvíos absorbidos por idempotencia, o cruft de
+  `core.tipo_unidad` de antes de 0032) contaba como atascada **para siempre**. Se
+  añade `estado <> 'confirmado'` a la guarda. Prueba en `tests/api/sync.test.ts` y
+  `tests/sync/motor-pendiente.test.ts`.
+- **`src/sync/pull.ts`**: al arrancar, resuelve toda excepción `rechazo_ingesta`
+  `abierta` cuyo `seq` ya quedó por debajo del cursor. Un `bootstrap` (o un ciclo
+  posterior que sí aplicó la fila) deja esas excepciones huérfanas —`abierta`
+  eternamente— y el tablero muestra una terminal bloqueada que está al día. Prueba
+  en `tests/sync/caos-perdida.test.ts`.
+- **"No aparece en ventas" no es sincronización.** `core.buscar_salidas` lee
+  `core.salida` (materializada), no `core.horario`. No había NINGUNA salida
+  materializada, y `core.materializar_salidas` solo procesa horarios **con
+  conductor** (D-7: sin conductor no hay tipo de unidad ni mapa). El horario nuevo
+  no tiene conductor y en la nube no hay conductores ni unidades sembrados.
+  Además el horario y la tarifa son `vigente_desde 2026-09-01`. Para verlo en
+  ventas: sembrar flota, asignar conductor al horario y correr `npm run
+  materializar` para fechas ≥ 01-09.
+
+`tsc` limpio. `npm test`: **verde** (`tests/api/sync.test.ts`,
+`tests/sync/motor-pendiente.test.ts`, `tests/sync/caos-perdida.test.ts` incluidos).
+
+**Para QA**: `npm run seed:qa` (hace el bootstrap solo) → `npm run api` (el motor
+al reiniciar resuelve la excepción huérfana). Opcional: `npm run sanear:nube --
+--aplicar` limpia el `cambio_log` histórico de la nube.
+
+---
+
 ## F1 — CERRADA
 
 Los cinco criterios de aceptación verdes contra Supabase real

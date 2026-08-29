@@ -37,6 +37,7 @@ import 'dotenv/config';
 import { Client } from 'pg';
 import { hashPassword } from '../src/auth/passwords.js';
 import { resolveConnection, targetFromArgs } from '../src/db/connection.js';
+import { bootstrap } from '../src/sync/bootstrap.js';
 
 const PASSWORD = process.env['QA_PASSWORD'] ?? 'donaji-qa';
 
@@ -152,18 +153,31 @@ async function sembrar(c: Client): Promise<Map<string, string>> {
   return sucursalId;
 }
 
-/** Fija qué sucursal representa el nodo local (aunque la fila aún no haya bajado). */
-async function fijarNodoLocal(sucursalId: string): Promise<void> {
-  if (!process.env['LOCAL_DATABASE_URL']) return;
-  const c = new Client(resolveConnection('local').config);
-  await c.connect();
+/**
+ * Deja el nodo local listo: fija su sucursal y hace un bootstrap desde la nube.
+ *
+ * El bootstrap copia el estado ACTUAL de la nube (identidades deterministas de
+ * 0039) y pone el cursor de pull en el `max(seq)` de ese momento, así el nodo se
+ * salta todo el `sync.cambio_log` histórico de la PoC/dev —lleno de entradas
+ * obsoletas que referencian ids viejos y que nunca van a aplicar— y solo procesa
+ * lo nuevo (el escenario de QA recién sembrado).
+ */
+async function prepararNodoLocal(sucursalId: string): Promise<void> {
+  if (!process.env['LOCAL_DATABASE_URL'] || !process.env['DATABASE_URL']) return;
+  const local = new Client(resolveConnection('local').config);
+  const nube = new Client(resolveConnection('nube').config);
+  await local.connect();
+  await nube.connect();
   try {
-    await c.query(
+    await local.query(
       `UPDATE sync.nodo SET sucursal_id = $1, es_nube = false WHERE singleton`,
       [sucursalId],
     );
+    const r = await bootstrap(local, nube);
+    console.log(`  bootstrap del nodo local: ${r.total} filas copiadas, cursor en ${r.cursorInicial}`);
   } finally {
-    await c.end();
+    await local.end().catch(() => { /* nada */ });
+    await nube.end().catch(() => { /* nada */ });
   }
 }
 
@@ -196,14 +210,13 @@ async function main(): Promise<void> {
   if (!nodoSucursal) {
     throw new Error(`--sucursal ${nodoCodigo} no existe en el escenario (usa 1, 2 o 3)`);
   }
-  await fijarNodoLocal(nodoSucursal);
+  if (target === 'nube') await prepararNodoLocal(nodoSucursal);
 
   console.log('\nListo. Contraseña de todos: ' + (process.env['QA_PASSWORD'] ? '(QA_PASSWORD)' : `"${PASSWORD}"`));
   if (target === 'nube') {
     console.log(
-      `\n  Los datos están en la nube. Para que el nodo local los reciba:\n` +
-      `    npm run api        (el motor de sync embebido los baja en ~30 s)\n` +
-      `  El nodo local ya quedó apuntando a la sucursal ${nodoCodigo}.\n`,
+      `\n  El nodo local ya representa a la sucursal ${nodoCodigo} y tiene el catálogo\n` +
+      `  de la nube (bootstrap). Corré  npm run api  para mantenerlo sincronizado.\n`,
     );
   }
   console.log(`  Escenarios de login (con "npm run api" + la SPA):

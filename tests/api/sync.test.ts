@@ -71,7 +71,10 @@ run('API · /sync (PostgreSQL real)', () => {
       `INSERT INTO sync.outbox (tabla, fila_id, payload, hlc_ts, hlc_cnt, estado, intentos)
        VALUES ('core.venta', core.uuid_v7(), '{}'::jsonb, now(), 0, 'pendiente', 0),
               ('core.venta', core.uuid_v7(), '{}'::jsonb, now(), 0, 'pendiente', 0),
-              ('core.venta', core.uuid_v7(), '{}'::jsonb, now(), 0, 'rechazado', 2)`,
+              ('core.venta', core.uuid_v7(), '{}'::jsonb, now(), 0, 'rechazado', 2),
+              -- confirmada pero con muchos intentos (reenvíos absorbidos por
+              -- idempotencia, o cruft pre-0032): NO está atascada, ya subió.
+              ('core.venta', core.uuid_v7(), '{}'::jsonb, now(), 0, 'confirmado', 9)`,
     );
 
     const r = await app.inject({
@@ -81,7 +84,7 @@ run('API · /sync (PostgreSQL real)', () => {
     const b = r.json();
     expect(b.sucursalId).toBe(fx.sucursalAId);
     expect(b.outboxPendiente).toBe(2);
-    expect(b.outboxAtascado, 'la rechazada').toBe(1);
+    expect(b.outboxAtascado, 'solo la rechazada; la confirmada con 9 intentos no cuenta').toBe(1);
     expect(b.derivaRelojSeg).toBe(4);
     expect(b.degradado, 'sincronizó hace 20 min').toBe(false);
     expect(b.excepcionesAbiertas).toEqual({ critica: 0, alta: 0, media: 0, baja: 0 });

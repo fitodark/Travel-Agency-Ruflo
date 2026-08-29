@@ -297,7 +297,7 @@ runSalud('src/sync/salud.ts — tablero de diagnóstico remoto', () => {
   it('separa outbox pendiente de outbox atascado: hoy el operador no puede distinguirlos', async () => {
     await filaOutbox('pendiente', 0);
     await filaOutbox('enviado', 1);
-    await filaOutbox('confirmado', 1);      // no cuenta en ninguno
+    await filaOutbox('confirmado', 9);      // ya subió: no cuenta, aunque tenga muchos intentos
     await filaOutbox('rechazado', 2);       // atascado por estado
     await filaOutbox('pendiente', 8);       // atascado por intentos
 

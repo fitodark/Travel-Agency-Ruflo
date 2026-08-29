@@ -45,7 +45,7 @@ run('rol donaji_consola (PostgreSQL real)', () => {
 
     const suc = await crearSucursal(db, {
       agenciaId: fx.agenciaId, nombre: 'Rol Test', direccionCompleta: 'x',
-      telefonoPrincipal: 'x', codigo: 'Z',
+      telefonoPrincipal: 'x',
     }, { modo: 'inmediato', confirmarInmediato: true, ahora });
 
     const usr = await crearUsuario(db, {

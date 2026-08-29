@@ -46,7 +46,7 @@ run('consola · códigos de revocación (PostgreSQL real)', () => {
 
   it('genera un código verificable contra la semilla y avanza el contador', async () => {
     const suc = await crearSucursal(db, {
-      agenciaId, nombre: 'S', direccionCompleta: 'x', telefonoPrincipal: 'x', codigo: 'Z',
+      agenciaId, nombre: 'S', direccionCompleta: 'x', telefonoPrincipal: 'x',
     }, { modo: 'inmediato', confirmarInmediato: true, ahora });
     const usr = await crearUsuario(db, {
       nombre: 'U', email: `rv-${Math.floor(Math.random() * 1e9)}@donaji.test`, rol: 'vendedor',
