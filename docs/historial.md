@@ -1612,19 +1612,19 @@ asistente por política; lo corre el usuario). Hasta entonces `f1-criterios.test
 
 ---
 
-## Pendientes de F1
+## F1 — CERRADA
 
-- El contrato de pruebas del motor está CERRADO: `salud.ts` (Ses. 4), arbitraje
-  y reasignación (F4), checksum dirigido de `reconcile.ts` (Ses. 18) y los 12
-  `it.todo` de `engine.ts` (Ses. 19, `tests/sync/engine.test.ts`).
-- Queda **1 `it.todo`**: "catch-up de pull ANTES de vender fuera de cupo" — es
-  cross-cutting (motor + `src/ventas/`), a la espera de esa decisión de diseño.
+Los cinco criterios de aceptación verdes contra Supabase real
+(`tests/sync/f1-criterios.test.ts`). Contrato de pruebas del motor cerrado
+(`salud.ts` Ses. 4, arbitraje/reasignación en F4, checksum dirigido de
+`reconcile.ts` Ses. 18, los 12 `it.todo` de `engine.ts` Ses. 19). Los 6 defectos
+`DEFECTO VIGENTE` cerrados el 2026-08-28 (migraciones 0039–0041 +
+`src/sync/bootstrap.ts` — ver § Sesión 36).
 
-## Defectos conocidos aún vivos (con su prueba `DEFECTO VIGENTE` en verde)
-
-Los seis defectos listados aquí se **cerraron** el 2026-08-28 (migraciones
-0039–0041 + `src/sync/bootstrap.ts`). Ver la sesión "Cierre de los 6 defectos
-del motor de sync" más abajo. Ninguno queda vivo.
+**Único arrastre, movido a F4:** el `it.todo` "catch-up de pull ANTES de vender
+fuera de cupo" (`tests/sync/engine.test.ts`) — transversal al módulo de venta: el
+motor ya expone `modo` y `ultimaSyncExitosa`; falta que `src/ventas/` consulte esa
+señal y bloquee el override de asiento cuando el nodo lleva mucho sin bajar.
 
 ## Decisiones abiertas para el arquitecto
 
