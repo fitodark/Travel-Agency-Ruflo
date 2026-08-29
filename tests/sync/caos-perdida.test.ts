@@ -32,7 +32,7 @@ import { pull } from '../../src/sync/pull.js';
 import { outboxPendiente, push } from '../../src/sync/push.js';
 import {
   abrirAdmin, abrirLocal, checksum, construirIds, contar, crearNodo, cursorDe, desviarReloj, hayLocal,
-  hoy, pullHasta, sembrarMaestros, silenciarEcoDeConfiguracion, soltarNodo, vender, type Ids,
+  hoy, PREFIJO_CAOS, pullHasta, sembrarMaestros, silenciarEcoDeConfiguracion, soltarNodo, vender, type Ids,
 } from './harness.js';
 
 const IDS: Ids = construirIds('b2', ['P', 'Q']);
@@ -418,71 +418,88 @@ run('pérdida silenciosa de datos', () => {
   });
 
   // =========================================================================
-  // 4. El reloj híbrido nunca avanza al observar lotes remotos
+  // 4. El reloj híbrido avanza al observar lotes remotos (D1, cerrado por 0041)
   // =========================================================================
-  it('DEFECTO VIGENTE · recibir un lote remoto NO avanza el reloj híbrido local', async () => {
+  it('recibir un lote remoto avanza el piso HLC local, acotado a la deriva máxima', async () => {
     // Blueprint §2.2: "Al recibir un lote remoto se avanza el reloj local al máximo
-    // observado". `sync.hlc_observar` existe en la migración 0001 y no la llama nadie:
-    // ni `pull`, ni `bootstrap`, ni `ingest_fila`.
+    // observado". `sync.hlc_observar` existía desde 0001 y no la llamaba nadie; 0041 la
+    // cablea en `sync.ingest_fila`, así que el pull ahora sí sube el piso.
     //
-    // Sin esa regla, el HLC deja de ser un reloj híbrido y se vuelve un reloj de pared
-    // con otro nombre: dos nodos con relojes desviados producen órdenes distintos para
-    // los mismos hechos, que es justo lo que el HLC existía para impedir. Se nota el día
-    // que haya que arbitrar un conflicto de asiento con datos de dos sucursales.
-    //
-    // AL CORREGIR: tras el pull, el reloj local debe haber saltado al máximo observado.
-    //
-    // NOTA (0014): lo que sí se corrigió es que el nodo CONSERVA el `hlc_ts` del origen
-    // en la fila (antes su trigger lo pisaba); esa parte se verifica ahora en positivo
-    // en "la nube CONSERVA el hlc_ts del origen". Aquí queda solo el hueco de
-    // `hlc_observar`, que sigue sin conectar.
-    const { rows: antes } = await s1.query<{ ts: Date }>(
-      `SELECT ultimo_ts AS ts FROM sync.hlc_estado WHERE singleton`,
-    );
-
+    // Pero acotado: un remoto con el reloj disparado no puede empujar el piso más allá
+    // de `clock_timestamp() + hlc_deriva_max_seg`. Si no, un solo nodo con la BIOS
+    // corrida contaminaría el orden causal de los otros tres.
+    const pisoDe = async (): Promise<number> => {
+      const { rows } = await s1.query<{ ts: Date }>(
+        `SELECT ultimo_ts AS ts FROM sync.hlc_estado WHERE singleton`,
+      );
+      return rows[0]!.ts.getTime();
+    };
     const { rows: base } = await nube.query<{ p: Record<string, unknown> }>(
       `SELECT to_jsonb(t) AS p FROM core.sucursal t WHERE id = $1`, [IDS.sucursales[1]],
     );
-    const futuro = new Date(Date.now() + 365 * 24 * 3600 * 1000).toISOString();
-    // El teléfono es solo una marca: sirve para saber que esta fila concreta ya bajó,
-    // en vez de conformarse con "el pull hizo algo".
-    const TELEFONO_FUTURO = '953 333 0001';
-    const conRelojAdelantado = {
-      ...base[0]!.p, hlc_ts: futuro, hlc_cnt: 99, telefono_principal: TELEFONO_FUTURO,
-    };
 
+    // (a) Un skew razonable, dentro de la deriva máxima (300 s): el piso lo absorbe.
+    const antes = await pisoDe();
+    const skewRazonable = new Date(Date.now() + 90_000).toISOString(); // +90 s
+    const TEL_A = '953 333 0001';
     await nube.query(
       `INSERT INTO sync.cambio_log (tabla, fila_id, payload) VALUES ('core.sucursal', $1, $2::jsonb)`,
-      [IDS.sucursales[1], JSON.stringify(conRelojAdelantado)],
+      [IDS.sucursales[1], JSON.stringify({ ...base[0]!.p, hlc_ts: skewRazonable, hlc_cnt: 99, telefono_principal: TEL_A })],
     );
     await pullHasta(
       s1, nube,
       async () => (await contar(
         s1, `SELECT count(*) AS n FROM core.sucursal WHERE id = $1 AND telefono_principal = $2`,
-        [IDS.sucursales[1], TELEFONO_FUTURO],
+        [IDS.sucursales[1], TEL_A],
       )) === 1,
-      { descripcion: 'la fila publicada con el reloj adelantado' },
+      { descripcion: 'la fila con skew razonable' },
     );
+    const pisoTrasA = await pisoDe();
+    expect(pisoTrasA, 'el piso subió hacia el máximo observado').toBeGreaterThan(antes);
+    expect(pisoTrasA, 'y llegó a ~+90 s del skew observado').toBeGreaterThan(Date.now() + 30_000);
 
-    const { rows: despues } = await s1.query<{ ts: Date }>(
-      `SELECT ultimo_ts AS ts FROM sync.hlc_estado WHERE singleton`,
+    // (b) Un skew absurdo (+365 días): el piso se ACOTA y se abre `deriva_reloj`.
+    const skewAbsurdo = new Date(Date.now() + 365 * 24 * 3600 * 1000).toISOString();
+    const TEL_B = '953 333 0002';
+    await nube.query(
+      `INSERT INTO sync.cambio_log (tabla, fila_id, payload) VALUES ('core.sucursal', $1, $2::jsonb)`,
+      [IDS.sucursales[1], JSON.stringify({ ...base[0]!.p, hlc_ts: skewAbsurdo, hlc_cnt: 999, telefono_principal: TEL_B })],
     );
-    const unDia = Date.now() + 24 * 3600 * 1000;
+    await pullHasta(
+      s1, nube,
+      async () => (await contar(
+        s1, `SELECT count(*) AS n FROM core.sucursal WHERE id = $1 AND telefono_principal = $2`,
+        [IDS.sucursales[1], TEL_B],
+      )) === 1,
+      { descripcion: 'la fila con skew absurdo' },
+    );
     expect(
-      despues[0]!.ts.getTime(),
-      'si el reloj saltó al futuro observado, sync.hlc_observar ya está conectado: invertir',
-    ).toBeLessThan(unDia);
-    expect(despues[0]!.ts.getTime()).toBeGreaterThanOrEqual(antes[0]!.ts.getTime());
+      await pisoDe(),
+      'el piso quedó acotado, muy lejos de +365 días',
+    ).toBeLessThan(Date.now() + 24 * 3600 * 1000);
+    expect(
+      await contar(
+        s1, `SELECT count(*) AS n FROM sync.excepcion WHERE tipo = 'deriva_reloj' AND estado = 'abierta'`,
+      ),
+      'un remoto con el reloj disparado abre una excepción deriva_reloj',
+    ).toBeGreaterThanOrEqual(1);
 
-    // En cambio el nodo SÍ conserva el HLC de lo que recibió (0014): no lo pisa con su
-    // reloj local. Es el orden causal del §2.2, aunque el reloj local todavía no lo mire.
+    // El nodo SÍ conserva el HLC de la fila (0014): no lo pisa con su reloj local.
     const { rows: guardado } = await s1.query<{ hlc_ts: Date }>(
       `SELECT hlc_ts FROM core.sucursal WHERE id = $1`, [IDS.sucursales[1]],
     );
     expect(
       guardado[0]!.hlc_ts.getTime(),
       'el hlc_ts del origen se conserva en la fila',
-    ).toBeGreaterThan(unDia);
+    ).toBeGreaterThan(Date.now() + 24 * 3600 * 1000);
+
+    // Limpieza: el piso quedó en +max y la fila de sucursales[1] con hlc_ts a un año.
+    // Reescribir la fila (con el piso ya en `now()`) le devuelve un hlc_ts real por el
+    // trigger, y así no envenena la guarda de HLC de las pruebas siguientes del bloque.
+    await s1.query(`DELETE FROM sync.excepcion WHERE tipo = 'deriva_reloj'`);
+    await s1.query(`UPDATE sync.hlc_estado SET ultimo_ts = now(), ultimo_cnt = 0 WHERE singleton`);
+    await s1.query(`UPDATE core.sucursal SET telefono_principal = '953 000 0000' WHERE id = $1`, [IDS.sucursales[1]]);
+    await silenciarEcoDeConfiguracion(s1);
   }, 180_000);
 
   // =========================================================================
@@ -546,36 +563,30 @@ run('pérdida silenciosa de datos', () => {
   );
 
   // =========================================================================
-  // 4b. Deriva de reloj: el HLC sube y no vuelve a bajar
+  // 4b. Deriva de reloj: el HLC se acota, no se dispara (D3, cerrado por 0041)
   // =========================================================================
-  it('DEFECTO VIGENTE · una excursión del reloj deja el HLC del nodo adelantado para siempre', async () => {
+  it('una excursión del reloj queda ACOTADA a la deriva máxima y abre una excepción', async () => {
     // R5, y el motivo por el que NTP es requisito de instalación (D-5). Pero NTP
-    // corrige el reloj del sistema operativo, no el HLC.
+    // corrige el reloj del SO, no el HLC.
     //
-    // `sync.hlc_siguiente()` hace `ultimo_ts = GREATEST(ultimo_ts, clock_timestamp())`.
-    // Es un trinquete: sube y nunca baja. Si la PC arranca una sola vez con la BIOS
-    // desfasada una hora —o alguien toca la fecha para probar algo— el nodo escribe una
-    // fila con `hlc_ts` una hora en el futuro, y a partir de ahí TODAS sus escrituras
-    // siguen una hora adelantadas aunque NTP ya haya corregido el reloj. Solo avanza el
-    // contador lógico.
+    // Antes `sync.hlc_siguiente()` hacía `ultimo_ts = GREATEST(ultimo_ts,
+    // clock_timestamp())`: un trinquete que subía y nunca bajaba. Un arranque con la
+    // BIOS corrida una hora dejaba TODAS las escrituras una hora adelantadas para
+    // siempre, y ese nodo ganaba toda comparación por HLC sin que nada lo señalara.
     //
-    // Consecuencia: ese nodo gana cualquier comparación por HLC contra los otros tres,
-    // de forma permanente y sin que nada lo señale. El algoritmo HLC estándar incluye
-    // una comprobación de deriva máxima justamente para esto, y aquí no está.
-    //
-    // AL CORREGIR: `hlc_siguiente` debe rechazar (o acotar y alertar) cuando
-    // `ultimo_ts - clock_timestamp()` supere la deriva tolerada, y abrir una excepción
-    // `deriva_reloj`. Esta prueba debe pasar a exigir que el reloj vuelva a la realidad.
+    // 0041: `hlc_siguiente` solo LEE el piso y lo ACOTA a `hlc_deriva_max_seg` por
+    // delante del reloj de pared. Una excursión ya no se dispara sin límite: se queda
+    // topada en la deriva máxima (bounded drift, que es la garantía real de un HLC) y
+    // abre una excepción `deriva_reloj` para que se vea en el tablero. Un pull posterior
+    // la sana hacia el tope (ver "recibir un lote remoto avanza el piso HLC").
     const UNA_HORA = 3600;
-    await desviarReloj(s1, UNA_HORA);
+    const MAX_SEG = 300; // hlc_deriva_max_seg
+    await desviarReloj(s1, UNA_HORA); // envenena el piso: now + 1 h
 
     const v = await vender(s1, {
       ids: IDS, sucursalId: IDS.sucursales[0]!, asiento: 6, tramos: '[0,3)', sinOcupacion: true,
     });
     expect(v.ok, v.motivo ?? '').toBe(true);
-
-    // Aquí "NTP corrige el reloj": el reloj de pared vuelve a ser el correcto. Nada
-    // más cambia, porque no hay nada más que cambiar.
     const { rows: primera } = await s1.query<{ hlc_ts: Date; hlc_cnt: number }>(
       `SELECT hlc_ts, hlc_cnt FROM core.boleto WHERE id = $1`, [v.boletoId],
     );
@@ -588,34 +599,35 @@ run('pérdida silenciosa de datos', () => {
     );
 
     const adelanto = (segunda[0]!.hlc_ts.getTime() - Date.now()) / 1000;
+    expect(adelanto, 'el sello no se dispara a +1 h: queda topado en la deriva máxima')
+      .toBeLessThanOrEqual(MAX_SEG + 30);
+    expect(segunda[0]!.hlc_ts.getTime(), 'y no cae por debajo del reloj real')
+      .toBeGreaterThanOrEqual(primera[0]!.hlc_ts.getTime());
+    expect(segunda[0]!.hlc_cnt, 'el contador (secuencia) sigue avanzando')
+      .toBeGreaterThan(primera[0]!.hlc_cnt);
     expect(
-      adelanto,
-      'si el HLC ya volvió al reloj real, existe una comprobación de deriva: invertir',
-    ).toBeGreaterThan(UNA_HORA * 0.9);
-    expect(segunda[0]!.hlc_ts.getTime()).toBe(primera[0]!.hlc_ts.getTime());
-    expect(segunda[0]!.hlc_cnt, 'solo avanza el contador lógico').toBeGreaterThan(primera[0]!.hlc_cnt);
+      await contar(s1, `SELECT count(*) AS n FROM sync.excepcion WHERE tipo = 'deriva_reloj' AND estado = 'abierta'`),
+      'la excursión abre una excepción deriva_reloj',
+    ).toBeGreaterThanOrEqual(1);
 
-    // Se devuelve el reloj a la realidad para no contaminar las pruebas siguientes;
-    // en una terminal real esto exige entrar por TeamViewer y tocar la base a mano.
+    // Limpieza para no contaminar las pruebas siguientes del bloque.
     await s1.query(`UPDATE sync.hlc_estado SET ultimo_ts = now(), ultimo_cnt = 0 WHERE singleton`);
+    await s1.query(`DELETE FROM sync.excepcion WHERE tipo = 'deriva_reloj'`);
   }, 180_000);
 
   // =========================================================================
-  // 5. La red de seguridad que no existe
+  // 5. La red de seguridad del bootstrap (D6, cerrado por 0040)
   // =========================================================================
-  it('DEFECTO VIGENTE · `SET CONSTRAINTS ALL DEFERRED` del bootstrap no difiere nada', async () => {
+  it('todas las FK de `core` son DEFERRABLE: el bootstrap puede tolerar orden parcial', async () => {
     // `bootstrap.ts` y el blueprint §5 dicen que dentro del lote las claves foráneas se
     // difieren "para tolerar orden parcial". PostgreSQL solo difiere las constraints
-    // declaradas DEFERRABLE, y ninguna del esquema lo es: la sentencia no falla, no
-    // avisa, y simplemente no hace nada.
+    // declaradas DEFERRABLE; hasta 0040 ninguna del esquema lo era y `SET CONSTRAINTS
+    // ALL DEFERRED` no hacía nada — el bootstrap funcionaba solo porque
+    // `ORDEN_TOPOLOGICO` está bien escrito a mano.
     //
-    // Hoy el bootstrap funciona únicamente porque `ORDEN_TOPOLOGICO` está bien escrito a
-    // mano. El día que alguien agregue una tabla y la ponga en el nivel equivocado, el
-    // fallo aparecerá en la cuarta sucursal y no en las tres primeras.
-    //
-    // AL CORREGIR: declarar las FK de `core` como DEFERRABLE INITIALLY IMMEDIATE, o
-    // borrar la afirmación del comentario y del blueprint. Esta prueba debe pasar a
-    // exigir que todas sean diferibles.
+    // 0040 declara TODAS las FK de `core` DEFERRABLE INITIALLY IMMEDIATE: el
+    // comportamiento por defecto no cambia, pero el `SET CONSTRAINTS ALL DEFERRED` del
+    // bootstrap por fin difiere de verdad.
     const { rows } = await s1.query<{ deferrables: string; total: string }>(
       `SELECT count(*) FILTER (WHERE condeferrable)::text AS deferrables,
               count(*)::text AS total
@@ -624,8 +636,35 @@ run('pérdida silenciosa de datos', () => {
     expect(Number(rows[0]!.total)).toBeGreaterThan(0);
     expect(
       Number(rows[0]!.deferrables),
-      'ya hay FK diferibles: la red de seguridad del bootstrap empieza a existir, invertir',
-    ).toBe(0);
+      'todas las FK de core deben ser diferibles tras 0040',
+    ).toBe(Number(rows[0]!.total));
+
+    // Y la que importa: con las FK diferidas, insertar un hijo antes que su padre
+    // dentro de una transacción NO rebota si el padre llega antes del COMMIT —
+    // que es lo que `bootstrap.ts` promete y hasta 0040 no cumplía.
+    const rutaId = PREFIJO_CAOS + IDS.ns + 'aa' + '00000001';
+    const horarioId = PREFIJO_CAOS + IDS.ns + 'aa' + '00000002';
+    await s1.query('BEGIN');
+    try {
+      await s1.query('SET CONSTRAINTS ALL DEFERRED');
+      await s1.query(
+        `INSERT INTO core.horario (id, ruta_id, hora_salida, dias_semana)
+         VALUES ($1, $2, '07:00', ARRAY[1,2,3,4,5,6,7])`,
+        [horarioId, rutaId],
+      );
+      await s1.query(
+        `INSERT INTO core.ruta (id, nombre, sucursal_origen_id, sucursal_destino_id)
+         VALUES ($1, 'orden parcial', $2, $3)`,
+        [rutaId, IDS.sucursales[0], IDS.sucursales[1]],
+      );
+      await s1.query('COMMIT');
+    } catch (err) {
+      await s1.query('ROLLBACK').catch(() => { /* ya revertida */ });
+      throw err;
+    }
+    await s1.query(`DELETE FROM core.horario WHERE id = $1`, [horarioId]);
+    await s1.query(`DELETE FROM core.ruta WHERE id = $1`, [rutaId]);
+    await silenciarEcoDeConfiguracion(s1);
   }, 60_000);
 });
 
@@ -783,56 +822,44 @@ run('instalación de una terminal nueva', () => {
   }, 120_000);
 
   it(
-    'DEFECTO VIGENTE · una terminal instalada CON seeds no puede hacer bootstrap',
+    'una terminal instalada CON seeds hace bootstrap sin colisión de identidad (D4)',
     async () => {
-      // Este es el camino real del instalador: aplicar migraciones y seeds en la PC de
-      // la sucursal, y después bajar el catálogo de la nube. `aplicarEsquema` aplica los
-      // seeds por omisión, así que es lo que va a pasar en las 4 terminales.
+      // El camino real del instalador: aplicar migraciones y seeds en la PC de la
+      // sucursal y después bajar el catálogo de la nube.
       //
-      // Falla, y falla mal, por tres defectos encadenados:
+      // Antes fallaba por tres defectos encadenados:
+      //  1. el seed de `tipo_unidad` no fijaba `id` -> cada base generaba uno distinto
+      //     para la misma `clave` (UNIQUE);
+      //  2. `sync.ingest_fila` (ON CONFLICT (id)) no absorbía un choque por otra
+      //     constraint: salía `conflicto` y se archivaba como `sobreventa`/`critica`;
+      //  3. `bootstrap` solo abortaba ante `rechazada` — `conflicto` lo ignoraba y
+      //     seguía, y el fallo afloraba niveles después como una FK rota en
+      //     `core.salida`.
       //
-      //  1. `src/db/seed/0001_tipo_unidad_sprinter18.sql` no fija el `id`: cada base
-      //     genera uno distinto para la MISMA `clave`, que es UNIQUE. La Sprinter de la
-      //     nube y la del nodo son la misma unidad con identidades incompatibles.
-      //  2. `sync.ingest_fila` hace `ON CONFLICT (id)`, así que un choque por OTRA
-      //     restricción única no lo absorbe: sale por `unique_violation` y devuelve
-      //     `conflicto` — y lo archiva como excepción `tipo='sobreventa'`,
-      //     `severidad='critica'`, que no tiene nada que ver. Existe el tipo
-      //     `folio_duplicado` en el CHECK y nadie lo usa.
-      //  3. `bootstrap` solo aborta ante `rechazada`; `conflicto` lo ignora en silencio
-      //     y sigue copiando. El fallo aparece varios niveles después, como una clave
-      //     foránea rota en `core.salida`, apuntando a la tabla equivocada.
-      //
-      // El síntoma en sitio es un instalador que revienta con un error sobre `salida`
-      // cuando el problema está en `tipo_unidad`, a las 3 de la mañana y por TeamViewer.
-      //
-      // AL CORREGIR: fijar el `id` en el seed (o sembrar solo la nube), y hacer que
-      // `bootstrap` aborte también ante `conflicto`. Esta prueba debe pasar a exigir un
-      // bootstrap exitoso.
+      // 0039 fija el `id` de `tipo_unidad` de forma determinista (`md5('core.tipo_unidad:'
+      // || clave)`) y clasifica bien la excepción; `bootstrap.ts` ahora aborta también
+      // ante `conflicto`. El camino del instalador vuelve a funcionar.
       const nodo = await crearNodo(admin, DB_INST, {
         sucursalId: IDS.sucursales[0]!, conSeeds: true,
       });
       try {
-        const mio = await contar(nodo, `SELECT count(*) AS n FROM core.tipo_unidad`);
-        const suyo = await contar(nube, `SELECT count(*) AS n FROM core.tipo_unidad`);
-        expect(mio).toBe(1);
-        expect(suyo).toBe(1);
-
-        const { rows: claves } = await nodo.query<{ id: string }>(
-          `SELECT id FROM core.tipo_unidad WHERE clave = 'SPRINTER-18'`,
+        const { rows: claves } = await nodo.query<{ id: string; det: string }>(
+          `SELECT id, md5('core.tipo_unidad:' || clave)::uuid AS det
+             FROM core.tipo_unidad WHERE clave = 'SPRINTER-18'`,
         );
         const { rows: clavesNube } = await nube.query<{ id: string }>(
           `SELECT id FROM core.tipo_unidad WHERE clave = 'SPRINTER-18'`,
         );
-        expect(
-          claves[0]!.id,
-          'si los ids ya coinciden, el seed se volvió determinista: invertir la prueba',
-        ).not.toBe(clavesNube[0]!.id);
+        expect(claves[0]!.id, 'id determinista por clave').toBe(claves[0]!.det);
+        expect(claves[0]!.id, 'nodo y nube convergen al mismo id').toBe(clavesNube[0]!.id);
 
-        await expect(
-          bootstrap(nodo, nube),
-          'el bootstrap del camino real del instalador debería funcionar',
-        ).rejects.toThrow(/core\.salida/);
+        const res = await bootstrap(nodo, nube);
+        expect(res.total, 'el bootstrap copió el catálogo sin abortar').toBeGreaterThan(0);
+        expect(
+          await contar(nodo, `SELECT count(*) AS n FROM core.salida WHERE id = $1`, [IDS.salida]),
+          'la salida bajó con su tipo_unidad_id apuntando a la fila correcta',
+        ).toBe(1);
+        await silenciarEcoDeConfiguracion(nodo);
       } finally {
         await nodo.end().catch(() => { /* ya cerrado */ });
       }

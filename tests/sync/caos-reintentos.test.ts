@@ -290,33 +290,21 @@ run('caos de reintentos y muerte a media operación', () => {
   });
 
   // =========================================================================
-  // Contención: un único punto de serialización para TODAS las escrituras
+  // Contención: el sello HLC ya no serializa toda la base (D2, cerrado por 0041)
   // =========================================================================
   it(
-    'DEFECTO VIGENTE · `sync.hlc_estado` es una fila única que serializa toda escritura de la base',
+    'una transacción abierta sobre `core` NO bloquea las escrituras de otras filas',
     async () => {
-      // `core.trg_columnas_estandar` corre en cada INSERT y UPDATE de toda tabla de
-      // `core`, y lo primero que hace es `sync.hlc_siguiente()`, que es un
-      // `UPDATE sync.hlc_estado ... WHERE singleton`: una sola fila, en toda la base.
+      // Antes `core.trg_columnas_estandar` -> `sync.hlc_siguiente()` hacía
+      // `UPDATE sync.hlc_estado ... WHERE singleton` en CADA escritura de `core`: una
+      // sola fila en toda la base, con el lock retenido hasta el COMMIT del llamador.
+      // Cualquier transacción abierta que hubiera tocado `core` bloqueaba TODA otra
+      // escritura — en la nube, mientras una sucursal drenaba 72 h de outbox, las otras
+      // tres esperaban.
       //
-      // Consecuencia: cualquier transacción abierta que haya tocado `core` bloquea
-      // TODA otra escritura, aunque sea de otra tabla y de otra fila. No es contención
-      // de datos, es un candado global.
-      //
-      // Dónde duele, en orden de gravedad:
-      //
-      //  - En la NUBE, `sync.ingest_batch` procesa el lote entero (hasta 500 filas)
-      //    dentro de una transacción. Mientras una sucursal drena sus 72 h acumuladas,
-      //    las otras tres no pueden ingerir nada: sus pushes esperan. La cadencia de
-      //    5 s del §3.3 supone que los cuatro nodos suben en paralelo, y no lo hacen.
-      //  - En el NODO, `bootstrap` copia todo el catálogo en una sola transacción: la
-      //    terminal no puede vender mientras dura.
-      //  - Cualquier transacción larga accidental congela la caja.
-      //
-      // AL CORREGIR: el HLC no necesita una fila compartida. Puede derivarse de
-      // `clock_timestamp()` más un contador por transacción (`txid_current()`), o vivir
-      // en una secuencia, o usar un `UPDATE` fuera de la transacción del llamador.
-      // Esta prueba debe pasar a exigir que la segunda escritura NO se bloquee.
+      // 0041: `hlc_siguiente` solo LEE `sync.hlc_estado` (sin lock) y saca el contador
+      // de la secuencia `sync.hlc_seq` (`nextval` no toma lock). Una transacción abierta
+      // sobre `core` ya no serializa nada más que su propia fila.
       const a = await abrirLocal(DB_NUBE);
       const b = await abrirLocal(DB_NUBE);
       try {
@@ -326,20 +314,15 @@ run('caos de reintentos y muerte a media operación', () => {
           [IDS.sucursales[0]],
         );
 
-        // Otra tabla, otra fila, ninguna relación con lo anterior.
-        await b.query(`SET lock_timeout = '2000ms'`);
-        await expect(
-          b.query(`INSERT INTO core.agencia (id, nombre) VALUES (core.uuid_v7(), 'sin relación')`),
-          'si esto ya no se bloquea, el candado global desapareció: invertir la prueba',
-        ).rejects.toThrow(/lock|bloqueo|tiempo de espera/i);
+        // Otra tabla, otra fila, ninguna relación con lo anterior: NO debe bloquearse.
+        await b.query(`SET lock_timeout = '3000ms'`);
+        const { rows } = await b.query<{ id: string }>(
+          `INSERT INTO core.agencia (id, nombre) VALUES (core.uuid_v7(), 'sin relación') RETURNING id`,
+        );
+        expect(rows[0]!.id, 'la escritura de B pasó sin esperar a A').toBeTruthy();
+        await b.query(`DELETE FROM core.agencia WHERE id = $1`, [rows[0]!.id]);
 
         await a.query('ROLLBACK');
-
-        // Y al soltar, escribe de inmediato: confirma que el bloqueo era el de A.
-        const { rows } = await b.query<{ id: string }>(
-          `INSERT INTO core.agencia (id, nombre) VALUES (core.uuid_v7(), 'ya libre') RETURNING id`,
-        );
-        await b.query(`DELETE FROM core.agencia WHERE id = $1`, [rows[0]!.id]);
       } finally {
         await a.query('ROLLBACK').catch(() => { /* ya revertida */ });
         await a.end().catch(() => { /* ya cerrada */ });
@@ -490,28 +473,22 @@ run('caos de reintentos y muerte a media operación', () => {
   );
 
   // =========================================================================
-  // Reinstalación de una terminal (R2) y folios (R13)
+  // Reinstalación de una terminal (R2) y folios (R13) — D5, cerrado en bootstrap.ts
   // =========================================================================
   it(
-    'DEFECTO VIGENTE · una terminal reinstalada reinicia sus folios y colisiona con la nube',
+    'una terminal reinstalada rehidrata su contador de folios y no colisiona con la nube',
     async () => {
       // R2 es el riesgo crítico del proyecto: una sola PC por sucursal. Cuando el disco
-      // muere se reinstala y se hace bootstrap. Pero `core.folio_secuencia` NO viaja:
-      // no está en `ORDEN_TOPOLOGICO`, no tiene columnas de sync y por tanto no es
-      // ingerible. El trigger de alta de sucursal le crea una nueva en cero.
+      // muere se reinstala y se hace bootstrap. `core.folio_secuencia` NO se replica (y
+      // es correcto: dos nodos con el mismo contador emitirían el mismo folio — 0012).
       //
-      // Resultado: la terminal reinstalada vuelve a emitir R00000, R00001... que la nube
-      // ya tiene. `core.boleto.folio` es UNIQUE, así que la nube responde `conflicto` y
-      // el boleto que el pasajero lleva impreso NUNCA sube. Es pérdida de una venta
-      // cobrada, y el folio es justamente lo que se dicta por teléfono para liquidar una
-      // reservación en la terminal destino.
+      // Antes el trigger de alta de sucursal creaba la secuencia en CERO y la terminal
+      // reinstalada re-emitía R00000, R00001... que la nube ya tenía; `core.boleto.folio`
+      // es UNIQUE, así que la nube devolvía `conflicto` y el boleto impreso no subía.
       //
-      // R13 supone la colisión "imposible por construcción"; lo es entre sucursales,
-      // no entre una sucursal y su propio pasado.
-      //
-      // AL CORREGIR: replicar `folio_secuencia` (o rehidratarla en el bootstrap con
-      // `max(folio)` de la nube más un margen). Esta prueba debe pasar a exigir cero
-      // conflictos y folios distintos.
+      // `bootstrap.ts` ahora rehidrata `core.folio_secuencia` desde `max(folio)` de la
+      // nube por sucursal, más un margen para folios en vuelo. R13 vuelve a ser cierto:
+      // no hay colisión ni entre sucursales ni entre una sucursal y su propio pasado.
       const DB_ANTES = 'donaji_caos_reint_disco1';
       const DB_DESPUES = 'donaji_caos_reint_disco2';
       const sucursal = IDS.sucursales[1]!;
@@ -538,29 +515,23 @@ run('caos de reintentos y muerte a media operación', () => {
         );
         expect(
           Number(sec[0]!.siguiente),
-          'si el bootstrap ya rehidrata el contador de folios, invertir la prueba',
-        ).toBe(0);
+          'el bootstrap rehidrató el contador por encima de lo que la nube ya conoce',
+        ).toBeGreaterThan(0);
 
         const v2 = await vender(reinstalado, {
           ids: IDS, sucursalId: sucursal, asiento: 10, tramos: '[0,3)', sinOcupacion: true,
         });
         expect(v2.ok, v2.motivo ?? '').toBe(true);
-        expect(v2.folio, 'el folio se repite tal cual').toBe(v1.folio);
+        expect(v2.folio, 'el folio nuevo no repite el anterior').not.toBe(v1.folio);
 
         const r2 = await push(reinstalado, nube, { versionNodo: 'N' });
-        expect(r2.conflictos, 'la nube rechaza el folio duplicado').toBeGreaterThanOrEqual(1);
+        expect(r2.conflictos + r2.rechazadas, 'la nube acepta el folio sin conflicto').toBe(0);
 
-        const { rows: motivo } = await nube.query<{ motivo: string }>(
-          `SELECT detalle->>'motivo' AS motivo FROM sync.excepcion
-            WHERE sucursal_id = $1 ORDER BY creado_en DESC LIMIT 1`, [sucursal],
-        );
-        expect(motivo[0]!.motivo).toMatch(/unicidad|unique/i);
-
-        // Y el boleto que el pasajero tiene en la mano no está en la nube.
+        // Y el boleto que el pasajero tiene en la mano SÍ llegó a la nube.
         expect(
           await contar(nube, `SELECT count(*) AS n FROM core.boleto WHERE id = $1`, [v2.boletoId]),
-          'la venta cobrada se quedó fuera',
-        ).toBe(0);
+          'la venta cobrada subió',
+        ).toBe(1);
       } finally {
         await original.end().catch(() => { /* ya cerrado */ });
         await reinstalado?.end().catch(() => { /* ya cerrado */ });

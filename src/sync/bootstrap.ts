@@ -116,8 +116,15 @@ export async function bootstrap(
             [tabla, JSON.stringify(fila)],
           );
           const estado = res[0]!.estado;
-          if (estado === 'rechazada') {
-            throw new Error(`Bootstrap falló en ${tabla}: ${res[0]!.motivo}`);
+          // `conflicto` también aborta, no solo `rechazada`. Un `unique_violation`
+          // durante el bootstrap (típicamente una identidad no determinista que
+          // choca contra otra constraint, no contra la PK) no se resuelve
+          // reintentando: si se ignora, el fallo reaparece niveles después como
+          // una FK rota en otra tabla, y el instalador revienta lejos de la causa.
+          if (estado === 'rechazada' || estado === 'conflicto') {
+            throw new Error(
+              `Bootstrap ${estado === 'conflicto' ? 'en conflicto' : 'falló'} en ${tabla}: ${res[0]!.motivo}`,
+            );
           }
           copiadas++;
         }
@@ -143,6 +150,8 @@ export async function bootstrap(
     throw err;
   }
 
+  await rehidratarFolios(node, cloud);
+
   // Sin salidas materializadas ni cupos, la terminal no tiene qué vender. Es una
   // condición operativa que la caja debe poder mostrar, no un detalle interno.
   const { rows: salidas } = await node.query<{ n: string }>(
@@ -155,4 +164,61 @@ export async function bootstrap(
     cursorInicial,
     puedeVender: Number(salidas[0]!.n) > 0,
   };
+}
+
+/**
+ * Rehidrata `core.folio_secuencia` desde el máximo folio que la nube ya conoce
+ * de cada sucursal.
+ *
+ * POR QUÉ: `core.folio_secuencia` NO se replica (y es correcto: dos nodos con el
+ * mismo contador emitirían el mismo folio de 6 caracteres — ver 0012). Pero al
+ * reinstalar una terminal (R2: una sola PC por sucursal), el trigger de alta de
+ * sucursal le crea la secuencia en CERO, y la terminal re-emite `R00000`,
+ * `R00001`... que la nube ya tiene. `core.boleto.folio` es UNIQUE, así que la
+ * nube responde `conflicto` y el boleto que el pasajero lleva impreso NUNCA
+ * sube: pérdida de una venta cobrada.
+ *
+ * El folio es `[S][CCCCC]` con `CCCCC` en el base32 sin ambiguos de 0006. El
+ * orden lexicográfico del texto coincide con el numérico (dígitos < letras, y
+ * ambos ascendentes), así que `max(folio)` de la nube es el folio más alto real.
+ * Se deja un margen sobre él para cubrir folios en vuelo que aún no subieron.
+ */
+const FOLIO_ALFABETO = '0123456789ABCDEFGHJKMNPQRSTVWXYZ'; // == core.base32_donaji, sin I L O U
+const FOLIO_MARGEN_REINSTALL = 100;
+
+function folioANumero(folio: string): number {
+  let n = 0;
+  for (const ch of folio.slice(1, 6)) {
+    const d = FOLIO_ALFABETO.indexOf(ch);
+    if (d < 0) return Number.NaN;
+    n = n * 32 + d;
+  }
+  return n;
+}
+
+async function rehidratarFolios(node: Client, cloud: Client): Promise<void> {
+  const { rows: secuencias } = await node.query<{ sucursal_id: string; codigo: string; siguiente: string }>(
+    `SELECT sucursal_id, codigo, siguiente::text FROM core.folio_secuencia`,
+  );
+
+  for (const sec of secuencias) {
+    const prefijo = sec.codigo.trim();
+    const { rows } = await cloud.query<{ folio: string | null }>(
+      `SELECT max(folio) AS folio FROM core.boleto WHERE folio LIKE $1`,
+      [`${prefijo}%`],
+    );
+    const maxFolio = rows[0]?.folio;
+    if (maxFolio == null) continue;
+
+    const usado = folioANumero(maxFolio.trim());
+    if (Number.isNaN(usado)) continue;
+
+    const objetivo = usado + 1 + FOLIO_MARGEN_REINSTALL;
+    if (objetivo <= Number(sec.siguiente)) continue; // nunca hacia atrás
+
+    await node.query(
+      `UPDATE core.folio_secuencia SET siguiente = $2 WHERE sucursal_id = $1`,
+      [sec.sucursal_id, objetivo],
+    );
+  }
 }

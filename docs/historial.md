@@ -1535,6 +1535,83 @@ horaria de las 4 sucursales) fija la hora exacta de la ventana nocturna; hoy
 
 ---
 
+## Sesión 36 — 2026-08-28 · Cierre de los 6 defectos del motor de sync
+
+Los seis defectos que vivían fijados en verde con pruebas `DEFECTO VIGENTE` en
+`tests/sync/{caos-perdida,caos-reintentos}.test.ts`. Cada prueba traía una nota
+`AL CORREGIR: … invertir`. Se hicieron los seis. Rama `fix-defectos-sync`.
+
+### Tanda 1 — identidad, folios y FK (D4, D5, D6)
+
+- **`0039_bootstrap_robusto.sql`** (D4):
+  - `core.tipo_unidad.id` deja de ser `DEFAULT core.uuid_v7()` y pasa a derivarse
+    de la `clave` con `md5('core.tipo_unidad:' || clave)::uuid` + trigger
+    `core.trg_tipo_unidad_id` (mismo patrón que `rol_permiso` 0012 / `parametro`
+    0013). `UPDATE` de convergencia: nube y local tenían ids aleatorios distintos
+    para la misma Sprinter; ahora convergen sin insertar ni borrar. Ninguna FK
+    apunta todavía a `tipo_unidad` (unidad/salida vacías), así que reescribir la
+    PK en sitio es seguro.
+  - `sync.ingest_batch` (parte de 0010): una `unique_violation` que NO es traslape
+    de asiento se archiva como `folio_duplicado`/`alta`, no `sobreventa`/`critica`.
+- **`src/sync/bootstrap.ts`** (D4): aborta también ante `estado = 'conflicto'`, no
+  solo `rechazada` — un choque de unicidad durante el bootstrap no se resuelve
+  reintentando y, si se ignora, afloraba niveles después como FK rota en
+  `core.salida`.
+- **`0040_fks_deferrables.sql`** (D6): bloque `DO` que declara las 69 FK de `core`
+  `DEFERRABLE INITIALLY IMMEDIATE`. El comportamiento por defecto no cambia; el
+  `SET CONSTRAINTS ALL DEFERRED` de `bootstrap.ts` por fin difiere de verdad.
+- **`src/sync/bootstrap.ts`** (D5): `rehidratarFolios(node, cloud)` tras el COMMIT
+  de la copia — por cada `core.folio_secuencia` local, consulta `max(folio)` de la
+  nube para el prefijo de esa sucursal, lo decodifica del base32 sin ambiguos de
+  0006 y pone `siguiente = usado + 1 + 100` (margen para folios en vuelo). Sin
+  migración: `folio_secuencia` **sigue sin replicarse** (0012 lo prohíbe con
+  razón); solo se rehidrata al instalar. R13 vuelve a ser cierto.
+
+### Tanda 2 — el sello HLC (D1, D2, D3), `0041_hlc_sin_candado.sql`
+
+Los tres se tocan y no admiten parches sueltos. Rediseño:
+
+- `sync.hlc_estado.ultimo_ts` es ahora un **piso observado**. `sync.hlc_siguiente()`
+  solo lo **lee** (sin lock — **D2**: antes el `UPDATE` de esa fila única
+  serializaba toda escritura de `core` hasta el COMMIT del llamador).
+- Contador desde la secuencia `sync.hlc_seq` (`nextval` sin lock, cicla en
+  INT_MAX). `hlc_cnt` deja de reiniciarse; el orden total `(hlc_ts, hlc_cnt,
+  origen)` se mantiene porque los tres campos viajan intactos (0014) y
+  `arbitraje.ts` ya usa `origen` de desempate.
+- **Deriva acotada** (**D3**), parámetro `hlc_deriva_max_seg` (300 s):
+  `hlc_siguiente` nunca sella más de ese margen por delante del piso ni del reloj
+  de pared; una excursión queda topada en vez de dispararse para siempre, y al
+  corregir NTP el sello vuelve solo a la hora real. `hlc_observar` acota igual el
+  piso: un remoto disparado no lo envenena y uno envenenado se sana. El clamp abre
+  una excepción `deriva_reloj` (`sync.registrar_deriva_reloj`, dedup, solo en un
+  nodo).
+- **`hlc_observar` cableada** (**D1**) en `sync.ingest_fila`: tras aplicar (o
+  ignorar por HLC) una fila replicada, avanza el piso. Sirve en los dos lados
+  (pull del nodo, push a la nube). Existía desde 0001 sin llamador.
+- `GRANT USAGE ON SEQUENCE sync.hlc_seq TO donaji_consola` (0037 le da `EXECUTE`
+  sobre `hlc_siguiente`).
+
+### Pruebas
+
+Las 6 `DEFECTO VIGENTE` reescritas para afirmar el comportamiento correcto:
+FK diferibles + inserción hijo-antes-que-padre bajo `SET CONSTRAINTS DEFERRED`;
+el piso HLC absorbe un skew razonable y acota uno absurdo (+ `deriva_reloj`);
+una excursión queda topada en la deriva máxima (+ `deriva_reloj`); una
+transacción abierta sobre `core` no bloquea otra fila; el bootstrap con seeds
+converge sin colisión de identidad; la terminal reinstalada rehidrata folios y
+sube sin conflicto.
+
+`tsc` limpio. `npm test` sin `f1-criterios` (necesita la nube en 0041):
+**53 archivos, 485 verdes, 1 `it.todo`, 0 rojas.**
+
+### Pendiente de despliegue
+
+`npm run db:migrate:nube` para aplicar 0039–0041 a Supabase (bloqueado para el
+asistente por política; lo corre el usuario). Hasta entonces `f1-criterios.test.ts`
+—bootstrap contra Supabase real— corre contra una nube en 0038.
+
+---
+
 ## Pendientes de F1
 
 - El contrato de pruebas del motor está CERRADO: `salud.ts` (Ses. 4), arbitraje
@@ -1545,15 +1622,9 @@ horaria de las 4 sucursales) fija la hora exacta de la ventana nocturna; hoy
 
 ## Defectos conocidos aún vivos (con su prueba `DEFECTO VIGENTE` en verde)
 
-- `sync.hlc_observar` existe pero no la llama nadie: el reloj local no salta al
-  máximo observado en un pull.
-- `sync.hlc_estado` es fila única que serializa toda escritura de la base.
-- Una excursión del reloj deja el HLC adelantado para siempre (sin tope de
-  deriva).
-- `core.folio_secuencia` no se replica: una terminal reinstalada reinicia folios.
-- El seed de `tipo_unidad` no fija `id`: un nodo sembrado no puede hacer bootstrap.
-- Las FK de `core` no son `DEFERRABLE`: el `SET CONSTRAINTS ALL DEFERRED` del
-  bootstrap no difiere nada.
+Los seis defectos listados aquí se **cerraron** el 2026-08-28 (migraciones
+0039–0041 + `src/sync/bootstrap.ts`). Ver la sesión "Cierre de los 6 defectos
+del motor de sync" más abajo. Ninguno queda vivo.
 
 ## Decisiones abiertas para el arquitecto
 

@@ -136,11 +136,11 @@ export interface NodoOptions {
   /**
    * Aplica los seeds (`src/db/seed/`).
    *
-   * Por omisión: SÍ en la nube, NO en un nodo. No es una preferencia de prueba, es un
-   * defecto del motor que hay que esquivar para poder probar todo lo demás: el seed de
-   * `tipo_unidad` no fija el `id`, así que cada base genera uno distinto para la misma
-   * `clave` —que es UNIQUE—. Un nodo sembrado no puede hacer bootstrap contra una nube
-   * sembrada. Está reproducido en `caos-reintentos.test.ts`.
+   * Por omisión: SÍ en la nube, NO en un nodo — el catálogo clase A baja por bootstrap.
+   * Desde 0039 sembrar un nodo tampoco rompe nada: el `id` de `tipo_unidad` es
+   * determinista por `clave` (`md5('core.tipo_unidad:' || clave)`), así que nodo y nube
+   * convergen a la misma identidad. Ver "una terminal instalada CON seeds hace
+   * bootstrap" en `caos-perdida.test.ts`.
    */
   conSeeds?: boolean;
 }
