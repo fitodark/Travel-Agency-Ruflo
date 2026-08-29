@@ -34,6 +34,25 @@ export type ModoPropagacion = 'ventana' | 'inmediato' | 'programado';
 /** P12 sin cerrar: se asume esta zona cuando la fila no apunta a una sucursal. */
 export const ZONA_DEFECTO = 'America/Mexico_City';
 
+/** Tablas de configuración que el administrador puede escribir. Allowlist explícita. */
+export const TABLAS_ADMINISTRABLES: readonly string[] = [
+  'core.agencia',
+  'core.sucursal',
+  'core.usuario',
+  'core.usuario_sucursal',
+  'core.rol_permiso',
+  'core.ruta',
+  'core.ruta_parada',
+  'core.horario',
+  'core.horario_parada',
+  'core.config_impresora',
+  'core.config_ticket',
+  'core.tarifa',
+  'core.parametro',
+  'auth_local.credencial',
+  'auth_local.revocacion_hotp',
+];
+
 export interface EscribirConfigOpts {
   /** Tabla de configuración, p. ej. `core.usuario`. Debe ser clase A. */
   tabla: string;

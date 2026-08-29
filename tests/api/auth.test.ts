@@ -114,8 +114,8 @@ run('API · /auth (PostgreSQL real)', () => {
     expect(me.json().sucursalId).toBe(fx.sucursalBId);
   });
 
-  it('GET /auth/me devuelve rol, sucursal y permisos', async () => {
-    const fx = await seedAuth(db, { rol: 'gerente' });
+  it('GET /auth/me devuelve rol, sucursal (con nombre), lista de sucursales y permisos', async () => {
+    const fx = await seedAuth(db, { rol: 'gerente', sucursales: 2 });
     const token = await tokenDe(db, fx.email, fx.sucursalAId, ahora);
 
     const r = await app.inject({ method: 'GET', url: '/auth/me', headers: bearer(token) });
@@ -123,8 +123,49 @@ run('API · /auth (PostgreSQL real)', () => {
     const b = r.json();
     expect(b.rol).toBe('gerente');
     expect(b.sucursalId).toBe(fx.sucursalAId);
+    expect(b.sucursalNombre).toBeTruthy();
+    expect(b.sucursales.map((s: { id: string }) => s.id).sort())
+      .toEqual([fx.sucursalAId, fx.sucursalBId].sort());
+    expect(b.sucursalNombre).toBe(b.sucursales.find((s: { id: string }) => s.id === fx.sucursalAId).nombre);
     expect(b.permisos).toContain('venta.anular');
     expect(b.permisos).not.toContain('config.horarios');
+  });
+
+  it('POST /auth/cambiar-sucursal cambia entre las asignadas; rechaza una ajena', async () => {
+    const fx = await seedAuth(db, { sucursales: 2 });
+    const token = await tokenDe(db, fx.email, fx.sucursalAId, ahora);
+
+    const ajena = await app.inject({
+      method: 'POST', url: '/auth/cambiar-sucursal', headers: bearer(token),
+      payload: { sucursalId: '00000000-0000-7000-8000-000000000000' },
+    });
+    expect(ajena.statusCode).toBe(400);
+
+    const ok = await app.inject({
+      method: 'POST', url: '/auth/cambiar-sucursal', headers: bearer(token),
+      payload: { sucursalId: fx.sucursalBId },
+    });
+    expect(ok.statusCode).toBe(200);
+    expect(ok.json().sucursalId).toBe(fx.sucursalBId);
+
+    const me = await app.inject({ method: 'GET', url: '/auth/me', headers: bearer(token) });
+    expect(me.json().sucursalId).toBe(fx.sucursalBId);
+  });
+
+  it('POST /auth/cambiar-sucursal rechaza (409) si hay un corte de caja abierto en la sucursal actual', async () => {
+    const fx = await seedAuth(db, { sucursales: 2 });
+    const token = await tokenDe(db, fx.email, fx.sucursalAId, ahora);
+    await db.query(
+      `INSERT INTO core.corte_caja (sucursal_id, usuario_apertura_id, saldo_inicial)
+       VALUES ($1, $2, 500)`,
+      [fx.sucursalAId, fx.usuarioId],
+    );
+
+    const r = await app.inject({
+      method: 'POST', url: '/auth/cambiar-sucursal', headers: bearer(token),
+      payload: { sucursalId: fx.sucursalBId },
+    });
+    expect(r.statusCode).toBe(409);
   });
 
   it('POST /auth/logout invalida el token', async () => {

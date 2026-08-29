@@ -115,25 +115,56 @@ export async function verificarSesion(
   return rows[0] ? mapear(rows[0]) : null;
 }
 
+export interface SucursalBreve {
+  id: string;
+  nombre: string;
+}
+
+/**
+ * Sucursales que el usuario tiene asignadas y vigentes ahora — las que puede
+ * elegir para operar. Misma regla que el paso 4 de `login`.
+ */
+export async function sucursalesDe(
+  node: Consultable,
+  usuarioId: string,
+  ahora: Date = new Date(),
+): Promise<SucursalBreve[]> {
+  const { rows } = await node.query<{ id: string; nombre: string }>(
+    `SELECT s.id, s.nombre
+       FROM core.usuario_sucursal us
+       JOIN core.sucursal s ON s.id = us.sucursal_id
+      WHERE us.usuario_id = $1 AND us.activo AND s.activo
+        AND us.effective_from <= $2 AND (us.effective_until IS NULL OR us.effective_until > $2)
+        AND s.effective_from  <= $2 AND (s.effective_until  IS NULL OR s.effective_until  > $2)
+      ORDER BY s.nombre`,
+    [usuarioId, ahora],
+  );
+  return rows;
+}
+
 export type SeleccionResultado =
   | { ok: true; sucursalId: string }
   | { ok: false; motivo: 'sesion_invalida' | 'sucursal_no_asignada' | 'ya_elegida' };
 
 /**
- * Completa una sesión eligiendo la sucursal desde la que se va a operar.
+ * Completa una sesión eligiendo la sucursal desde la que se va a operar, o —con
+ * `permitirCambio`— la cambia a otra de las asignadas.
  *
- * Solo acepta sucursales que el usuario tiene asignadas y vigentes
- * (`core.v_usuario_sucursal_vigente`). No se puede reelegir: cerrar sesión y
- * volver a entrar.
+ * Solo acepta sucursales que el usuario tiene asignadas y vigentes. Sin
+ * `permitirCambio` no se puede reelegir (el flujo de login es de una vía); el
+ * cambio en caliente lo habilita `POST /auth/cambiar-sucursal`, que además
+ * comprueba que no haya un corte de caja abierto en la sucursal que se deja.
  */
 export async function seleccionarSucursal(
   node: Consultable,
-  args: { token: string; sucursalId: string; ahora?: () => Date },
+  args: { token: string; sucursalId: string; ahora?: () => Date; permitirCambio?: boolean },
 ): Promise<SeleccionResultado> {
   const ahora = args.ahora?.() ?? new Date();
   const sesion = await verificarSesion(node, args.token, { ahora: () => ahora });
   if (!sesion) return { ok: false, motivo: 'sesion_invalida' };
-  if (sesion.sucursalId !== null) return { ok: false, motivo: 'ya_elegida' };
+  if (sesion.sucursalId !== null && !args.permitirCambio) {
+    return { ok: false, motivo: 'ya_elegida' };
+  }
 
   const { rows } = await node.query<{ ok: boolean }>(
     `SELECT EXISTS (

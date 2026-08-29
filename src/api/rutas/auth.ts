@@ -5,10 +5,11 @@
  */
 
 import type { FastifyInstance } from 'fastify';
+import { corteAbiertoDe } from '../../caja/corte.js';
 import { login } from '../../auth/login.js';
 import { permisosDe } from '../../auth/rbac.js';
 import { aplicarCodigoRevocacion } from '../../auth/revocacion.js';
-import { cerrarSesion, seleccionarSucursal } from '../../auth/sesion.js';
+import { cerrarSesion, seleccionarSucursal, sucursalesDe } from '../../auth/sesion.js';
 import { conflicto, entradaInvalida, noAutorizado } from '../errores.js';
 import { exige } from '../autenticar.js';
 
@@ -77,16 +78,51 @@ export async function rutasAuth(app: FastifyInstance): Promise<void> {
     },
   );
 
+  // Cambiar de sucursal sin cerrar sesión: solo entre las asignadas al usuario, y
+  // solo si no queda un corte de caja abierto en la sucursal que se deja.
+  app.post(
+    '/cambiar-sucursal',
+    {
+      preHandler: exige({ conSucursal: false }),
+      schema: {
+        body: {
+          type: 'object',
+          required: ['sucursalId'],
+          properties: { sucursalId: { type: 'string', format: 'uuid' } },
+        },
+      },
+    },
+    async (req) => {
+      const { sucursalId } = req.body as { sucursalId: string };
+      const actual = req.sesion.sucursalId;
+      if (actual && actual !== sucursalId && (await corteAbiertoDe(app.db, actual))) {
+        throw conflicto('Cierra el corte de caja de la sucursal actual antes de cambiar');
+      }
+      const r = await seleccionarSucursal(app.db, {
+        token: req.sesion.token, sucursalId, ahora: app.ahora, permitirCambio: true,
+      });
+      if (!r.ok) {
+        if (r.motivo === 'sesion_invalida') throw noAutorizado();
+        if (r.motivo === 'sucursal_no_asignada') throw entradaInvalida('Sucursal no asignada al usuario');
+        throw conflicto('No se pudo cambiar de sucursal');
+      }
+      return { sucursalId: r.sucursalId };
+    },
+  );
+
   app.post('/logout', { preHandler: exige({ conSucursal: false }) }, async (req) => {
     await cerrarSesion(app.db, req.sesion.token, 'logout');
     return { ok: true };
   });
 
   app.get('/me', { preHandler: exige({ conSucursal: false }) }, async (req) => {
+    const sucursales = await sucursalesDe(app.db, req.sesion.usuarioId, app.ahora());
     return {
       usuarioId: req.sesion.usuarioId,
       rol: req.sesion.rol,
       sucursalId: req.sesion.sucursalId,
+      sucursalNombre: sucursales.find((s) => s.id === req.sesion.sucursalId)?.nombre ?? null,
+      sucursales,
       permisos: await permisosDe(app.db, req.sesion.rol),
     };
   });

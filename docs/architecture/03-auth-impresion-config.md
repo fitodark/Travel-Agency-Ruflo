@@ -16,9 +16,15 @@ Supabase Auth (GoTrue) valida credenciales contra un endpoint HTTP en la nube. S
 no hay login, y ninguna configuración lo cambia. Cachear un JWT tampoco resuelve: expira, y
 no permite que un usuario **que no ha iniciado sesión hoy** entre mañana durante un corte.
 
-**Decisión: autenticación propia y local como IdP de la operación.** Supabase Auth se usa
-solo para el dashboard del administrador en la nube, donde el internet es un prerrequisito
-por definición.
+**Decisión: autenticación propia y local como IdP de la operación.**
+
+> **Actualización 2026 (F2c):** Supabase Auth se retiró por completo. La administración de
+> la configuración se hace desde la SPA de la terminal, autenticada con la MISMA sesión
+> local (`auth_local`), y esa sesión —cuyo `rol='administrador'` es un hecho replicado
+> desde la nube— autoriza las escrituras `/admin/*` contra la nube. Un administrador nunca
+> necesita un segundo login. Editar configuración sí exige conexión (la nube es la única
+> autoridad de escritura de la clase A); sin ella la sección de administración queda
+> solo-lectura.
 
 ### 1.2 Modelo
 

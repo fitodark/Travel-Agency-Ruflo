@@ -9,6 +9,12 @@ import { Vender } from './paginas/Vender';
 import { Caja } from './paginas/Caja';
 import { Viajes } from './paginas/Viajes';
 import { Dashboard } from './paginas/Dashboard';
+import { AdminLayout } from './paginas/admin/AdminLayout';
+import { AdminSucursales } from './paginas/admin/Sucursales';
+import { AdminUsuarios } from './paginas/admin/Usuarios';
+import { AdminImpresoras } from './paginas/admin/Impresoras';
+import { AdminTicket } from './paginas/admin/Ticket';
+import { AdminTarifas } from './paginas/admin/Tarifas';
 
 function Protegida({ children }: { children: React.ReactNode }) {
   const { sesion, cargando, faltaSucursal } = useSesion();
@@ -39,6 +45,14 @@ export function App() {
         <Route path="/tablero" element={<Dashboard />} />
         <Route path="/sincronizacion" element={<Sincronizacion />} />
         <Route path="/clientes" element={<Clientes />} />
+        <Route path="/admin" element={<AdminLayout />}>
+          <Route index element={<Navigate to="/admin/sucursales" replace />} />
+          <Route path="sucursales" element={<AdminSucursales />} />
+          <Route path="usuarios" element={<AdminUsuarios />} />
+          <Route path="impresoras" element={<AdminImpresoras />} />
+          <Route path="ticket" element={<AdminTicket />} />
+          <Route path="tarifas" element={<AdminTarifas />} />
+        </Route>
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

@@ -17,18 +17,47 @@
 
 import 'dotenv/config';
 import { Pool } from 'pg';
-import { resolveConnection } from '../db/connection.js';
+import { conexionDesdeUrl, resolveConnection } from '../db/connection.js';
 import { iniciarMotor } from '../sync/servicio.js';
 import { construirApp } from './server.js';
+import type { BaseDeDatos } from './tipos.js';
 
 const PUERTO = Number(process.env['API_PUERTO'] ?? process.env['PORT'] ?? 3000);
 const HOST = process.env['API_HOST'] ?? '127.0.0.1';
 const SYNC_EMBEBIDO = process.env['API_SIN_SYNC'] !== '1';
 
+/**
+ * Conexión a la NUBE para la sección de administración. Mejor esfuerzo: si no hay
+ * URL, o la nube no responde, o no es la nube (`es_nube` falso), la terminal
+ * arranca igual y `/admin/*` responde 503 hasta que haya conexión.
+ */
+async function abrirNubeAdmin(log: (m: string) => void): Promise<{ pool: Pool; db: BaseDeDatos } | null> {
+  const url = process.env['ADMIN_DATABASE_URL'] ?? process.env['DATABASE_URL'];
+  if (!url) {
+    log('administración: sin ADMIN_DATABASE_URL/DATABASE_URL — /admin deshabilitado');
+    return null;
+  }
+  try {
+    const pool = new Pool({ ...conexionDesdeUrl(url).config, max: 4, connectionTimeoutMillis: 8_000 });
+    const { rows } = await pool.query<{ es_nube: boolean }>(`SELECT es_nube FROM sync.nodo WHERE singleton`);
+    if (!rows[0]?.es_nube) {
+      await pool.end().catch(() => { /* nada */ });
+      log('administración: la URL no apunta a la nube (es_nube falso) — /admin deshabilitado');
+      return null;
+    }
+    log('administración: conectada a la nube — /admin habilitado');
+    return { pool, db: pool };
+  } catch (err) {
+    log(`administración: no se pudo conectar a la nube (${err instanceof Error ? err.message : String(err)}) — /admin deshabilitado`);
+    return null;
+  }
+}
+
 async function main(): Promise<void> {
   const conn = resolveConnection('local');
   const pool = new Pool({ ...conn.config, max: 10 });
-  const app = await construirApp({ db: pool, logger: true });
+  const nube = await abrirNubeAdmin((m) => console.log(m));
+  const app = await construirApp({ db: pool, dbNube: nube?.db ?? null, logger: true });
 
   const motor = SYNC_EMBEBIDO
     ? iniciarMotor({ log: (l) => app.log.info(l) })
@@ -45,6 +74,7 @@ async function main(): Promise<void> {
       await motor?.detener().catch(() => { /* ya detenido */ });
       await app.close();
       await pool.end();
+      await nube?.pool.end().catch(() => { /* ya cerrado */ });
       process.exit(0);
     })();
   };

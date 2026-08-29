@@ -11,6 +11,8 @@ interface Sesion {
   usuarioId: string;
   rol: 'administrador' | 'gerente' | 'vendedor';
   sucursalId: string | null;
+  sucursalNombre: string | null;
+  sucursales: SucursalBreve[];
   permisos: string[];
 }
 
@@ -38,6 +40,8 @@ export function ProveedorSesion({ children }: { children: ReactNode }) {
       usuarioId: y.usuarioId,
       rol: y.rol,
       sucursalId: y.sucursalId,
+      sucursalNombre: y.sucursalNombre,
+      sucursales: y.sucursales,
       permisos: y.permisos,
     });
   }, []);

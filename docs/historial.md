@@ -1635,6 +1635,64 @@ QA necesitaba probar login con usuarios y sucursales reales. El módulo existe
 
 ---
 
+## Sesión 38 — 2026 · F2c: un solo frontend (la SPA absorbe la consola de admin)
+
+QA no podía completar las pruebas de login: el header mostraba el UUID de la
+sucursal en vez del nombre, no había forma de cambiar de sucursal, y los usuarios
+/ sucursales dados de alta con `seed:qa` no se veían en ningún lado — su CRUD
+vivía en OTRA app (la consola de F2b, `npm run admin`, `consola.html`, login con
+Supabase Auth). El usuario pidió unificar: un administrador llega a la PC de una
+sucursal, inicia sesión en la MISMA app, edita configuración (que se guarda en la
+nube para que las demás sucursales la vean al sincronizarse) y cierra sesión.
+Rama `fe-admin-unificada`.
+
+### Fase 1 — header + cambio de sucursal
+
+- `src/auth/sesion.ts`: `sucursalesDe(node, usuarioId, ahora)` (lo reusa
+  `login.ts` paso 4); `seleccionarSucursal` acepta `permitirCambio`.
+- `GET /auth/me` devuelve `sucursalNombre` + `sucursales`. Nuevo
+  `POST /auth/cambiar-sucursal`: cambia entre las asignadas; **409 si hay un corte
+  de caja abierto** en la sucursal actual.
+- `web/`: el header muestra el nombre de la sucursal y, si hay >1, un selector.
+
+### Fase 2 — sección "Administración" en la SPA
+
+- **`src/api/rutas/admin.ts`**: monta bajo `/admin` los handlers de dominio de
+  `src/admin/` (`sucursales`, `usuarios`, `tarifas`, `impresion`, `revocacion`,
+  `escribirConfig`) **sin cambios** — reciben un `Consultable`, se les pasa la
+  conexión a la NUBE. Autorización: la **sesión local** del admin (`exige` +
+  `rol='administrador'`), NO Supabase JWT. `GET /admin/salud` sondea la
+  disponibilidad; sin nube todo `/admin` salvo `/salud` responde 503.
+- `src/api/{server,main}.ts`: pool opcional a la nube desde `ADMIN_DATABASE_URL`
+  ?? `DATABASE_URL`, verificado con `sync.nodo.es_nube` al arrancar (mejor
+  esfuerzo — la terminal arranca igual si no hay).
+- **`web/src/paginas/admin/`**: 5 pantallas React (Sucursales, Usuarios,
+  Impresoras, Ticket, Tarifas) con listado + alta + edición inline + widget de
+  modo de propagación, portadas de `src/admin/consola.js`. `AdminLayout` con
+  sub-nav y banner "sin conexión". Nav "Administración" en el `Shell`, visible
+  solo con los permisos `config.*`.
+- **Retirado**: `src/admin/{servidor,auth-supabase,consola.html,consola.js,
+  main}.ts`, `npm run admin`, y las pruebas HTTP de `tests/admin/*` que usaban
+  `construirServidorAdmin` + `firmarTokenSupabase` (`tests/admin/servidor.test.ts`
+  entero; los bloques "por HTTP" de sucursales/usuarios/config/revocacion). La
+  cobertura HTTP la toma `tests/api/admin.test.ts`. Los módulos de dominio y sus
+  pruebas quedan intactos.
+- **Supabase Auth eliminado del proyecto.** Blueprint 03 §1.1 y 04 §F2b
+  actualizados.
+
+### Fase 3 — autoría de rutas y horarios
+
+- (pendiente en esta entrada; ver abajo si ya se hizo)
+
+`tsc` limpio (raíz + `web/`), `vite build` OK. `tests/api` + `tests/admin` verdes.
+
+**Despliegue**: la consola ya no necesita despliegue propio; para escribir
+config en producción, `src/api/` (la terminal) necesita `ADMIN_DATABASE_URL`
+(rol `donaji_consola`, `ALTER ROLE … LOGIN PASSWORD` en Supabase) o cae a
+`DATABASE_URL`.
+
+---
+
 ## F1 — CERRADA
 
 Los cinco criterios de aceptación verdes contra Supabase real

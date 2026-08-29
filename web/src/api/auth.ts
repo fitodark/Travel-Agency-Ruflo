@@ -18,6 +18,8 @@ export interface Yo {
   usuarioId: string;
   rol: 'administrador' | 'gerente' | 'vendedor';
   sucursalId: string | null;
+  sucursalNombre: string | null;
+  sucursales: SucursalBreve[];
   permisos: string[];
 }
 
@@ -30,6 +32,13 @@ export function login(email: string, password: string): Promise<RespuestaLogin> 
 
 export function elegirSucursal(sucursalId: string): Promise<{ sucursalId: string }> {
   return api('/auth/sucursal', {
+    method: 'POST',
+    body: JSON.stringify({ sucursalId }),
+  });
+}
+
+export function cambiarSucursal(sucursalId: string): Promise<{ sucursalId: string }> {
+  return api('/auth/cambiar-sucursal', {
     method: 'POST',
     body: JSON.stringify({ sucursalId }),
   });
