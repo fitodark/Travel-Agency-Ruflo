@@ -211,3 +211,70 @@ export const crearHorario = (d: {
 
 export const bajaHorario = (id: string): Promise<unknown> =>
   api(`/admin/horarios/${id}/baja`, { method: 'POST', body: '{}' });
+
+// ---- flota: tipos de unidad, unidades, conductores ---------------
+
+export interface TipoUnidad {
+  id: string;
+  clave: string;
+  nombre: string;
+  numAsientos: number;
+}
+
+export interface UnidadDetalle {
+  id: string;
+  numeroEconomico: string;
+  placas: string | null;
+  tipoUnidadId: string;
+  tipoUnidad: string;
+  sucursalBaseId: string | null;
+  sucursalBase: string | null;
+  activo: boolean;
+}
+
+export interface ConductorDetalle {
+  id: string;
+  nombre: string;
+  telefono: string | null;
+  ineNumero: string | null;
+  contactoNombre: string | null;
+  contactoTelefono: string | null;
+  tipoUnidadId: string;
+  tipoUnidad: string;
+  unidadHabitualId: string | null;
+  unidadHabitual: string | null;
+  activo: boolean;
+}
+
+export const listarTiposUnidad = (): Promise<TipoUnidad[]> => api('/admin/tipos-unidad');
+
+export const listarUnidadesDetalle = (): Promise<UnidadDetalle[]> => api('/admin/unidades-detalle');
+
+export const crearUnidad = (d: {
+  numeroEconomico: string; placas?: string | null; tipoUnidadId: string; sucursalBaseId?: string | null;
+}): Promise<{ id: string }> => api('/admin/unidades', { method: 'POST', body: JSON.stringify(d) });
+
+export const editarUnidad = (id: string, d: Partial<{
+  numeroEconomico: string; placas: string | null; tipoUnidadId: string;
+  sucursalBaseId: string | null; activo: boolean;
+}>): Promise<unknown> => api(`/admin/unidades/${id}`, { method: 'PATCH', body: JSON.stringify(d) });
+
+export const bajaUnidad = (id: string): Promise<unknown> =>
+  api(`/admin/unidades/${id}/baja`, { method: 'POST', body: '{}' });
+
+export const listarConductoresDetalle = (): Promise<ConductorDetalle[]> => api('/admin/conductores-detalle');
+
+export const crearConductor = (d: {
+  nombre: string; telefono?: string | null; direccion?: string | null; ineNumero?: string | null;
+  contactoNombre?: string | null; contactoTelefono?: string | null;
+  tipoUnidadId: string; unidadHabitualId?: string | null;
+}): Promise<{ id: string }> => api('/admin/conductores', { method: 'POST', body: JSON.stringify(d) });
+
+export const editarConductor = (id: string, d: Partial<{
+  nombre: string; telefono: string | null; direccion: string | null; ineNumero: string | null;
+  contactoNombre: string | null; contactoTelefono: string | null;
+  tipoUnidadId: string; unidadHabitualId: string | null; activo: boolean;
+}>): Promise<unknown> => api(`/admin/conductores/${id}`, { method: 'PATCH', body: JSON.stringify(d) });
+
+export const bajaConductor = (id: string): Promise<unknown> =>
+  api(`/admin/conductores/${id}/baja`, { method: 'POST', body: '{}' });

@@ -16,6 +16,8 @@ const RUTAS: Record<string, ReactElement> = {
   sucursales: <><path d="M4 21V7l8-4 8 4v14M4 21h16" {...P} /><path d="M9 21v-5h6v5M9 10h1M14 10h1M9 13h1M14 13h1" {...P} /></>,
   usuarios: <><circle cx="10" cy="8" r="3.2" {...P} /><path d="M3.5 20a6.5 6.5 0 0 1 13 0" {...P} /><path d="M17.5 13.5v3M16 15h3" {...P} /></>,
   rutas: <><circle cx="6" cy="7" r="2" {...P} /><circle cx="18" cy="17" r="2" {...P} /><path d="M8 7h6a3 3 0 0 1 0 6H10a3 3 0 0 0 0 6h6" {...P} /></>,
+  unidades: <><path d="M3 13l1.5-5A2 2 0 0 1 6.4 6.5h11.2a2 2 0 0 1 1.9 1.5L21 13v5h-2M3 18v-5m0 5h2m14 0h-8" {...P} /><circle cx="7.5" cy="18" r="1.6" {...P} /><circle cx="16.5" cy="18" r="1.6" {...P} /></>,
+  conductores: <><circle cx="12" cy="7" r="3" {...P} /><path d="M5.5 20a6.5 6.5 0 0 1 13 0" {...P} /><circle cx="12" cy="13.5" r="6.5" {...P} /></>,
   impresoras: <><path d="M7 9V4h10v5" {...P} /><rect x="4" y="9" width="16" height="8" rx="2" {...P} /><path d="M7 14h10v6H7z" {...P} /><circle cx="17" cy="12" r="0.9" fill="currentColor" /></>,
   ticket: <><path d="M4 6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v3a2 2 0 0 0 0 6v3a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-3a2 2 0 0 0 0-6z" {...P} /><path d="M14 4v16" strokeDasharray="1.5 2.5" {...P} /></>,
   tarifas: <><circle cx="12" cy="12" r="8" {...P} /><path d="M15 9a3 3 0 0 0-3-2c-1.7 0-3 1-3 2.3 0 3 6 1.7 6 4.7C15 17.2 13.7 18 12 18a3 3 0 0 1-3-2M12 6v1.5M12 16.5V18" {...P} /></>,

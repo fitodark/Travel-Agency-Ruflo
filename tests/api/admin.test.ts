@@ -117,6 +117,48 @@ run('API · /admin (PostgreSQL real)', () => {
     expect(lista.json()[0].pasos).toHaveLength(2);
   });
 
+  it('un administrador da de alta una unidad y un conductor asociado', async () => {
+    const admin = await seedAuth(db, { rol: 'administrador' });
+    const tok = await tokenDe(db, admin.email, admin.sucursalAId, ahora);
+
+    const tipos = await app.inject({ method: 'GET', url: '/admin/tipos-unidad', headers: bearer(tok) });
+    expect(tipos.statusCode).toBe(200);
+    const tipoUnidadId = (tipos.json() as { id: string; clave: string }[])[0]?.id;
+    expect(tipoUnidadId).toBeTruthy();
+
+    const eco = `T-${Date.now() % 100000}`;
+    const unidad = await app.inject({
+      method: 'POST', url: '/admin/unidades', headers: bearer(tok),
+      payload: { numeroEconomico: eco, placas: 'ABC-1234', tipoUnidadId, sucursalBaseId: admin.sucursalAId },
+    });
+    expect(unidad.statusCode, unidad.body).toBe(201);
+    const unidadId = unidad.json().id as string;
+
+    // número económico duplicado → 400 con mensaje claro
+    const dup = await app.inject({
+      method: 'POST', url: '/admin/unidades', headers: bearer(tok),
+      payload: { numeroEconomico: eco, tipoUnidadId },
+    });
+    expect(dup.statusCode).toBe(400);
+
+    const nombre = `Conductor QA ${Date.now()}`;
+    const conductor = await app.inject({
+      method: 'POST', url: '/admin/conductores', headers: bearer(tok),
+      payload: { nombre, telefono: '951 000 0000', tipoUnidadId, unidadHabitualId: unidadId },
+    });
+    expect(conductor.statusCode, conductor.body).toBe(201);
+
+    const lista = await app.inject({ method: 'GET', url: '/admin/conductores-detalle', headers: bearer(tok) });
+    const c = (lista.json() as { nombre: string; unidadHabitual: string | null; tipoUnidad: string }[])
+      .find((x) => x.nombre === nombre)!;
+    expect(c.unidadHabitual).toBe(eco);
+
+    const baja = await app.inject({ method: 'POST', url: `/admin/unidades/${unidadId}/baja`, headers: bearer(tok) });
+    expect(baja.statusCode).toBe(200);
+    const uds = await app.inject({ method: 'GET', url: '/admin/unidades-detalle', headers: bearer(tok) });
+    expect((uds.json() as { id: string; activo: boolean }[]).find((u) => u.id === unidadId)?.activo).toBe(false);
+  });
+
   it('POST /admin/rutas-detalle rechaza una ruta con una sola parada', async () => {
     const admin = await seedAuth(db, { rol: 'administrador' });
     const tok = await tokenDe(db, admin.email, admin.sucursalAId, ahora);

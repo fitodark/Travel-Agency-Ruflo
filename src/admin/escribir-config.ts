@@ -45,6 +45,8 @@ export const TABLAS_ADMINISTRABLES: readonly string[] = [
   'core.ruta_parada',
   'core.horario',
   'core.horario_parada',
+  'core.unidad',
+  'core.conductor',
   'core.config_impresora',
   'core.config_ticket',
   'core.tarifa',

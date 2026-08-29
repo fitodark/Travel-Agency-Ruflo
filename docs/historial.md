@@ -1918,6 +1918,42 @@ exacta de la nube.
 
 ---
 
+## Sesión 43 — 2026-08-29 · Módulo de flota: unidades y conductores en Administración
+
+Se preguntó si el CRUD de conductores debía llevar la unidad embebida o si eran
+altas separadas. Resolución (grounded en `0003_core_flota.sql` y `02-modelo-datos
+§3-4`, P11/D-7): **dos catálogos separados**, `conductor → unidad → tipo_unidad →
+mapa`. `conductor.tipo_unidad_id` es NOT NULL (el conductor es el portador del
+mapa); `conductor.unidad_habitual_id` es opcional y, si se da, su tipo debe
+coincidir (trigger `validar_conductor_unidad`). La "asociación con la unidad" es
+un campo del formulario de conductor, no una entidad combinada. `tipo_unidad`
+queda solo-lectura (el mapa se siembra por SQL). Rama `admin-flota`.
+
+- **`0042_permiso_config_flota.sql`**: permiso `config.flota` (rol
+  administrador) + `GRANT INSERT, UPDATE ON core.unidad, core.conductor TO
+  donaji_consola` (el rol acotado de 0037 solo tenía SELECT amplio).
+- **`src/admin/flota.ts`**: `listarTiposUnidad`, `listar/crear/editar/darDeBaja`
+  Unidad y Conductor. `core.unidad` y `core.conductor` NO tienen
+  `effective_from/until` → todo va modo `inmediato` (como `config_impresora`); el
+  trigger estándar pone `desactivado_en` al `activo=false`. `validarCadena`
+  chequea la coherencia tipo↔unidad antes de que reviente el trigger.
+- **`src/admin/rutas-flota.ts`** → registradas en `src/api/rutas/admin.ts`:
+  `/admin/{tipos-unidad, unidades-detalle, unidades[/:id[/baja]],
+  conductores-detalle, conductores[/:id[/baja]]}`.
+- **`core.unidad`, `core.conductor`** sumadas a `TABLAS_ADMINISTRABLES`.
+- **`web/`**: `paginas/admin/{Unidades,Conductores}.tsx` (patrón de
+  `Usuarios.tsx`; el select de unidad habitual se filtra por el tipo elegido),
+  cliente en `api/admin.ts`, nav en `Shell.tsx` (`config.flota`) y sub-nav en
+  `AdminLayout.tsx`, iconos `unidades`/`conductores`.
+- `tests/api/admin.test.ts` +1 (alta de unidad + conductor asociado, dup de nº
+  económico → 400, baja). `tsc` raíz y `web/` limpios, `vite build` OK.
+- Verificado en el navegador contra la nube: las dos pantallas listan la flota
+  de QA y el alta de una unidad nueva se escribe y aparece en la tabla.
+
+**Despliegue**: `npm run db:migrate:nube` para 0042 (permiso + grants).
+
+---
+
 ## F1 — CERRADA
 
 Los cinco criterios de aceptación verdes contra Supabase real

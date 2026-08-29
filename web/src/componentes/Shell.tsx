@@ -21,6 +21,8 @@ const NAV_ADMIN: ItemNav[] = [
   { a: '/admin/sucursales', texto: 'Sucursales', icono: 'sucursales', permiso: 'config.sucursales' },
   { a: '/admin/usuarios', texto: 'Usuarios', icono: 'usuarios', permiso: 'config.usuarios' },
   { a: '/admin/rutas', texto: 'Rutas y horarios', icono: 'rutas', permiso: 'config.horarios' },
+  { a: '/admin/unidades', texto: 'Unidades', icono: 'unidades', permiso: 'config.flota' },
+  { a: '/admin/conductores', texto: 'Conductores', icono: 'conductores', permiso: 'config.flota' },
   { a: '/admin/impresoras', texto: 'Impresoras', icono: 'impresoras', permiso: 'config.impresoras' },
   { a: '/admin/ticket', texto: 'Ticket', icono: 'ticket', permiso: 'config.impresoras' },
   { a: '/admin/tarifas', texto: 'Tarifas', icono: 'tarifas', permiso: 'config.tarifas' },
