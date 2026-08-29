@@ -3,7 +3,9 @@ import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { cambiarSucursal } from '../api/auth';
 import { useSesion } from '../auth/sesion';
 
-const NAV: { a: string; texto: string; permiso?: string }[] = [
+interface ItemNav { a: string; texto: string; permiso?: string }
+
+const NAV_OPERACION: ItemNav[] = [
   { a: '/vender', texto: 'Vender' },
   { a: '/caja', texto: 'Caja' },
   { a: '/viajes', texto: 'Viajes' },
@@ -11,6 +13,29 @@ const NAV: { a: string; texto: string; permiso?: string }[] = [
   { a: '/sincronizacion', texto: 'Sincronización' },
   { a: '/clientes', texto: 'Clientes' },
 ];
+
+// Administración: un administrador la usa DESDE la terminal; los cambios se
+// escriben en la nube y bajan replicados al resto de sucursales.
+const NAV_ADMIN: ItemNav[] = [
+  { a: '/admin/sucursales', texto: 'Sucursales', permiso: 'config.sucursales' },
+  { a: '/admin/usuarios', texto: 'Usuarios', permiso: 'config.usuarios' },
+  { a: '/admin/impresoras', texto: 'Impresoras', permiso: 'config.impresoras' },
+  { a: '/admin/ticket', texto: 'Ticket', permiso: 'config.impresoras' },
+  { a: '/admin/tarifas', texto: 'Tarifas', permiso: 'config.tarifas' },
+];
+
+function Enlace({ item }: { item: ItemNav }) {
+  return (
+    <NavLink
+      to={item.a}
+      className={({ isActive }) =>
+        `block rounded px-3 py-2 text-sm ${isActive ? 'bg-slate-700 font-medium' : 'hover:bg-slate-800'}`
+      }
+    >
+      {item.texto}
+    </NavLink>
+  );
+}
 
 function SelectorSucursal() {
   const { sesion, refrescar } = useSesion();
@@ -60,7 +85,9 @@ function SelectorSucursal() {
 export function Shell() {
   const { sesion, cerrar, puede } = useSesion();
   const navigate = useNavigate();
-  const nav = NAV.filter((n) => !n.permiso || puede(n.permiso));
+  const permitido = (n: ItemNav) => !n.permiso || puede(n.permiso);
+  const navOperacion = NAV_OPERACION.filter(permitido);
+  const navAdmin = NAV_ADMIN.filter(permitido);
 
   const salir = async () => {
     await cerrar();
@@ -73,20 +100,16 @@ export function Shell() {
         <div className="px-4 py-4 text-lg font-semibold border-b border-slate-700">
           Donaji · Terminal
         </div>
-        <nav className="flex-1 p-2 space-y-1">
-          {nav.map((n) => (
-            <NavLink
-              key={n.a}
-              to={n.a}
-              className={({ isActive }) =>
-                `block rounded px-3 py-2 text-sm ${
-                  isActive ? 'bg-slate-700 font-medium' : 'hover:bg-slate-800'
-                }`
-              }
-            >
-              {n.texto}
-            </NavLink>
-          ))}
+        <nav className="flex-1 p-2 space-y-1 overflow-auto">
+          {navOperacion.map((n) => <Enlace key={n.a} item={n} />)}
+          {navAdmin.length > 0 && (
+            <>
+              <div className="px-3 pt-4 pb-1 text-[11px] uppercase tracking-wide text-slate-500">
+                Administración
+              </div>
+              {navAdmin.map((n) => <Enlace key={n.a} item={n} />)}
+            </>
+          )}
         </nav>
         <button
           onClick={() => void salir()}
