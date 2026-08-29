@@ -82,6 +82,12 @@ fuera de banda ([03 §1.5](03-auth-impresion-config.md)).
 *Mitigación*: **NTP activo es parte del instalador** (D-5), HLC para orden causal, zona
 muerta de 15 min, alerta a los 2 min, modo degradado a los 5.
 *Estado v0.2*: mitigado a nivel de instalación, ya no depende de la buena voluntad del sitio.
+*Estado F1 (0041)*: el sello HLC dejó de ser un trinquete. `hlc_siguiente` acota el sello a
+`hlc_deriva_max_seg` (300 s) por delante del piso observado y del reloj de pared, y
+`hlc_observar` acota igual el piso. Una excursión del reloj queda **topada** en vez de
+dejar el nodo adelantado para siempre, se **sana** en el siguiente pull, y abre una
+excepción `deriva_reloj` visible en el tablero. NTP corrige el reloj del SO; esto corrige
+el HLC.
 
 **R6 — Cambio de conductor invalida asientos vendidos.** *(nuevo, D-7)*
 *Impacto*: el cambio de conductor es **cotidiano**; si arrastra el mapa de asientos, un
@@ -183,7 +189,7 @@ R2 antes de que exista un solo dato que perder.
 escritura que viaja de local a nube y vuelve a otra réplica; y un respaldo restaurado con
 éxito en una máquina limpia. Si esto no ocurre en F0, no se avanza a F1.
 
-### F1 — Núcleo de datos y motor de sincronización (3–4 semanas)
+### F1 — Núcleo de datos y motor de sincronización (3–4 semanas) — **CERRADA**
 
 - Esquema completo `core` + `sync`, migraciones **compartidas** local/nube (ya iniciado en
   `src/db/migrations/`).
@@ -198,6 +204,21 @@ escritura que viaja de local a nube y vuelve a otra réplica; y un respaldo rest
 - Checksum idéntico local/nube tras convergencia.
 - Un cambio de configuración en la nube aparece en las 4 sucursales.
 - **Un nodo simulado en versión N−1 opera contra la nube N sin errores.**
+
+> **Estado (2026-08-28): CERRADA.** Los cinco criterios de aceptación en verde contra
+> Supabase real (`tests/sync/f1-criterios.test.ts`). El motor completo —`engine.ts`
+> (ciclo, backoff, `modo`), `push`/`pull`, `reconcile.ts` con diff dirigido, `salud.ts`,
+> arbitraje y reasignación, `bootstrap.ts`— está construido y probado (`tests/sync/`).
+> El contrato de pruebas del motor se cerró en las sesiones 4, 18 y 19. Los **6 defectos
+> conocidos** que quedaban fijados con pruebas `DEFECTO VIGENTE` (identidad no
+> determinista de `tipo_unidad`, folios tras reinstalar, FK no diferibles, y el trío del
+> sello HLC: candado global, deriva sin tope, `hlc_observar` sin cablear) se cerraron con
+> las migraciones 0039–0041 y `bootstrap.ts` (ver `docs/historial.md` § Sesión 36).
+>
+> **Único arrastre**, movido a F4 por ser transversal al módulo de venta: el `it.todo`
+> "catch-up de pull antes de vender fuera de cupo" (`tests/sync/engine.test.ts`) —el motor
+> ya expone `modo` y `ultimaSyncExitosa`; falta que `src/ventas/` consulte esa señal y
+> bloquee el override de asiento cuando el nodo lleva mucho sin bajar.
 
 > **Punto de no retorno del stack**: la decisión de TypeScript vs .NET (P5) es reversible
 > hasta el inicio de F1 y no después.
