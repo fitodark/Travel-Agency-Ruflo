@@ -458,6 +458,38 @@ run('pérdida silenciosa de datos', () => {
     );
 
     it(
+      'un bloqueo que el cursor ya dejó atrás (bootstrap) se marca resuelto solo',
+      async () => {
+        // Un `bootstrap` salta el cursor al máximo. Si en su momento había un
+        // bloqueo abierto en un `seq` intermedio, la excepción `rechazo_ingesta`
+        // queda huérfana: `abierta` para siempre, y el tablero de salud muestra
+        // una terminal "atascada" que en realidad está al día. El pull, al ver
+        // que su `seq` ya quedó por debajo del cursor, la resuelve.
+        await pull(s1, nube);
+        const cursor = await cursorDe(s1);
+        expect(cursor, 'hay algo de historia sincronizada').toBeGreaterThan(0);
+
+        await s1.query(
+          `INSERT INTO sync.excepcion (tipo, severidad, sucursal_id, entidad, detalle)
+           VALUES ('rechazo_ingesta', 'alta', sync.sucursal_local(), 'core.cupo_offline',
+                   $1::jsonb)`,
+          [JSON.stringify({ seq: String(cursor - 1), efecto: 'el pull no avanza hasta resolverlo' })],
+        );
+
+        await pull(s1, nube);
+
+        expect(
+          await contar(s1, `SELECT count(*) AS n FROM sync.excepcion
+                            WHERE tipo = 'rechazo_ingesta' AND estado = 'abierta'
+                              AND entidad = 'core.cupo_offline'`),
+          'la excepción huérfana quedó resuelta',
+        ).toBe(0);
+        await s1.query(`DELETE FROM sync.excepcion WHERE entidad = 'core.cupo_offline'`);
+      },
+      120_000,
+    );
+
+    it(
       'NO se salta filas de transacciones todavía abiertas (y sin el filtro, sí se las saltaría)',
       async () => {
         // El escenario que el blueprint §3.2 declara como la razón de no usar

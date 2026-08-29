@@ -1783,10 +1783,40 @@ bajaba. Rama `fix-pull-clase-a-obsoleto`.
 - Limpieza puntual de la base local de dev (sucursales V/W/X/Y y cruft de
   ruta/horario/salida que un bootstrap de prueba copió de la nube).
 
-`tsc` limpio. `npm test`: **54 archivos, 482 verdes, 1 `it.todo`, 0 rojas**.
+### Segunda pasada — el motor SÍ sincroniza, pero el tablero lo mostraba "atascado"
 
-**Para QA**: `npm run seed:qa` (hace el bootstrap solo) → `npm run api`. Opcional:
-`npm run sanear:nube -- --aplicar` limpia el `cambio_log` histórico de la nube.
+QA reportó "outbox atascado" y una config nueva (ruta + horario + tarifa) que "no
+aparece en ventas". Diagnóstico contra la base viva: **el motor está al día** —
+cursor local = `max(seq)` de la nube; la ruta, los dos horarios (uno vigente, el
+otro creado y dado de baja) y la tarifa bajaron correctos e idénticos. Dos
+espejismos y una confusión de flujo:
+
+- **`src/api/rutas/sync.ts` + `src/sync/salud.ts`**: el conteo de `outbox
+  atascado` era `estado = 'rechazado' OR intentos >= 5`. Una fila **`confirmado`**
+  con muchos `intentos` (reenvíos absorbidos por idempotencia, o cruft de
+  `core.tipo_unidad` de antes de 0032) contaba como atascada **para siempre**. Se
+  añade `estado <> 'confirmado'` a la guarda. Prueba en `tests/api/sync.test.ts` y
+  `tests/sync/motor-pendiente.test.ts`.
+- **`src/sync/pull.ts`**: al arrancar, resuelve toda excepción `rechazo_ingesta`
+  `abierta` cuyo `seq` ya quedó por debajo del cursor. Un `bootstrap` (o un ciclo
+  posterior que sí aplicó la fila) deja esas excepciones huérfanas —`abierta`
+  eternamente— y el tablero muestra una terminal bloqueada que está al día. Prueba
+  en `tests/sync/caos-perdida.test.ts`.
+- **"No aparece en ventas" no es sincronización.** `core.buscar_salidas` lee
+  `core.salida` (materializada), no `core.horario`. No había NINGUNA salida
+  materializada, y `core.materializar_salidas` solo procesa horarios **con
+  conductor** (D-7: sin conductor no hay tipo de unidad ni mapa). El horario nuevo
+  no tiene conductor y en la nube no hay conductores ni unidades sembrados.
+  Además el horario y la tarifa son `vigente_desde 2026-09-01`. Para verlo en
+  ventas: sembrar flota, asignar conductor al horario y correr `npm run
+  materializar` para fechas ≥ 01-09.
+
+`tsc` limpio. `npm test`: **verde** (`tests/api/sync.test.ts`,
+`tests/sync/motor-pendiente.test.ts`, `tests/sync/caos-perdida.test.ts` incluidos).
+
+**Para QA**: `npm run seed:qa` (hace el bootstrap solo) → `npm run api` (el motor
+al reiniciar resuelve la excepción huérfana). Opcional: `npm run sanear:nube --
+--aplicar` limpia el `cambio_log` histórico de la nube.
 
 ---
 

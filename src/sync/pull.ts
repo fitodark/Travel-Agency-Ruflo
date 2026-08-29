@@ -65,6 +65,19 @@ export async function pull(node: Client, cloud: Client, opts: PullOptions = {}):
   );
   let cursor = Number(cur[0]!.seq);
 
+  // Bloqueos que el cursor ya dejó atrás. El pull avanza más allá de un `seq`
+  // por dos caminos: la fila terminó aplicando en un ciclo posterior, o un
+  // `bootstrap` saltó el cursor al máximo. En ambos, la excepción `rechazo_ingesta`
+  // que se abrió en su momento quedó huérfana —`abierta` para siempre— y el
+  // tablero de salud muestra una terminal "atascada" que en realidad ya está al
+  // día. Si el `seq` del bloqueo es estrictamente menor que el cursor, se resuelve.
+  await node.query(
+    `UPDATE sync.excepcion SET estado = 'resuelta', resuelto_en = now()
+      WHERE tipo = 'rechazo_ingesta' AND estado = 'abierta'
+        AND (detalle->>'seq')::bigint < $1`,
+    [cursor],
+  );
+
   for (let i = 0; i < maxBatches; i++) {
     // Solo se leen filas cuya transacción escritora ya no está en vuelo.
     //

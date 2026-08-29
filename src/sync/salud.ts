@@ -182,7 +182,8 @@ export async function medirSalud(node: Client, opts: SaludOptions = {}): Promise
                 AND estado <> 'rechazado'
                 AND intentos < $1)                                  AS pendiente,
             count(*) FILTER (
-              WHERE estado = 'rechazado' OR intentos >= $1)         AS atascado,
+              WHERE estado <> 'confirmado'
+                AND (estado = 'rechazado' OR intentos >= $1))       AS atascado,
             min(creado_en) FILTER (WHERE estado <> 'confirmado')    AS mas_antiguo
        FROM sync.outbox`,
     [OUTBOX_ATASCADO_INTENTOS],

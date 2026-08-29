@@ -40,9 +40,9 @@ export async function rutasSync(app: FastifyInstance): Promise<void> {
     const outbox = await app.db.query<{
       pendiente: string; atascado: string; mas_antiguo: Date | null;
     }>(
-      `SELECT count(*) FILTER (WHERE estado NOT IN ('confirmado','rechazado') AND intentos < $1) AS pendiente,
-              count(*) FILTER (WHERE estado = 'rechazado' OR intentos >= $1)                     AS atascado,
-              min(creado_en) FILTER (WHERE estado <> 'confirmado')                               AS mas_antiguo
+      `SELECT count(*) FILTER (WHERE estado NOT IN ('confirmado','rechazado') AND intentos < $1)          AS pendiente,
+              count(*) FILTER (WHERE estado <> 'confirmado' AND (estado = 'rechazado' OR intentos >= $1)) AS atascado,
+              min(creado_en) FILTER (WHERE estado <> 'confirmado')                                        AS mas_antiguo
          FROM sync.outbox`,
       [OUTBOX_ATASCADO_INTENTOS],
     );
