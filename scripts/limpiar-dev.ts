@@ -9,10 +9,16 @@
  *    `pull` manual contra la nube trae a la base de dev y rompen las pruebas por
  *    colisión de `sucursal.codigo`.
  *  - El ESTADO DE RUNTIME del motor de sync: `sync.outbox` a medias,
- *    `sync.excepcion`, `sync.salud`, `sync.hlc_estado`, `sync.cursor`,
- *    `sync.lote_recibido`, `sync.checksum_bloque`, y `sync.config_aplicado`.
- *    Se ensucia cada vez que corres `npm run sync` o un push/pull a mano contra
- *    la misma base que usa la suite.
+ *    `sync.excepcion`, `sync.salud`, `sync.hlc_estado`, `sync.lote_recibido`,
+ *    `sync.checksum_bloque`, y `sync.config_aplicado`. Se ensucia cada vez que
+ *    corres `npm run sync` o un push/pull a mano contra la misma base que usa la
+ *    suite.
+ *
+ *    NO se toca `sync.cursor`: es la posición del nodo en el stream de la nube.
+ *    Resetearla obligaba al `pull` a re-procesar todo el `cambio_log` histórico
+ *    (lleno de entradas obsoletas de la PoC) y dejaba el nodo de dev atascado
+ *    cada vez que alguien corría `npm test`. La suite usa nodos desechables
+ *    (`donaji_caos_*`), no este cursor.
  *  - Las SESIONES e INTENTOS de login (`auth_local.sesion`, `auth_local.intento`).
  *    Un login manual —`npm run seed:qa` + la SPA— deja sesiones abiertas que
  *    `tests/config/aplicador.test.ts` cuenta al hacer su pasada global.
@@ -66,7 +72,6 @@ const SYNC: Array<[string, string]> = [
   ['sync.excepcion', `TRUNCATE sync.excepcion`],
   ['sync.salud', `TRUNCATE sync.salud`],
   ['sync.checksum_bloque', `TRUNCATE sync.checksum_bloque`],
-  ['sync.cursor', `TRUNCATE sync.cursor`],
   ['sync.lote_recibido', `TRUNCATE sync.lote_recibido`],
   ['sync.hlc_estado', `UPDATE sync.hlc_estado SET ultimo_ts = '-infinity', ultimo_cnt = 0 WHERE singleton`],
   ['sync.config_aplicado', `UPDATE sync.config_aplicado SET ultima_pasada = NULL, ultima_epoca = NULL, sesiones_cerradas_total = 0 WHERE singleton`],

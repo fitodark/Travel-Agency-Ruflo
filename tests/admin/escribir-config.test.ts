@@ -43,12 +43,26 @@ run('escribirConfig · contra PostgreSQL (nodo marcado como nube)', () => {
   });
   afterAll(async () => { await db.end(); });
 
+  // Códigos de sucursal libres (no se hardcodean: la base compartida y las
+  // pruebas en paralelo pueden tener cualquiera ocupado).
+  let libres: string[] = [];
+  const codigoLibre = (): string => {
+    const c = libres.shift();
+    if (!c) throw new Error('no quedan códigos de sucursal libres');
+    return c;
+  };
+
   beforeEach(async () => {
     await db.query('BEGIN');
-    const { rows } = await db.query<{ id: string }>(
+    const ag = await db.query<{ id: string }>(
       `SELECT id FROM core.agencia WHERE activo ORDER BY creado_en LIMIT 1`,
     );
-    agenciaId = rows[0]!.id;
+    agenciaId = ag.rows[0]!.id;
+    const { rows } = await db.query<{ c: string }>(
+      `SELECT c FROM unnest(string_to_array('ABCDEFGHJKMNPQRSTVWXYZ23456789', NULL)) AS c
+        WHERE c NOT IN (SELECT codigo FROM core.sucursal) ORDER BY c LIMIT 6`,
+    );
+    libres = rows.map((r) => r.c);
   });
   afterEach(async () => { await db.query('ROLLBACK'); });
 
@@ -169,7 +183,7 @@ run('escribirConfig · contra PostgreSQL (nodo marcado como nube)', () => {
       tabla: 'core.sucursal',
       fila: {
         agencia_id: agenciaId, nombre: 'Suc MX', direccion_completa: 'x', telefono_principal: 'x',
-        codigo: 'Y', zona_horaria: 'America/Mexico_City',
+        codigo: codigoLibre(), zona_horaria: 'America/Mexico_City',
       },
       modo: 'ventana', ahora,
     });
@@ -177,7 +191,7 @@ run('escribirConfig · contra PostgreSQL (nodo marcado como nube)', () => {
       tabla: 'core.sucursal',
       fila: {
         agencia_id: agenciaId, nombre: 'Suc TJ', direccion_completa: 'x', telefono_principal: 'x',
-        codigo: 'Z', zona_horaria: 'America/Tijuana',
+        codigo: codigoLibre(), zona_horaria: 'America/Tijuana',
       },
       modo: 'ventana', ahora,
     });

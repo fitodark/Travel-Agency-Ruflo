@@ -107,28 +107,33 @@ export async function pull(node: Client, cloud: Client, opts: PullOptions = {}):
         result.porTabla[row.tabla] = (result.porTabla[row.tabla] ?? 0) + 1;
       } else if (estado === 'ignorada') {
         result.ignoradas++;
-      } else if (estado === 'omitida') {
-        // Choque de unicidad en una tabla de clase A. NO bloquea: la nube es la
-        // única autoridad de la clase A y siempre gana; una publicación posterior
-        // (p. ej. la re-clave determinista de 0039) trae el estado correcto.
-        // Bloquear el pull para siempre en una entrada obsoleta que NUNCA va a
-        // aplicar es estrictamente peor. Se deja constancia y el cursor avanza.
+      } else if (estado === 'omitida' || await bloqueoEnvejecido(node, row.tabla, row.seq)) {
+        // Fila de clase A que no aplica: choque de unicidad (`omitida`), o un
+        // rechazo por FK que YA lleva `GRACIA_BLOQUEO_MIN` atascado en esta misma
+        // fila (no es un problema de orden: es cruft que referencia un id muerto).
+        //
+        // La nube es la única autoridad de la clase A y siempre gana; una
+        // publicación posterior (p. ej. la re-clave determinista de 0039) o un
+        // bootstrap traen el estado bueno. Bloquear el pull para siempre en una
+        // entrada que NUNCA va a aplicar es estrictamente peor. Se deja constancia
+        // (`divergencia_checksum`, media), se resuelve el bloqueo previo y el
+        // cursor avanza.
         result.omitidas++;
         await registrarDivergencia(node, row.tabla, row.seq, motivo);
+        await node.query(
+          `UPDATE sync.excepcion SET estado = 'resuelta', resuelto_en = now()
+            WHERE tipo = 'rechazo_ingesta' AND estado = 'abierta'
+              AND entidad = $1 AND detalle->>'seq' = $2`,
+          [row.tabla, row.seq],
+        );
       } else {
         // PÉRDIDA SILENCIOSA — el modo de falla que este motor no puede permitirse.
         //
-        // Antes el cursor avanzaba también sobre las filas rechazadas, así que una
-        // `salida` que rebotó por clave foránea (su `horario` aún no había llegado)
-        // quedaba descartada PARA SIEMPRE: el siguiente ciclo arrancaba después de
-        // ella y nadie la volvía a pedir. La terminal se quedaba sin ese viaje sin un
-        // solo error visible, y el síntoma aparecía días después como un horario que
-        // "no existe" en una sola sucursal.
-        //
-        // Ahora el cursor se DETIENE en la primera fila rechazada. El bloqueo es
-        // deliberado: casi siempre es un problema de orden que el siguiente ciclo
-        // resuelve solo, y prefiero un pull atascado y visible a uno que avanza
-        // perdiendo filas.
+        // El cursor se DETIENE en la primera fila que no aplica. Casi siempre es
+        // un problema de orden que el siguiente ciclo resuelve solo (el padre
+        // llega, o su transacción termina); prefiero un pull atascado y visible a
+        // uno que avanza perdiendo filas. Si tras `GRACIA_BLOQUEO_MIN` la fila —de
+        // clase A— sigue igual, la rama de arriba la omite.
         result.rechazadas++;
         result.bloqueadoEn = { seq: Number(row.seq), tabla: row.tabla, motivo };
 
@@ -210,16 +215,48 @@ async function aplicarFila(
   const motivo = rows[0]?.motivo ?? null;
   if (estado === 'aceptada') return { estado: 'aplicada', motivo };
   if (estado === 'ignorada_hlc') return { estado: 'ignorada', motivo };
-  // Un `conflicto` (choque de unicidad) en una tabla de clase A NO debe bloquear
+
+  // Un `conflicto` (choque de unicidad) en una tabla de CLASE A NO debe bloquear
   // el pull: el nodo nunca gana la clase A, así que reintentar no va a servir.
+  // Suele ser una entrada OBSOLETA del `cambio_log` que aplica por `id` sobre una
+  // fila cuyo `id` la nube ya re-clavó (p. ej. `tipo_unidad` en 0039).
   if (estado === 'conflicto' && claseDe(tabla) === 'A') return { estado: 'omitida', motivo };
   return { estado: 'rechazada', motivo };
 }
 
+/** Minutos que una fila de clase A puede quedar bloqueada antes de omitirla. */
+const GRACIA_BLOQUEO_MIN = 10;
+
 /**
- * Deja constancia de una fila de clase A que no se pudo aplicar por choque de
- * unicidad. Deduplicada por `(tabla)`: la causa suele repetirse (varias entradas
- * obsoletas seguidas) y no vale ahogar la cola.
+ * ¿El pull lleva ya un rato atascado exactamente en esta fila?
+ *
+ * Un rechazo por FK LEGÍTIMO (el padre viene en un ciclo siguiente, o su
+ * transacción estaba en vuelo) se resuelve en uno o dos ciclos. Si tras
+ * `GRACIA_BLOQUEO_MIN` la MISMA fila sigue sin poder aplicarse, no es un problema
+ * de orden: es una entrada OBSOLETA del `cambio_log` que referencia un id que la
+ * nube ya borró o re-clavó (cruft de la PoC). Vale para cualquier tabla que baje
+ * por pull: todas son autoridad de la nube y una re-publicación —o un bootstrap—
+ * traen el estado bueno; la reconciliación por checksum cubre lo que quede.
+ */
+async function bloqueoEnvejecido(
+  node: Client, tabla: string, seq: string,
+): Promise<boolean> {
+  const { rows } = await node.query<{ viejo: boolean }>(
+    `SELECT EXISTS (
+       SELECT 1 FROM sync.excepcion
+        WHERE tipo = 'rechazo_ingesta' AND estado = 'abierta'
+          AND entidad = $1 AND detalle->>'seq' = $2
+          AND creado_en < now() - make_interval(mins => $3)
+     ) AS viejo`,
+    [tabla, seq, GRACIA_BLOQUEO_MIN],
+  );
+  return rows[0]!.viejo;
+}
+
+/**
+ * Deja constancia de una fila de clase A que no se pudo aplicar (unicidad o FK
+ * hacia un id que ya no existe). Deduplicada por `(tabla)`: la causa suele
+ * repetirse (varias entradas obsoletas seguidas) y no vale ahogar la cola.
  */
 async function registrarDivergencia(
   node: Client, tabla: string, seq: string, motivo: string | null,

@@ -30,6 +30,7 @@
     "seed:admin": "tsx scripts/sembrar-admin.ts",
     "seed:qa": "tsx scripts/sembrar-qa.ts",
     "limpiar:qa": "tsx scripts/limpiar-qa.ts",
+    "sanear:nube": "tsx scripts/sanear-nube.ts",
     "materializar": "tsx scripts/materializar.ts",
     "export:semanal": "tsx scripts/export-semanal.ts",
     "sync": "tsx scripts/sync.ts",

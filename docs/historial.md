@@ -1759,20 +1759,34 @@ bajaba. Rama `fix-pull-clase-a-obsoleto`.
   obsoletas que referencian ids muertos— y solo procesa lo nuevo. Es la
   preparación que un nodo real hace al instalarse. Sustituye al viejo
   `fijarNodoLocal`.
-- **`tests/admin/sucursales.test.ts`**: dejó de hardcodear los códigos de
-  sucursal (W/X/Y/Z); ahora pide a la base los LIBRES (como `seedAuth`), porque un
-  `bootstrap` puede haber copiado cualquier sucursal a la base compartida.
-- `tests/sync/caos-perdida.test.ts` +1: un `conflicto` de clase A se omite y el
-  pull sigue con lo que venía detrás.
+- **`src/sync/pull.ts` (2ª parte)**: además del `conflicto` de clase A, un
+  **rechazo por FK** que ya lleva `GRACIA_BLOQUEO_MIN` (10 min) atascado en la
+  MISMA fila se omite también (para cualquier tabla que baje por pull — todas son
+  autoridad de la nube). Un rechazo por FK legítimo se resuelve en uno o dos
+  ciclos; si tras 10 min sigue igual, es cruft que referencia un id muerto. Al
+  omitir se marca `resuelta` la excepción `rechazo_ingesta` previa y se abre una
+  `divergencia_checksum`.
+- **`scripts/limpiar-dev.ts`**: el `pretest` **ya NO resetea `sync.cursor`**.
+  Resetearlo obligaba al pull a re-procesar todo el `cambio_log` histórico y
+  dejaba el nodo de dev atascado en cada `npm test`. La suite usa nodos
+  desechables, no ese cursor.
+- **`scripts/sanear-nube.ts`** (`npm run sanear:nube [-- --aplicar]`): borra del
+  `sync.cambio_log` de la nube las entradas HUÉRFANAS —`fila_id` que ya no existe
+  como fila en su tabla— por cada tabla de clase A. Dry-run por defecto. En la
+  Supabase compartida son ~392 (usuario, ruta, horario, salida, tipo_unidad).
+- **`tests/admin/{sucursales,escribir-config,revocacion,rol-consola}.test.ts`**:
+  dejaron de hardcodear los códigos de sucursal (W/X/Y/Z); piden los LIBRES a la
+  base o dejan que `crearSucursal` auto-asigne. Un `bootstrap` (o pruebas en
+  paralelo) puede tener cualquier código ocupado.
+- `tests/sync/caos-perdida.test.ts` +2: un `conflicto` de clase A se omite; un
+  bloqueo por FK envejecido se omite y el pull sigue.
 - Limpieza puntual de la base local de dev (sucursales V/W/X/Y y cruft de
   ruta/horario/salida que un bootstrap de prueba copió de la nube).
 
-Pendiente (no bloqueante): el `sync.cambio_log` de la Supabase compartida tiene
-~1270 entradas históricas de la PoC, muchas con ids muertos. Un nodo que hace
-bootstrap las ignora (cursor en el máximo). Convendría un `DELETE FROM
-sync.cambio_log WHERE seq < <corte>` de higiene, pero no es urgente.
+`tsc` limpio. `npm test`: **54 archivos, 482 verdes, 1 `it.todo`, 0 rojas**.
 
-`tsc` limpio. `npm test`: **54 archivos, 481 verdes, 1 `it.todo`, 0 rojas**.
+**Para QA**: `npm run seed:qa` (hace el bootstrap solo) → `npm run api`. Opcional:
+`npm run sanear:nube -- --aplicar` limpia el `cambio_log` histórico de la nube.
 
 ---
 
