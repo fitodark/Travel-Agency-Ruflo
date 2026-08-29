@@ -1852,6 +1852,44 @@ de rutas API.
 
 ---
 
+## Sesión 41 — 2026-08-29 · seed:qa siembra un viaje vendible
+
+QA creó una ruta + horario + tarifa por la sección Administración y en la
+búsqueda de boletos no aparecía nada. Diagnóstico: **la sincronización estaba
+bien** (cursor local = máx. de la nube; ruta/horario/tarifa idénticos en ambos
+lados). `core.buscar_salidas` lee `core.salida` (materializada), no `core.horario`,
+y la cadena estaba cortada en el primer eslabón: el horario **no tenía conductor**
+(y `core.materializar_salidas` lo exige, D-7), y **no había ningún conductor ni
+unidad** en el sistema — `seed:qa` solo sembraba sucursales y usuarios. Rama
+`qa-viaje-vendible`.
+
+- **`scripts/sembrar-qa.ts`**: nueva función `sembrarViajeVendible` (dentro de la
+  tx del seed). Con ids fijos `d0d0da01-…` (idempotente por `ON CONFLICT (id)`):
+  unidad `QA-01` (SPRINTER-18, que ya trae el seed de esquema), conductor
+  "Conductor QA", ruta "QA Oaxaca-Puebla" (Oaxaca 0 → Puebla 1) con sus paradas,
+  horario 07:00 **con conductor** vigente desde hoy + `horario_parada`, tarifa
+  0→1 $650 vigente desde ya. Luego llama a `core.materializar_salidas(horario,
+  30)` — 31 salidas. Contra la nube, cada INSERT publica por `trg_cambio_log` y
+  el `bootstrap` del final las copia; el nodo las ve en el pull.
+- **`scripts/limpiar-qa.ts`**: `limpiarViajeVendible` borra el viaje de ids fijos
+  y todo lo que cuelga de sus salidas (venta/boleto/pago/lease/ocupación/evento/
+  cupo/cambio_conductor). Las 3 sucursales de QA ahora se **DESACTIVAN**
+  (`activo=false`) en vez de borrarse — una venta/corte/ruta hecha a mano contra
+  ellas rompía el `DELETE` por FK; desactivarlas es lo que hace la app y
+  `re-seed:qa` las reactiva por `ON CONFLICT (codigo)`.
+- Notas de esquema: `unidad`/`conductor`/`ruta`/`ruta_parada`/`horario_parada`
+  usan `activo` + `desactivado_*` (sin `effective_until`); `horario`/`tarifa`
+  tienen ambos.
+- Verificado end-to-end contra la base local: `seed:qa` → `buscar_salidas`
+  (Oaxaca→Puebla, 2 pax) devuelve la salida con importe $650, 18 asientos,
+  `seleccionable=true`; `seed:qa` de nuevo → "0 nuevas, 31 ya estaban";
+  `limpiar:qa` deja limpio y repetible.
+
+**Para QA**: `npm run seed:qa` → `npm run api` → en Vender, Oaxaca Centro →
+Puebla, cualquier fecha desde hoy.
+
+---
+
 ## F1 — CERRADA
 
 Los cinco criterios de aceptación verdes contra Supabase real
