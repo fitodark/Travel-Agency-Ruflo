@@ -1,24 +1,24 @@
 /**
- * Siembra un escenario de QA para probar el inicio de sesión: varias sucursales,
- * usuarios de cada rol y asignaciones cruzadas.
+ * Siembra un escenario de QA para probar el inicio de sesión y la administración:
+ * varias sucursales, usuarios de cada rol y asignaciones cruzadas.
  *
- *   npm run seed:qa                       # contra la base local
- *   npm run seed:qa -- --target nube      # contra Supabase (propaga a los nodos)
- *   npm run seed:qa -- --sucursal T       # el nodo local representa a Tuxtepec
+ *   npm run seed:qa                       # contra la NUBE (Supabase) — por defecto
+ *   npm run seed:qa -- --sucursal 2       # el nodo local representará a Tuxtepec
+ *   npm run seed:qa -- --target local     # solo local (modo "desconectado", ver abajo)
  *
- * (para sembrar en las dos, córrelo dos veces: una sin `--target` y otra con
- * `--target nube`.)
+ * POR QUÉ CONTRA LA NUBE:
+ * La configuración clase A (sucursales, usuarios, credenciales, asignaciones)
+ * VIVE en la nube y baja replicada a las terminales. La consola de administración
+ * de la SPA la LEE de la nube. Un seed solo-local queda "desconectado": no se ve
+ * en Administración y `reconcile` marca `divergencia_checksum`. Por eso el destino
+ * por defecto es la nube: ahí los triggers `trg_cambio_log` publican los cambios,
+ * y el nodo local los recibe con `npm run api` corriendo (pull cada ~30 s) o con
+ * un bootstrap.
  *
- * Contexto: el CRUD real de usuarios/sucursales es la consola de F2b
- * (`src/admin/`, `npm run admin`), pero escribe en la nube y necesita despliegue
- * + sync para llegar a un nodo. Este script escribe DIRECTO en la base —igual que
- * `sembrar-admin.ts`— para que QA tenga el escenario en minutos y sin infra.
+ * Este script escribe DIRECTO en la base —igual que `sembrar-admin.ts`— en vez de
+ * pasar por la consola, para que QA tenga el escenario en un comando.
  *
- * En producción el hash Argon2id se calcula en la nube y baja replicado (03 §1.2);
- * aquí se calcula localmente porque no hay quien lo genere en un nodo aislado.
- *
- * Es idempotente: correrlo de nuevo reactiva lo que un test haya dado de baja y
- * refresca los hashes.
+ * Limpieza: `npm run limpiar:qa` borra este escenario de la nube Y de local.
  *
  * ESCENARIO
  *   Sucursales:  Oaxaca Centro (1) · Tuxtepec (2) · Puebla (3)
@@ -70,7 +70,9 @@ const USUARIOS: DefUsuario[] = [
   { email: 'sin.sucursal@donaji.local', nombre: 'Vendedor Sin Sucursal', rol: 'vendedor', sucursales: [] },
 ];
 
-async function sembrar(c: Client, target: 'local' | 'nube', nodoCodigo: string): Promise<void> {
+/** Siembra el escenario en una base. Devuelve el id de la sucursal por código. */
+async function sembrar(c: Client): Promise<Map<string, string>> {
+  const sucursalId = new Map<string, string>();
   await c.query('BEGIN');
   try {
     // 1 · Agencia (reutiliza la que haya, o crea la de dev).
@@ -82,8 +84,7 @@ async function sembrar(c: Client, target: 'local' | 'nube', nodoCodigo: string):
     }
     const agenciaId = ag[0]!.id;
 
-    // 2 · Sucursales, indexadas por código.
-    const sucursalId = new Map<string, string>();
+    // 2 · Sucursales.
     for (const s of SUCURSALES) {
       const { rows } = await c.query<{ id: string }>(
         `INSERT INTO core.sucursal (agencia_id, nombre, direccion_completa, telefono_principal, codigo)
@@ -119,7 +120,6 @@ async function sembrar(c: Client, target: 'local' | 'nube', nodoCodigo: string):
         [usuarioId, hash],
       );
 
-      // Asignaciones deseadas: alta/reactivación de las que toca, baja de las demás.
       const objetivo = u.sucursales.map((cod) => sucursalId.get(cod)!);
       for (const sid of objetivo) {
         await c.query(
@@ -130,25 +130,18 @@ async function sembrar(c: Client, target: 'local' | 'nube', nodoCodigo: string):
           [usuarioId, sid],
         );
       }
-      await c.query(
-        `UPDATE core.usuario_sucursal
-            SET activo = false, effective_until = now()
-          WHERE usuario_id = $1 AND activo
-            AND ($2::uuid[] = '{}' OR sucursal_id <> ALL($2::uuid[]))`,
-        [usuarioId, objetivo],
-      );
-    }
-
-    // 4 · Identidad del nodo: en local, esta PC "es" una sucursal concreta.
-    if (target === 'local') {
-      const nodoSucursal = sucursalId.get(nodoCodigo);
-      if (!nodoSucursal) {
-        throw new Error(`--sucursal ${nodoCodigo} no existe en el escenario (usa 1, 2 o 3)`);
+      // Desactiva SOLO las asignaciones a las sucursales del escenario que este
+      // usuario ya no debe tener. NO toca `admin@donaji.local` (lo comparte
+      // `sembrar-admin`): a él solo se le SUMAN las 3 sucursales de prueba.
+      if (u.email !== 'admin@donaji.local') {
+        await c.query(
+          `UPDATE core.usuario_sucursal
+              SET activo = false, effective_until = now()
+            WHERE usuario_id = $1 AND activo
+              AND ($2::uuid[] = '{}' OR sucursal_id <> ALL($2::uuid[]))`,
+          [usuarioId, objetivo],
+        );
       }
-      await c.query(
-        `UPDATE sync.nodo SET sucursal_id = $1, es_nube = false WHERE singleton`,
-        [nodoSucursal],
-      );
     }
 
     await c.query('COMMIT');
@@ -156,31 +149,64 @@ async function sembrar(c: Client, target: 'local' | 'nube', nodoCodigo: string):
     await c.query('ROLLBACK').catch(() => { /* ya revertida */ });
     throw err;
   }
+  return sucursalId;
+}
+
+/** Fija qué sucursal representa el nodo local (aunque la fila aún no haya bajado). */
+async function fijarNodoLocal(sucursalId: string): Promise<void> {
+  if (!process.env['LOCAL_DATABASE_URL']) return;
+  const c = new Client(resolveConnection('local').config);
+  await c.connect();
+  try {
+    await c.query(
+      `UPDATE sync.nodo SET sucursal_id = $1, es_nube = false WHERE singleton`,
+      [sucursalId],
+    );
+  } finally {
+    await c.end();
+  }
 }
 
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
-  const target = targetFromArgs(args, 'local');
+  const target = targetFromArgs(args, 'nube');
   const sucIdx = args.indexOf('--sucursal');
-  const nodoCodigo = (sucIdx >= 0 ? args[sucIdx + 1] : '1')?.toUpperCase() ?? '1';
+  const nodoCodigo = (sucIdx >= 0 ? args[sucIdx + 1] : '1') ?? '1';
 
   const conn = resolveConnection(target);
   console.log(`Sembrando escenario de QA en ${target} (${conn.describe})`);
+  if (target === 'local') {
+    console.log(
+      '  AVISO: modo local "desconectado". Estos datos NO están en la nube, así que\n' +
+      '  no aparecerán en la sección Administración de la SPA y `reconcile` marcará\n' +
+      '  divergencia. Para el flujo real usa el destino por defecto (nube).',
+    );
+  }
+
   const c = new Client(conn.config);
   await c.connect();
+  let sucursales: Map<string, string>;
   try {
-    await sembrar(c, target, nodoCodigo);
-    const { rows: nodo } = await c.query<{ codigo: string | null }>(
-      `SELECT s.codigo FROM sync.nodo n LEFT JOIN core.sucursal s ON s.id = n.sucursal_id WHERE n.singleton`,
-    );
-    console.log(`  nodo.sucursal: ${nodo[0]?.codigo ?? '(sin fijar — nube)'}`);
+    sucursales = await sembrar(c);
   } finally {
     await c.end();
   }
 
+  const nodoSucursal = sucursales.get(nodoCodigo);
+  if (!nodoSucursal) {
+    throw new Error(`--sucursal ${nodoCodigo} no existe en el escenario (usa 1, 2 o 3)`);
+  }
+  await fijarNodoLocal(nodoSucursal);
+
   console.log('\nListo. Contraseña de todos: ' + (process.env['QA_PASSWORD'] ? '(QA_PASSWORD)' : `"${PASSWORD}"`));
-  console.log(`
-  Escenarios de login (con "npm run api" + la SPA):
+  if (target === 'nube') {
+    console.log(
+      `\n  Los datos están en la nube. Para que el nodo local los reciba:\n` +
+      `    npm run api        (el motor de sync embebido los baja en ~30 s)\n` +
+      `  El nodo local ya quedó apuntando a la sucursal ${nodoCodigo}.\n`,
+    );
+  }
+  console.log(`  Escenarios de login (con "npm run api" + la SPA):
     admin@donaji.local         -> 3 sucursales: aparece el selector
     gerente@donaji.local       -> 1 sucursal (Oaxaca): sesión directa
     vendedor.oax@donaji.local  -> 1 sucursal (Oaxaca): sesión directa
@@ -188,8 +214,8 @@ async function main(): Promise<void> {
     multi@donaji.local         -> 2 sucursales (Oaxaca, Puebla): selector, sin ser admin
     sin.sucursal@donaji.local  -> login rechazado: "sin_sucursal_activa"
 
-  RBAC: administrador ve el Tablero; gerente/vendedor no. Un vendedor no ve
-  "asiento.override" ni "movimiento.anular".`);
+  RBAC: administrador ve Administración y el Tablero; gerente/vendedor no.
+  Limpieza: npm run limpiar:qa (borra el escenario de nube y de local).`);
 }
 
 main().catch((err: unknown) => {

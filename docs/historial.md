@@ -1680,11 +1680,35 @@ Rama `fe-admin-unificada`.
 - **Supabase Auth eliminado del proyecto.** Blueprint 03 §1.1 y 04 §F2b
   actualizados.
 
-### Fase 3 — autoría de rutas y horarios
+### Seed de QA — ahora contra la NUBE
 
-- (pendiente en esta entrada; ver abajo si ya se hizo)
+Con la sección Administración leyendo de la nube, un `seed:qa` solo-local queda
+"desconectado" (no se ve en Administración, `reconcile` marca divergencia). Se
+corrigió:
 
-`tsc` limpio (raíz + `web/`), `vite build` OK. `tests/api` + `tests/admin` verdes.
+- **`scripts/sembrar-qa.ts`** ahora escribe en la **nube** por defecto (ahí los
+  triggers `trg_cambio_log` publican). El nodo local recibe los datos con
+  `npm run api` corriendo (pull) — el script deja `sync.nodo.sucursal_id`
+  apuntando a la sucursal `1` de una vez (la fila baja después, no hay FK).
+  `--target local` sigue disponible pero avisa que es modo desconectado. A
+  `admin@donaji.local` (compartido con `sembrar-admin`) solo se le SUMAN las 3
+  sucursales, no se le quita ninguna.
+- **`scripts/limpiar-qa.ts`** (`npm run limpiar:qa`): borra el escenario de QA de
+  la nube Y de local (5 usuarios `@donaji.local`, 3 sucursales `1`/`2`/`3`, sus
+  credenciales/sesiones/asignaciones/folios/HOTP), y en la nube también las filas
+  de `sync.cambio_log` de esas entidades. No toca `admin@donaji.local`.
+
+### Fase 3 — DIFERIDA
+
+Autoría de rutas/horarios (`core.ruta`, `core.horario` + sus paradas). No se hizo:
+`escribirConfig` es mal encaje para tablas estructurales multi-fila
+(`ruta_parada`, `horario_parada`) — necesita funciones SQL dedicadas (patrón
+`materializar_salidas`) y un diseño de UX de paradas. Es un PR propio y no
+bloquea las pruebas de QA (login, usuarios, sucursales, tarifas, impresora,
+ticket ya cubiertos).
+
+`tsc` limpio (raíz + `web/`), `vite build` OK. `npm test`: **54 archivos, 478
+verdes, 1 `it.todo`** (la prueba de cadencia del motor sigue flaky bajo carga).
 
 **Despliegue**: la consola ya no necesita despliegue propio; para escribir
 config en producción, `src/api/` (la terminal) necesita `ADMIN_DATABASE_URL`
