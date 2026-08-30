@@ -26,8 +26,10 @@ export function AdminHorarios() {
     <div className="space-y-6">
       <p className="text-sm text-slate-500">
         Ruta = qué sucursales toca y en qué orden. Horario = a qué hora y qué días.
-        Cambiar una ruta o un horario <b>no</b> re-materializa las salidas ya creadas;
-        el job nocturno toma los cambios para las salidas futuras.
+        Al guardar un horario <b>con conductor</b> se generan sus salidas en el acto
+        (bajan a las sucursales en el siguiente sync). Sin conductor, el horario
+        queda listo y el job nocturno lo materializa cuando se le asigne uno.
+        Cambiar un horario <b>no</b> re-materializa las salidas ya creadas.
       </p>
       {error && <p className="text-sm text-red-600">{error}</p>}
 
@@ -133,6 +135,7 @@ function Horarios({ ruta, onError }: { ruta: RutaDetalle; onError: (m: string) =
   const conductores = useQuery({ queryKey: ['admin', 'conductores'], queryFn: listarConductores });
   const unidades = useQuery({ queryKey: ['admin', 'unidades'], queryFn: listarUnidades });
   const refrescar = () => qc.invalidateQueries({ queryKey: ['admin', 'horarios', ruta.id] });
+  const [aviso, setAviso] = useState<string | null>(null);
 
   const [horaSalida, setHoraSalida] = useState('07:00');
   const [ds, setDs] = useState<number[]>([1, 2, 3, 4, 5, 6, 7]);
@@ -155,7 +158,16 @@ function Horarios({ ruta, onError }: { ruta: RutaDetalle; onError: (m: string) =
       ...(vh ? { vigenteHasta: vh } : {}),
       pasos: ruta.paradas.map((p) => ({ rutaParadaId: p.id, orden: p.orden, horaPaso: p.orden === 0 ? horaSalida : (pasos[p.id] ?? horaSalida) })),
     }),
-    onSuccess: () => void refrescar(),
+    onSuccess: (r) => {
+      setAviso(
+        r.avisoMaterializacion
+          ? `Horario guardado. Salidas pendientes: ${r.avisoMaterializacion}`
+          : r.salidasCreadas > 0
+            ? `Horario guardado — ${r.salidasCreadas} salidas generadas.`
+            : 'Horario guardado. Asígnale un conductor para generar sus salidas.',
+      );
+      void refrescar();
+    },
     onError: (e) => onError(msg(e)),
   });
 
@@ -164,6 +176,9 @@ function Horarios({ ruta, onError }: { ruta: RutaDetalle; onError: (m: string) =
   return (
     <div className="tarjeta p-4 space-y-4">
       <p className="font-medium">Horarios de {ruta.nombre}</p>
+      {aviso && (
+        <p className="rounded-lg border border-brand-200 bg-brand-50 px-3 py-2 text-sm text-brand-800">{aviso}</p>
+      )}
 
       {horarios.data?.map((h) => (
         <div key={h.id} className="flex items-center gap-4 text-sm border-b pb-2">

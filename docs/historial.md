@@ -1954,7 +1954,37 @@ queda solo-lectura (el mapa se siembra por SQL). Rama `admin-flota`.
 
 ---
 
-## F1 — CERRADA
+## Sesión 44 — 2026-08-30 · El horario nuevo se materializa solo al guardarlo
+
+Se creó una ruta con parada intermedia (`HJP - Inter - PU`: Oaxaca → Terminal
+Dev → Puebla) + su horario con conductor, y en Vender no aparecía. Validado
+contra la base viva: **la consulta está bien** — ruta y horario correctos y
+sincronizados; `core.buscar_salidas` lee `core.salida` (materializada) y **no
+había ninguna** porque nunca se corrió `npm run materializar`. Materializar ese
+horario a mano (probado en local, tx revertida) → 8 salidas → `buscar_salidas
+Oaxaca → Terminal Dev` devuelve la salida de las 08:00, `seleccionable`.
+
+Petición del usuario: **un cambio en el FE no debe exigir correr nada aparte** —
+la configuración de horarios se hace en la ventana acordada con las terminales
+para que al día siguiente ya se pueda vender.
+
+- **`src/admin/horarios.ts`**: `crearHorario` y `editarHorario`, cuando el
+  horario resultante tiene conductor, llaman a `materializarHorario` (horizonte
+  completo) **ahí mismo, contra la nube**. `core.materializar_salidas` es
+  idempotente (`ON CONFLICT (horario_id, fecha_operacion) DO NOTHING`): en un
+  edit solo agrega días que falten, no toca las salidas ya congeladas (D-7). Si
+  el horario aún no está vigente, se guarda igual y se devuelve
+  `avisoMaterializacion` (el job nocturno lo retomará) — no revienta.
+- **`ResultadoHorario`** ahora trae `salidasCreadas` y `avisoMaterializacion`.
+  `rutas-horarios.ts` los propaga; `Horarios.tsx` muestra "N salidas generadas".
+- El job `npm run materializar` **sigue** para el barrido diario (empujar el día
+  91 del horizonte, horarios que ganan conductor por otra vía).
+- `tests/api/admin.test.ts` +1 (horario con conductor → `salidasCreadas > 0` y
+  las filas existen en `core.salida`). `npm test`: 54 archivos, 485 verdes.
+
+**Para el horario ya creado sin materializar**: `npm run materializar` una vez
+(o re-guardar el horario). Los que se creen de ahora en adelante ya no lo
+necesitan.
 
 Los cinco criterios de aceptación verdes contra Supabase real
 (`tests/sync/f1-criterios.test.ts`). Contrato de pruebas del motor cerrado

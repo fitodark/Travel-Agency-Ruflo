@@ -10,6 +10,16 @@
  * creadas (D-7: el mapa y las paradas se congelan al materializar). El job
  * `core.materializar_salidas` toma los cambios para las salidas FUTURAS.
  *
+ * MATERIALIZACIÓN AUTOMÁTICA: al crear un horario CON conductor —o al asignarle
+ * uno después— esta capa materializa su horizonte AHÍ MISMO, contra la nube. El
+ * administrador no corre nada aparte: guarda el horario (en la ventana que
+ * acordó con las terminales) y al siguiente pull las sucursales ya ven las
+ * salidas. El job nocturno `npm run materializar` sigue existiendo para el
+ * barrido diario (empujar el día 91 del horizonte, tomar horarios que ganaron
+ * conductor por otra vía). `core.materializar_salidas` es idempotente
+ * (`ON CONFLICT (horario_id, fecha_operacion) DO NOTHING`), así que llamarlo de
+ * más no duplica ni toca las salidas ya congeladas.
+ *
  * Las cuatro tablas son clase A (`registrar_entidad` + `publicar_a_nodos`, 0004 y
  * 0008): cada `INSERT` publica por `trg_cambio_log` y el nodo lo recibe en el
  * pull. Las inserciones compuestas van en UNA sentencia con CTEs para que sean
@@ -17,6 +27,7 @@
  */
 
 import type { Consultable } from '../db/consulta.js';
+import { materializarHorario } from '../fleet/materializar.js';
 
 export interface ParadaRuta {
   id: string;
@@ -138,7 +149,37 @@ export interface NuevoHorario {
   pasos: { rutaParadaId: string; orden: number; horaPaso: string }[];
 }
 
-export async function crearHorario(db: Consultable, h: NuevoHorario): Promise<{ id: string }> {
+export interface ResultadoHorario {
+  id: string;
+  /** Salidas materializadas en el acto (0 si el horario aún no tiene conductor). */
+  salidasCreadas: number;
+  /** Presente si se intentó materializar y no se pudo (p. ej. el horario todavía
+   *  no está vigente): el horario SÍ quedó guardado; el job nocturno lo tomará. */
+  avisoMaterializacion?: string;
+}
+
+/**
+ * Materializa el horizonte de un horario, best-effort. Si no tiene conductor no
+ * hace nada; si `core.materializar_salidas` se queja (horario aún no vigente, sin
+ * mapa), se devuelve el aviso pero NO se propaga: el horario ya está guardado y
+ * el barrido nocturno lo retomará.
+ */
+async function materializarSiSePuede(
+  db: Consultable, id: string, tieneConductor: boolean,
+): Promise<{ salidasCreadas: number; avisoMaterializacion?: string }> {
+  if (!tieneConductor) return { salidasCreadas: 0 };
+  try {
+    const r = await materializarHorario(db, id);
+    return { salidasCreadas: r.creadas };
+  } catch (err) {
+    return {
+      salidasCreadas: 0,
+      avisoMaterializacion: err instanceof Error ? err.message : String(err),
+    };
+  }
+}
+
+export async function crearHorario(db: Consultable, h: NuevoHorario): Promise<ResultadoHorario> {
   if (h.diasSemana.length === 0 || h.diasSemana.some((d) => d < 1 || d > 7)) {
     throw new Error('días de la semana inválidos (1 = lunes … 7 = domingo)');
   }
@@ -165,7 +206,8 @@ export async function crearHorario(db: Consultable, h: NuevoHorario): Promise<{ 
       JSON.stringify(h.pasos.map((p) => ({ ruta_parada_id: p.rutaParadaId, orden: p.orden, hora_paso: p.horaPaso }))),
     ],
   );
-  return { id: rows[0]!.id };
+  const id = rows[0]!.id;
+  return { id, ...(await materializarSiSePuede(db, id, h.conductorId != null)) };
 }
 
 export async function editarHorario(
@@ -175,7 +217,7 @@ export async function editarHorario(
     horaSalida: string; diasSemana: number[]; conductorId: string | null;
     unidadId: string | null; vigenteDesde: string | null; vigenteHasta: string | null;
   }>,
-): Promise<void> {
+): Promise<{ salidasCreadas: number; avisoMaterializacion?: string }> {
   const sets: string[] = [];
   const vals: unknown[] = [id];
   const push = (col: string, cast: string, v: unknown): void => {
@@ -188,8 +230,15 @@ export async function editarHorario(
   if (args.unidadId !== undefined) push('unidad_id', '::uuid', args.unidadId);
   if (args.vigenteDesde !== undefined) push('vigente_desde', '::date', args.vigenteDesde);
   if (args.vigenteHasta !== undefined) push('vigente_hasta', '::date', args.vigenteHasta);
-  if (sets.length === 0) return;
+  if (sets.length === 0) return { salidasCreadas: 0 };
   await db.query(`UPDATE core.horario SET ${sets.join(', ')} WHERE id = $1::uuid`, vals);
+
+  // Tras el cambio, ¿el horario tiene conductor? Un `vigente_hasta` extendido o un
+  // conductor recién asignado dan salidas nuevas; las ya congeladas no se tocan.
+  const { rows } = await db.query<{ conductor_id: string | null }>(
+    `SELECT conductor_id FROM core.horario WHERE id = $1::uuid AND activo`, [id],
+  );
+  return materializarSiSePuede(db, id, rows[0]?.conductor_id != null);
 }
 
 export async function darDeBajaHorario(db: Consultable, id: string): Promise<void> {

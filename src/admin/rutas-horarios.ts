@@ -137,8 +137,8 @@ export function rutasHorarios(app: FastifyInstance, { db }: OpcionesRutas): void
     },
     async (req, reply) => {
       try {
-        await editarHorario(db, req.params.id, req.body);
-        return { ok: true };
+        const r = await editarHorario(db, req.params.id, req.body);
+        return { ok: true, ...r };
       } catch (err) {
         if (esValidacion(err)) return reply.status(400).send({ error: 'horario_invalido', mensaje: err.message });
         throw err;
