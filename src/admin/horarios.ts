@@ -244,8 +244,27 @@ export async function editarHorario(
   return materializarSiSePuede(db, id, rows[0]?.conductor_id != null);
 }
 
-export async function darDeBajaHorario(db: Consultable, id: string): Promise<void> {
+/**
+ * Da de baja el horario Y cancela sus salidas futuras SIN boletos vendidos: si
+ * no se cancelan, `buscar_salidas` las seguiría ofreciendo (materializadas, aún
+ * `programada`) y aparecen como duplicados del horario que las reemplaza. Las
+ * salidas con boletos NO se tocan (D-7): esos viajes ya vendidos siguen en pie.
+ */
+export async function darDeBajaHorario(
+  db: Consultable, id: string,
+): Promise<{ salidasCanceladas: number }> {
   await db.query(`UPDATE core.horario SET activo = false WHERE id = $1::uuid AND activo`, [id]);
+  const r = await db.query(
+    `UPDATE core.salida SET estado = 'cancelada'
+      WHERE horario_id = $1::uuid
+        AND estado = 'programada'
+        AND fecha_operacion >= current_date
+        AND NOT EXISTS (
+          SELECT 1 FROM core.boleto b
+           WHERE b.salida_id = core.salida.id AND b.activo AND b.estado <> 'cancelado')`,
+    [id],
+  );
+  return { salidasCanceladas: r.rowCount ?? 0 };
 }
 
 export async function listarConductores(db: Consultable): Promise<{ id: string; nombre: string }[]> {

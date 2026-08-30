@@ -207,6 +207,15 @@ run('API · /admin (PostgreSQL real)', () => {
     const lista = (await app.inject({ method: 'GET', url: `/admin/horarios?rutaId=${rutaId}`, headers: bearerTok })
       .then((r) => r.json())) as { id: string; conductorId: string | null }[];
     expect(lista.find((h) => h.id === horarioId)?.conductorId).toBe(conductorId);
+
+    // Dar de baja el horario cancela sus salidas futuras (sin boletos).
+    const baja = await app.inject({ method: 'POST', url: `/admin/horarios/${horarioId}/baja`, headers: bearerTok });
+    expect(baja.statusCode).toBe(200);
+    expect(baja.json().salidasCanceladas).toBeGreaterThan(0);
+    const { rows: prog } = await db.query<{ n: string }>(
+      `SELECT count(*) n FROM core.salida WHERE horario_id = $1 AND estado = 'programada'`, [horarioId],
+    );
+    expect(Number(prog[0]!.n), 'no queda ninguna salida programada').toBe(0);
   });
 
   it('un administrador da de alta una unidad y un conductor asociado', async () => {

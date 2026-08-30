@@ -44,6 +44,12 @@ export interface SalidaDisponible {
   disponibles: number;
   /** Salida programada + venta abierta + caben las N personas. */
   seleccionable: boolean;
+  /** Nombre de la ruta — distingue dos salidas al mismo destino a la misma hora. */
+  rutaNombre: string;
+  origenNombre: string;
+  destinoNombre: string;
+  /** Paradas intermedias entre origen y destino, en orden. Vacío si es directo. */
+  escalas: string[];
 }
 
 interface FilaBusqueda {
@@ -59,6 +65,10 @@ interface FilaBusqueda {
   asientos_ofrecibles: number[] | null;
   disponibles: number;
   seleccionable: boolean;
+  ruta_nombre: string;
+  origen_nombre: string;
+  destino_nombre: string;
+  escalas: string[] | null;
 }
 
 export async function buscarSalidas(
@@ -68,7 +78,8 @@ export async function buscarSalidas(
   const { rows } = await db.query<FilaBusqueda>(
     `SELECT salida_id, horario_id, fecha_operacion::text AS fecha_operacion,
             hora_salida_origen, origen_orden, destino_orden, estado,
-            cierre_venta_en, importe, asientos_ofrecibles, disponibles, seleccionable
+            cierre_venta_en, importe, asientos_ofrecibles, disponibles, seleccionable,
+            ruta_nombre, origen_nombre, destino_nombre, escalas
        FROM core.buscar_salidas($1::date, $2::uuid, $3::uuid, $4::int, $5::uuid,
                                 $6::boolean, $7::timestamptz)`,
     [
@@ -95,5 +106,9 @@ export async function buscarSalidas(
     asientosOfrecibles: (f.asientos_ofrecibles ?? []).map(Number),
     disponibles: Number(f.disponibles),
     seleccionable: f.seleccionable,
+    rutaNombre: f.ruta_nombre,
+    origenNombre: f.origen_nombre,
+    destinoNombre: f.destino_nombre,
+    escalas: f.escalas ?? [],
   }));
 }

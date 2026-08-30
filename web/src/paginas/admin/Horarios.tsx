@@ -189,8 +189,15 @@ function Horarios({ ruta, onError }: { ruta: RutaDetalle; onError: (m: string) =
           unidades={unidades.data ?? []}
           onGuardado={(a) => { setAviso(a); void refrescar(); }}
           onBaja={() => {
-            if (window.confirm('¿Dar de baja este horario?')) {
-              bajaHorario(h.id).then(() => void refrescar()).catch((e) => onError(msg(e)));
+            if (window.confirm('¿Dar de baja este horario? Se cancelan sus salidas futuras sin boletos.')) {
+              bajaHorario(h.id)
+                .then((r) => {
+                  setAviso(r.salidasCanceladas > 0
+                    ? `Horario dado de baja — ${r.salidasCanceladas} salidas canceladas.`
+                    : 'Horario dado de baja.');
+                  void refrescar();
+                })
+                .catch((e) => onError(msg(e)));
             }
           }}
           onError={onError}

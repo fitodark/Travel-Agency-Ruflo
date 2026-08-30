@@ -149,6 +149,6 @@ export function rutasHorarios(app: FastifyInstance, { db }: OpcionesRutas): void
   app.post<{ Params: { id: string } }>(
     '/horarios/:id/baja',
     { schema: { params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } } } },
-    async (req) => { await darDeBajaHorario(db, req.params.id); return { ok: true }; },
+    async (req) => ({ ok: true, ...(await darDeBajaHorario(db, req.params.id)) }),
   );
 }

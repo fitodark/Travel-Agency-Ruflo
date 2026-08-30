@@ -13,6 +13,11 @@ export interface SalidaDisponible {
   asientosOfrecibles: number[];
   disponibles: number;
   seleccionable: boolean;
+  rutaNombre: string;
+  origenNombre: string;
+  destinoNombre: string;
+  /** Paradas intermedias entre origen y destino; vacío si es directo. */
+  escalas: string[];
 }
 
 export interface BuscarParams {

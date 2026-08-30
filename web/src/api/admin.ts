@@ -231,7 +231,7 @@ export const editarHorario = (id: string, d: Partial<{
 }>): Promise<{ ok: true; salidasCreadas: number; avisoMaterializacion?: string }> =>
   api(`/admin/horarios/${id}`, { method: 'PATCH', body: JSON.stringify(d) });
 
-export const bajaHorario = (id: string): Promise<unknown> =>
+export const bajaHorario = (id: string): Promise<{ ok: true; salidasCanceladas: number }> =>
   api(`/admin/horarios/${id}/baja`, { method: 'POST', body: '{}' });
 
 // ---- flota: tipos de unidad, unidades, conductores ---------------
