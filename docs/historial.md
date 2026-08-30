@@ -2051,6 +2051,31 @@ a abrir el del día.
 
 ---
 
+## Sesión 47 — 2026-08-30 · Asignar conductor a un horario ya creado
+
+Un horario de la ruta "HJP - PU FULL" (09:00) no salía en la búsqueda de ventas.
+Diagnóstico: **la consulta está bien** — el horario está sincronizado, pero se
+creó SIN conductor, así que `materializar_salidas` lo salta (D-7) y no hay
+`core.salida`. La pantalla de Horarios solo tenía alta + baja; no había forma de
+asignarle un conductor después.
+
+- **`web/src/paginas/admin/Horarios.tsx`**: cada horario del listado tiene ahora
+  "editar" — un formulario inline para asignar/cambiar conductor, unidad y
+  vigencia. Los que no tienen conductor se marcan en ámbar "sin conductor — no se
+  vende". Al guardar con conductor, `editarHorario` materializa en el acto
+  (Sesión 44, idempotente).
+- **`web/src/api/admin.ts`**: `editarHorario(id, cambios)` → `PATCH
+  /admin/horarios/:id` (ya existía en el backend). `HorarioDetalle` gana
+  `conductorId` / `unidadId` para poblar los selectores.
+- **`src/admin/horarios.ts`**: `listarHorarios` devuelve además `conductor_id` y
+  `unidad_id`.
+- `tests/api/admin.test.ts` +1 (alta sin conductor → 0 salidas; PATCH con
+  conductor → materializa; el listado trae `conductorId`). `npm test` verde.
+- Verificado en el navegador: al asignarle "Conductor QA" al horario de las 09:00
+  → "89 salidas generadas".
+
+---
+
 Los cinco criterios de aceptación verdes contra Supabase real
 (`tests/sync/f1-criterios.test.ts`). Contrato de pruebas del motor cerrado
 (`salud.ts` Ses. 4, arbitraje/reasignación en F4, checksum dirigido de

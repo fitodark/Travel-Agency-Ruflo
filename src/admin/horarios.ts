@@ -103,7 +103,9 @@ export interface HorarioDetalle {
   rutaNombre: string;
   horaSalida: string;
   diasSemana: number[];
+  conductorId: string | null;
   conductor: string | null;
+  unidadId: string | null;
   unidad: string | null;
   vigenteDesde: string | null;
   vigenteHasta: string | null;
@@ -115,7 +117,8 @@ export async function listarHorarios(db: Consultable, rutaId?: string): Promise<
   const { rows } = await db.query<HorarioDetalle>(
     `SELECT h.id, h.ruta_id AS "rutaId", r.nombre AS "rutaNombre",
             h.hora_salida::text AS "horaSalida", h.dias_semana AS "diasSemana",
-            c.nombre AS conductor, u.numero_economico AS unidad,
+            h.conductor_id AS "conductorId", c.nombre AS conductor,
+            h.unidad_id AS "unidadId", u.numero_economico AS unidad,
             h.vigente_desde::text AS "vigenteDesde", h.vigente_hasta::text AS "vigenteHasta",
             h.activo,
             coalesce((
