@@ -183,7 +183,9 @@ export interface HorarioDetalle {
   rutaNombre: string;
   horaSalida: string;
   diasSemana: number[];
+  conductorId: string | null;
   conductor: string | null;
+  unidadId: string | null;
   unidad: string | null;
   vigenteDesde: string | null;
   vigenteHasta: string | null;
@@ -216,6 +218,18 @@ export const crearHorario = (d: {
   conductorId?: string; unidadId?: string; vigenteDesde?: string; vigenteHasta?: string;
   pasos: { rutaParadaId: string; orden: number; horaPaso: string }[];
 }): Promise<ResultadoHorario> => api('/admin/horarios', { method: 'POST', body: JSON.stringify(d) });
+
+/**
+ * Edita un horario existente. Si al terminar tiene conductor, materializa sus
+ * salidas en el acto (idempotente — no toca las ya creadas). Pasar `null`
+ * desasigna un campo.
+ */
+export const editarHorario = (id: string, d: Partial<{
+  horaSalida: string; diasSemana: number[];
+  conductorId: string | null; unidadId: string | null;
+  vigenteDesde: string | null; vigenteHasta: string | null;
+}>): Promise<{ ok: true; salidasCreadas: number; avisoMaterializacion?: string }> =>
+  api(`/admin/horarios/${id}`, { method: 'PATCH', body: JSON.stringify(d) });
 
 export const bajaHorario = (id: string): Promise<unknown> =>
   api(`/admin/horarios/${id}/baja`, { method: 'POST', body: '{}' });

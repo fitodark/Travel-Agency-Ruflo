@@ -2,8 +2,9 @@ import { useState, type FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ErrorApi } from '../../api/cliente';
 import {
-  bajaHorario, bajaRuta, crearHorario, crearRuta, listarConductores, listarHorarios,
-  listarRutasDetalle, listarSucursales, listarUnidades, type RutaDetalle,
+  bajaHorario, bajaRuta, crearHorario, crearRuta, editarHorario, listarConductores,
+  listarHorarios, listarRutasDetalle, listarSucursales, listarUnidades,
+  type HorarioDetalle, type RutaDetalle,
 } from '../../api/admin';
 
 const msg = (e: unknown) => (e instanceof ErrorApi ? e.message : 'No se pudo completar la operación.');
@@ -181,19 +182,19 @@ function Horarios({ ruta, onError }: { ruta: RutaDetalle; onError: (m: string) =
       )}
 
       {horarios.data?.map((h) => (
-        <div key={h.id} className="flex items-center gap-4 text-sm border-b pb-2">
-          <span className="font-mono">{h.horaSalida.slice(0, 5)}</span>
-          <span className="text-slate-600">{dias(h.diasSemana)}</span>
-          <span className="text-slate-500">{h.conductor ?? 'sin conductor'}{h.unidad ? ` · ${h.unidad}` : ''}</span>
-          <span className="text-slate-400">
-            {h.vigenteDesde ?? '—'}{h.vigenteHasta ? ` → ${h.vigenteHasta}` : ''}
-          </span>
-          {h.activo
-            ? <button className="btn-sutil ml-auto" onClick={() => {
-                if (window.confirm('¿Dar de baja este horario?')) bajaHorario(h.id).then(() => void refrescar()).catch((e) => onError(msg(e)));
-              }}>baja</button>
-            : <span className="ml-auto text-slate-400">baja</span>}
-        </div>
+        <FilaHorario
+          key={h.id}
+          h={h}
+          conductores={conductores.data ?? []}
+          unidades={unidades.data ?? []}
+          onGuardado={(a) => { setAviso(a); void refrescar(); }}
+          onBaja={() => {
+            if (window.confirm('¿Dar de baja este horario?')) {
+              bajaHorario(h.id).then(() => void refrescar()).catch((e) => onError(msg(e)));
+            }
+          }}
+          onError={onError}
+        />
       ))}
       {horarios.data?.length === 0 && <p className="text-sm text-slate-400">Sin horarios para esta ruta.</p>}
 
@@ -248,10 +249,112 @@ function Horarios({ ruta, onError }: { ruta: RutaDetalle; onError: (m: string) =
           </div>
         )}
 
+        <p className="sm:col-span-2 text-xs text-slate-400">
+          Sin conductor el horario se guarda pero no genera salidas (no se puede
+          vender). Puedes asignarlo ahora o después con "editar".
+        </p>
         <button type="submit" disabled={m.isPending || ds.length === 0} className="btn-primario justify-self-start">
           {m.isPending ? 'Creando…' : 'Crear horario'}
         </button>
       </form>
+    </div>
+  );
+}
+
+type Opcion = { id: string; nombre: string };
+
+function FilaHorario(
+  { h, conductores, unidades, onGuardado, onBaja, onError }:
+  {
+    h: HorarioDetalle;
+    conductores: Opcion[];
+    unidades: Opcion[];
+    onGuardado: (aviso: string) => void;
+    onBaja: () => void;
+    onError: (m: string) => void;
+  },
+) {
+  const [abierto, setAbierto] = useState(false);
+  const [conductorId, setConductorId] = useState(h.conductorId ?? '');
+  const [unidadId, setUnidadId] = useState(h.unidadId ?? '');
+  const [vd, setVd] = useState(h.vigenteDesde ?? '');
+  const [vh, setVh] = useState(h.vigenteHasta ?? '');
+  const sinConductor = !h.conductorId;
+
+  const abrir = () => {
+    setConductorId(h.conductorId ?? '');
+    setUnidadId(h.unidadId ?? '');
+    setVd(h.vigenteDesde ?? '');
+    setVh(h.vigenteHasta ?? '');
+    setAbierto(true);
+  };
+
+  const m = useMutation({
+    mutationFn: () => editarHorario(h.id, {
+      conductorId: conductorId || null,
+      unidadId: unidadId || null,
+      vigenteDesde: vd || null,
+      vigenteHasta: vh || null,
+    }),
+    onSuccess: (r) => {
+      setAbierto(false);
+      onGuardado(
+        r.avisoMaterializacion
+          ? `Horario guardado. Salidas pendientes: ${r.avisoMaterializacion}`
+          : r.salidasCreadas > 0
+            ? `Horario guardado — ${r.salidasCreadas} salidas generadas.`
+            : 'Horario guardado.',
+      );
+    },
+    onError: (e) => onError(msg(e)),
+  });
+
+  return (
+    <div className="border-b pb-2 text-sm">
+      <div className="flex items-center gap-4">
+        <span className="font-mono">{h.horaSalida.slice(0, 5)}</span>
+        <span className="text-slate-600">{dias(h.diasSemana)}</span>
+        <span className={sinConductor ? 'text-amber-600' : 'text-slate-500'}>
+          {h.conductor ?? 'sin conductor — no se vende'}{h.unidad ? ` · ${h.unidad}` : ''}
+        </span>
+        <span className="text-slate-400">
+          {h.vigenteDesde ?? '—'}{h.vigenteHasta ? ` → ${h.vigenteHasta}` : ''}
+        </span>
+        <span className="ml-auto flex gap-3">
+          {h.activo && <button className="btn-sutil" onClick={abierto ? () => setAbierto(false) : abrir}>{abierto ? 'cerrar' : 'editar'}</button>}
+          {h.activo
+            ? <button className="btn-sutil" onClick={onBaja}>baja</button>
+            : <span className="text-slate-400">baja</span>}
+        </span>
+      </div>
+
+      {abierto && (
+        <form
+          onSubmit={(e) => { e.preventDefault(); m.mutate(); }}
+          className="mt-2 grid gap-3 rounded-lg bg-slate-50/60 p-3 sm:grid-cols-2"
+        >
+          <label>Conductor
+            <select value={conductorId} onChange={(e) => setConductorId(e.target.value)} className="campo mt-1">
+              <option value="">— sin conductor —</option>
+              {conductores.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+            </select>
+          </label>
+          <label>Unidad
+            <select value={unidadId} onChange={(e) => setUnidadId(e.target.value)} className="campo mt-1">
+              <option value="">— sin unidad —</option>
+              {unidades.map((u) => <option key={u.id} value={u.id}>{u.nombre}</option>)}
+            </select>
+          </label>
+          <label>Vigente desde<input type="date" value={vd} onChange={(e) => setVd(e.target.value)} className="campo mt-1" /></label>
+          <label>Vigente hasta<input type="date" value={vh} onChange={(e) => setVh(e.target.value)} className="campo mt-1" /></label>
+          <div className="sm:col-span-2 flex gap-2">
+            <button type="submit" disabled={m.isPending} className="btn-primario">
+              {m.isPending ? 'Guardando…' : 'Guardar'}
+            </button>
+            <button type="button" onClick={() => setAbierto(false)} className="rounded border px-4 py-1.5">Cancelar</button>
+          </div>
+        </form>
+      )}
     </div>
   );
 }

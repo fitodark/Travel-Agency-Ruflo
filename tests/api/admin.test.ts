@@ -160,6 +160,55 @@ run('API · /admin (PostgreSQL real)', () => {
     expect(Number(rows[0]!.n)).toBe(horario.json().salidasCreadas);
   });
 
+  it('asignar conductor a un horario existente (PATCH) materializa sus salidas', async () => {
+    const admin = await seedAuth(db, { rol: 'administrador', sucursales: 2 });
+    const tok = await tokenDe(db, admin.email, admin.sucursalAId, ahora);
+    const bearerTok = bearer(tok);
+
+    const tipos = (await app.inject({ method: 'GET', url: '/admin/tipos-unidad', headers: bearerTok })
+      .then((r) => r.json())) as { id: string }[];
+    const conductorId = (await app.inject({
+      method: 'POST', url: '/admin/conductores', headers: bearerTok,
+      payload: { nombre: `Chofer ${Date.now()}`, tipoUnidadId: tipos[0]!.id },
+    }).then((r) => r.json())).id as string;
+
+    const rutaId = (await app.inject({
+      method: 'POST', url: '/admin/rutas-detalle', headers: bearerTok,
+      payload: { nombre: `Ruta patch ${Date.now()}`, sucursalIds: [admin.sucursalAId, admin.sucursalBId] },
+    }).then((r) => r.json())).id as string;
+    const paradas = ((await app.inject({ method: 'GET', url: '/admin/rutas-detalle', headers: bearerTok })
+      .then((r) => r.json())) as { id: string; paradas: { id: string; orden: number }[] }[])
+      .find((x) => x.id === rutaId)!.paradas;
+
+    // Alta SIN conductor: se guarda pero no materializa.
+    const horarioId = (await app.inject({
+      method: 'POST', url: '/admin/horarios', headers: bearerTok,
+      payload: {
+        rutaId, horaSalida: '09:00', diasSemana: [1, 2, 3, 4, 5, 6, 7], vigenteDesde: '2026-09-10',
+        pasos: paradas.map((p) => ({ rutaParadaId: p.id, orden: p.orden, horaPaso: p.orden === 0 ? '09:00' : '11:00' })),
+      },
+    }).then((r) => r.json())).id as string;
+
+    let salidas = await db.query<{ n: string }>(`SELECT count(*) n FROM core.salida WHERE horario_id = $1`, [horarioId]);
+    expect(Number(salidas.rows[0]!.n), 'sin conductor no hay salidas').toBe(0);
+
+    // Se le asigna el conductor por PATCH → materializa.
+    const patch = await app.inject({
+      method: 'PATCH', url: `/admin/horarios/${horarioId}`, headers: bearerTok,
+      payload: { conductorId },
+    });
+    expect(patch.statusCode, patch.body).toBe(200);
+    expect(patch.json().salidasCreadas).toBeGreaterThan(0);
+
+    salidas = await db.query<{ n: string }>(`SELECT count(*) n FROM core.salida WHERE horario_id = $1`, [horarioId]);
+    expect(Number(salidas.rows[0]!.n)).toBe(patch.json().salidasCreadas);
+
+    // Y el listado devuelve el id del conductor (para el selector de edición).
+    const lista = (await app.inject({ method: 'GET', url: `/admin/horarios?rutaId=${rutaId}`, headers: bearerTok })
+      .then((r) => r.json())) as { id: string; conductorId: string | null }[];
+    expect(lista.find((h) => h.id === horarioId)?.conductorId).toBe(conductorId);
+  });
+
   it('un administrador da de alta una unidad y un conductor asociado', async () => {
     const admin = await seedAuth(db, { rol: 'administrador' });
     const tok = await tokenDe(db, admin.email, admin.sucursalAId, ahora);
