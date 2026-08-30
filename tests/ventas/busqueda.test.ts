@@ -48,6 +48,45 @@ run('búsqueda de salidas (PostgreSQL real)', () => {
     expect(r[0]!.asientosOfrecibles).toHaveLength(18);
     expect(r[0]!.disponibles).toBe(18);
     expect(r[0]!.seleccionable).toBe(true);
+
+    // 0043: identifica la ruta por nombre y las escalas, no por "0,3".
+    expect(r[0]!.rutaNombre).toMatch(/^Ruta /);
+    expect(r[0]!.origenNombre).toMatch(/^Parada 0 /);
+    expect(r[0]!.destinoNombre).toMatch(/^Parada 3 /);
+    expect(r[0]!.escalas).toHaveLength(2);
+    expect(r[0]!.escalas[0]).toMatch(/^Parada 1 /);
+    expect(r[0]!.escalas[1]).toMatch(/^Parada 2 /);
+  });
+
+  it('un tramo directo (sin paradas entre origen y destino) devuelve escalas vacías', async () => {
+    const fx = await seedSalida(db, { paradas: 4 });
+    const r = await buscarSalidas(db, {
+      fecha: fx.fechaOperacion,
+      sucursalOrigenId: fx.sucursales[0]!,
+      sucursalDestinoId: fx.sucursales[1]!,
+      nPersonas: 1,
+      sucursalVendedoraId: fx.sucursales[0]!,
+      conConexion: true,
+    });
+    expect(r).toHaveLength(1);
+    expect(r[0]!.destinoNombre).toMatch(/^Parada 1 /);
+    expect(r[0]!.escalas).toEqual([]);
+  });
+
+  it('un horario dado de baja no ofrece sus salidas aunque sigan materializadas', async () => {
+    const fx = await seedSalida(db, { paradas: 4 });
+    const buscar = () => buscarSalidas(db, {
+      fecha: fx.fechaOperacion,
+      sucursalOrigenId: fx.sucursales[0]!,
+      sucursalDestinoId: fx.sucursales[3]!,
+      nPersonas: 1,
+      sucursalVendedoraId: fx.sucursales[0]!,
+      conConexion: true,
+    });
+    expect(await buscar()).toHaveLength(1);
+
+    await db.query(`UPDATE core.horario SET activo = false WHERE id = $1`, [fx.horarioId]);
+    expect(await buscar(), 'el horario inactivo desaparece de la búsqueda').toHaveLength(0);
   });
 
   it('un asiento vendido en un tramo que solapa deja de ofrecerse', async () => {

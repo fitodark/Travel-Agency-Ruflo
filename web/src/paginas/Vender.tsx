@@ -230,11 +230,14 @@ export function Vender() {
               }`}
             >
               <div className="flex justify-between">
-                <span>{new Date(s.horaSalidaOrigen).toLocaleString()}</span>
+                <span className="font-medium">{new Date(s.horaSalidaOrigen).toLocaleString()}</span>
                 <span>{s.importe === null ? 'sin tarifa' : `$${s.importe}`}</span>
               </div>
-              <div className="text-xs text-slate-500">
-                {s.disponibles} disponibles · tramo [{s.origenOrden},{s.destinoOrden})
+              <div className="text-xs text-slate-600">
+                {[s.origenNombre, ...s.escalas, s.destinoNombre].join(' → ')}
+              </div>
+              <div className="text-xs text-slate-400">
+                {s.rutaNombre} · {s.disponibles} disponibles
                 {!s.seleccionable && ' · no seleccionable'}
               </div>
             </button>
@@ -306,7 +309,12 @@ export function Vender() {
 
       {paso === 5 && salida && (
         <div className="space-y-3 tarjeta p-4 text-sm">
-          <div>Salida: {new Date(salida.horaSalidaOrigen).toLocaleString()}</div>
+          <div>
+            <div className="font-medium">{new Date(salida.horaSalidaOrigen).toLocaleString()}</div>
+            <div className="text-xs text-slate-500">
+              {[salida.origenNombre, ...salida.escalas, salida.destinoNombre].join(' → ')} · {salida.rutaNombre}
+            </div>
+          </div>
           <ul className="divide-y">
             {asientos.map((a) => (
               <li key={a} className="flex justify-between py-1">

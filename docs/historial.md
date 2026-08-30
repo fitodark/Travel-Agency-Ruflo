@@ -2076,6 +2076,36 @@ asignarle un conductor después.
 
 ---
 
+## Sesión 48 — 2026-08-30 · La búsqueda de ventas: ruta + escalas, y no más duplicados
+
+QA en la búsqueda "Oaxaca Centro → Puebla": las filas mostraban "tramo [0,1)",
+"[0,3)", "[0,2)" y parecían destinos distintos (son TODAS a Puebla — el número es
+el índice de parada DENTRO de cada ruta), y salía "07:00" dos veces.
+
+- **El "07:00" repetido era un bug real**: la ruta "HJP - PU FULL" tenía dos
+  horarios de las 07:00, uno **dado de baja** — pero sus 91 salidas seguían
+  `programada` y `core.buscar_salidas` no filtraba `h.activo`, así que las ofrecía.
+- **`0043_buscar_salidas_con_ruta.sql`**: `core.buscar_salidas` (DROP + CREATE,
+  cambia el `RETURNS TABLE`) devuelve además `ruta_nombre`, `origen_nombre`,
+  `destino_nombre` y `escalas` (paradas intermedias entre origen y destino).
+  Filtra `h.activo AND r.activo`. Limpieza puntual: cancela las salidas futuras
+  sin boletos de horarios ya inactivos.
+- **`src/admin/horarios.ts`** `darDeBajaHorario`: además de `activo=false`,
+  **cancela** (`estado='cancelada'`) las salidas futuras del horario que no
+  tengan boletos vendidos (D-7: las que tienen boleto no se tocan). Devuelve
+  `{ salidasCanceladas }`.
+- **`web/`**: `Vender.tsx` muestra "Oaxaca Centro → Terminal Dev → Puebla · HJP -
+  PU FULL" en vez de "tramo [0,2)", en el listado y en el resumen. `Horarios.tsx`
+  avisa "N salidas canceladas" al dar de baja.
+- `tests/ventas/busqueda.test.ts` +2 (ruta/escalas; horario inactivo no ofrece);
+  `tests/api/admin.test.ts` +1 (baja cancela salidas). `npm test`: 54 archivos,
+  **489 verdes**.
+
+**Despliegue**: `npm run db:migrate:nube` para 0043 (recrea `buscar_salidas` y
+limpia los duplicados existentes).
+
+---
+
 Los cinco criterios de aceptación verdes contra Supabase real
 (`tests/sync/f1-criterios.test.ts`). Contrato de pruebas del motor cerrado
 (`salud.ts` Ses. 4, arbitraje/reasignación en F4, checksum dirigido de
