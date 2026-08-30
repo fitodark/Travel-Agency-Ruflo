@@ -458,6 +458,76 @@ run('pérdida silenciosa de datos', () => {
     );
 
     it(
+      'un choque de unicidad en clase D (cupo_offline) se omite AL TOQUE, sin gracia de 10 min',
+      async () => {
+        // El caso real: la suite de caos deja cientos de entradas de
+        // `core.cupo_offline` en el `cambio_log` de la nube (una por corrida, con
+        // id nuevo de `repartir_cupo_offline`) que chocan contra el cupo que el
+        // nodo ya tiene por `(salida_id, sucursal_id)`. Antes cada una tardaba 10
+        // min en saltarse → el pull no bajaba nada en días. Ahora un choque de
+        // unicidad se omite en el primer intento, sea de la clase que sea.
+        await pull(s1, nube);
+        // El nodo ya tiene un cupo para (IDS.salida, IDS.sucursales[1]).
+        await s1.query(
+          `INSERT INTO core.cupo_offline (salida_id, sucursal_id, tramos, asientos, bloques, vigente_desde, vigente_hasta)
+           VALUES ($1, $2, '[0,3)', ARRAY[1,2], ARRAY['B0'], now(), now() + interval '30 days')
+           ON CONFLICT (salida_id, sucursal_id) DO NOTHING`,
+          [IDS.salida, IDS.sucursales[1]],
+        );
+
+        const telefono = `953 ${String((Date.now() + 3) % 1000).padStart(3, '0')} 7777`;
+        try {
+          // Entrada obsoleta: mismo (salida, sucursal) que el nodo ya tiene, pero
+          // con OTRO id → viola `cupo_offline_salida_id_sucursal_id_key`.
+          const huerfana = {
+            id: '019caff0-0000-7000-8000-0000000c0fee',
+            salida_id: IDS.salida, sucursal_id: IDS.sucursales[1],
+            tramos: '[0,3)', asientos: [1], bloques: ['B0'], activo: true,
+            vigente_desde: '2026-01-01T00:00:00Z', vigente_hasta: '2026-12-31T00:00:00Z',
+            hlc_ts: '2026-01-01T00:00:00Z', hlc_cnt: 1, version: 1,
+          };
+          const { rows: pub } = await nube.query<{ seq: string }>(
+            `INSERT INTO sync.cambio_log (tabla, fila_id, payload)
+             VALUES ('core.cupo_offline', $1, $2::jsonb) RETURNING seq`,
+            [huerfana.id, JSON.stringify(huerfana)],
+          );
+          const seqHuerfana = Number(pub[0]!.seq);
+          await nube.query(
+            `UPDATE core.sucursal SET telefono_principal = $2 WHERE id = $1`,
+            [IDS.sucursales[1], telefono],
+          );
+
+          // UN solo pull: no debe hacer falta la gracia.
+          const r = await pull(s1, nube);
+          expect(r.rechazadas, 'no bloquea').toBe(0);
+          expect(r.omitidas, 'la omite en el acto').toBeGreaterThanOrEqual(1);
+          expect(await cursorDe(s1), 'el cursor pasó de largo la huérfana en el primer intento')
+            .toBeGreaterThanOrEqual(seqHuerfana);
+          expect(
+            await contar(s1, `SELECT count(*) AS n FROM core.cupo_offline WHERE id = $1`, [huerfana.id]),
+            'la fila obsoleta no se aplicó',
+          ).toBe(0);
+
+          await pullHasta(
+            s1, nube,
+            async () => (await contar(
+              s1, `SELECT count(*) AS n FROM core.sucursal WHERE id = $1 AND telefono_principal = $2`,
+              [IDS.sucursales[1], telefono],
+            )) === 1,
+            { descripcion: 'el cambio que venía detrás' },
+          );
+
+          await nube.query(`UPDATE core.sucursal SET telefono_principal = '953 000 0000' WHERE id = $1`, [IDS.sucursales[1]]);
+          await silenciarEcoDeConfiguracion(s1);
+          await s1.query(`DELETE FROM sync.excepcion WHERE tipo = 'divergencia_checksum'`);
+        } finally {
+          await nube.query(`DELETE FROM sync.cambio_log WHERE payload->>'id' = '019caff0-0000-7000-8000-0000000c0fee'`).catch(() => { /* limpieza */ });
+        }
+      },
+      180_000,
+    );
+
+    it(
       'un bloqueo que el cursor ya dejó atrás (bootstrap) se marca resuelto solo',
       async () => {
         // Un `bootstrap` salta el cursor al máximo. Si en su momento había un

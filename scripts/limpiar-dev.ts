@@ -37,7 +37,11 @@ import { resolveConnection, targetFromArgs } from '../src/db/connection.js';
 // hace typecheck, por ejemplo) no hay nada que limpiar y no debe romper la suite.
 const ENV_POR_TARGET: Record<string, string> = { local: 'LOCAL_DATABASE_URL', nube: 'DATABASE_URL' };
 
+// `01900000-` es la PoC vieja (`src/sync/poc.ts`). `019caa5f-` es la suite de
+// caos (`tests/sync/harness.ts` `PREFIJO_CAOS`), que se cuela a la base local por
+// pull desde la Supabase compartida. Ambos son cruft en un nodo real.
 const PREFIJO = '01900000-%';
+const PREFIJO_CAOS = '019caa5f-%';
 
 const POC: Array<[string, string]> = [
   ['asiento_lease', `DELETE FROM core.asiento_lease WHERE salida_id::text LIKE $1`],
@@ -90,9 +94,15 @@ async function main(): Promise<void> {
 
   try {
     await c.query('BEGIN');
-    for (const [nombre, sql] of POC) {
-      const r = await c.query(sql, [PREFIJO]);
-      if (r.rowCount) console.log(`  poc  ${nombre.padEnd(16)} -${r.rowCount}`);
+    // El prefijo de caos solo en LOCAL: contra la nube, `core.sucursal`/`agencia`
+    // de caos son reutilizables entre corridas (ver `harness.ts`); el `cambio_log`
+    // huérfano lo barre `npm run sanear:nube`.
+    const prefijos = target === 'local' ? [PREFIJO, PREFIJO_CAOS] : [PREFIJO];
+    for (const prefijo of prefijos) {
+      for (const [nombre, sql] of POC) {
+        const r = await c.query(sql, [prefijo]);
+        if (r.rowCount) console.log(`  poc  ${nombre.padEnd(16)} -${r.rowCount}  (${prefijo})`);
+      }
     }
     // El reset del runtime de sync SOLO tiene sentido en una base local de dev.
     // En la nube, `sync.lote_recibido` / `sync.cursor` / `sync.hlc_estado` son

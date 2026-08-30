@@ -258,6 +258,14 @@ export async function limpiarNube(cloud: Client, ids: Ids): Promise<void> {
     [`DELETE FROM sync.lote_recibido     WHERE sucursal_id = ANY($1::uuid[])`, [sucursales]],
     [`DELETE FROM sync.checksum_bloque   WHERE sucursal_id = ANY($1::uuid[])`, [sucursales]],
     [`DELETE FROM sync.salud             WHERE sucursal_id = ANY($1::uuid[])`, [sucursales]],
+    // Y el `cambio_log` que TODO esto publicó. Sin esto, cada corrida deja
+    // huérfanos (los `core.*` se borran arriba pero el log no), y `repartir_cupo_offline`
+    // genera ids nuevos cada vez: un nodo con cursor viejo se atasca en ellos.
+    // Se barre por prefijo de id Y por el payload, que referencia la salida y las
+    // sucursales de caos aunque su propio id sea aleatorio (cupo_offline, salida_parada).
+    [`DELETE FROM sync.cambio_log
+        WHERE fila_id::text LIKE '${PREFIJO_CAOS}%'
+           OR payload::text LIKE '%${PREFIJO_CAOS}%'`, []],
   ];
 
   for (const [sql, params] of pasos) {
