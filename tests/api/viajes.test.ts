@@ -150,4 +150,34 @@ run('API · /viajes (PostgreSQL real)', () => {
     });
     expect(r.statusCode).toBe(422);
   });
+
+  it('GET /viajes/boleto busca por folio (string, case-insensitive) y trae el viaje', async () => {
+    const { fx, token, b1 } = await prep();
+    const { rows } = await db.query<{ folio: string }>(
+      `SELECT folio FROM core.boleto WHERE id = $1`, [b1.boletoId],
+    );
+    const folio = rows[0]!.folio.trim();
+
+    const r = await app.inject({
+      method: 'GET', url: url(`/boleto?folio=${folio.toLowerCase()}`), headers: bearer(token),
+    });
+    expect(r.statusCode, r.body).toBe(200);
+    const b = r.json();
+    expect(b.folio).toBe(folio);
+    expect(b.boletoId).toBe(b1.boletoId);
+    expect(b.salida.salidaId).toBe(fx.salidaId);
+    expect(b.salida.origen).toBeTruthy();
+    expect(b.salida.destino).toBeTruthy();
+    expect(b.estadoAbordaje).toBe('pendiente');
+  });
+
+  it('GET /viajes/boleto con un folio que no existe → 404', async () => {
+    const { token } = await prep();
+    for (const folio of ['ZZ9999', 'ZZ999' /* longitud inválida */]) {
+      const r = await app.inject({
+        method: 'GET', url: url(`/boleto?folio=${folio}`), headers: bearer(token),
+      });
+      expect(r.statusCode, folio).toBe(404);
+    }
+  });
 });
