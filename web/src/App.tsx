@@ -1,6 +1,9 @@
 import { Navigate, Route, Routes } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 import { useSesion } from './auth/sesion';
+import { corteAbierto } from './api/caja';
 import { Shell } from './componentes/Shell';
+import { Home } from './paginas/Home';
 import { Login } from './paginas/Login';
 import { ElegirSucursal } from './paginas/ElegirSucursal';
 import { Sincronizacion } from './paginas/Sincronizacion';
@@ -29,6 +32,19 @@ function Protegida({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+/**
+ * Regla de QA: no se vende sin un corte de caja abierto. Si no lo hay, `/vender`
+ * redirige a `/caja` para abrir el del día.
+ */
+function RequiereCorte({ children }: { children: React.ReactNode }) {
+  const corte = useQuery({ queryKey: ['caja', 'corte'], queryFn: corteAbierto });
+  if (corte.isLoading) {
+    return <div className="h-full grid place-items-center text-slate-400">Cargando…</div>;
+  }
+  if (!corte.data) return <Navigate to="/caja" replace state={{ avisoCorte: true }} />;
+  return <>{children}</>;
+}
+
 export function App() {
   return (
     <Routes>
@@ -41,8 +57,8 @@ export function App() {
           </Protegida>
         }
       >
-        <Route index element={<Navigate to="/vender" replace />} />
-        <Route path="/vender" element={<Vender />} />
+        <Route index element={<Home />} />
+        <Route path="/vender" element={<RequiereCorte><Vender /></RequiereCorte>} />
         <Route path="/caja" element={<Caja />} />
         <Route path="/viajes" element={<Viajes />} />
         <Route path="/tablero" element={<Dashboard />} />

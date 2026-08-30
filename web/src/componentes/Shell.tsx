@@ -4,9 +4,10 @@ import { cambiarSucursal } from '../api/auth';
 import { useSesion } from '../auth/sesion';
 import { Icono } from './iconos';
 
-interface ItemNav { a: string; texto: string; icono: string; permiso?: string }
+interface ItemNav { a: string; texto: string; icono: string; permiso?: string; exacto?: boolean }
 
 const NAV_OPERACION: ItemNav[] = [
+  { a: '/', texto: 'Inicio', icono: 'inicio', exacto: true },
   { a: '/vender', texto: 'Vender', icono: 'vender' },
   { a: '/caja', texto: 'Caja', icono: 'caja' },
   { a: '/viajes', texto: 'Viajes', icono: 'viajes' },
@@ -37,6 +38,7 @@ function Enlace({ item, colapsado }: { item: ItemNav; colapsado: boolean }) {
   return (
     <NavLink
       to={item.a}
+      end={item.exacto}
       title={colapsado ? item.texto : undefined}
       className={({ isActive }) =>
         [

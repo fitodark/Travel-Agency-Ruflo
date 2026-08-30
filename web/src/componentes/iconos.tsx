@@ -7,6 +7,7 @@ import type { ReactElement, SVGProps } from 'react';
 const P = { fill: 'none', stroke: 'currentColor', strokeWidth: 1.6, strokeLinecap: 'round', strokeLinejoin: 'round' } as const;
 
 const RUTAS: Record<string, ReactElement> = {
+  inicio: <><path d="M4 11.5 12 4l8 7.5M6 10v10h12V10" {...P} /><path d="M10 20v-6h4v6" {...P} /></>,
   vender: <><path d="M3 8.5 12 4l9 4.5v7L12 20l-9-4.5z" {...P} /><path d="m3 8.5 9 4.5 9-4.5M12 13v7" {...P} /></>,
   caja: <><rect x="3" y="6" width="18" height="12" rx="2" {...P} /><path d="M3 10h18M7 15h3" {...P} /></>,
   viajes: <><rect x="4" y="4" width="16" height="13" rx="2" {...P} /><path d="M4 11h16M8 21v-1M16 21v-1M7 17v1M17 17v1" {...P} /><circle cx="8" cy="14" r="1" fill="currentColor" /><circle cx="16" cy="14" r="1" fill="currentColor" /></>,

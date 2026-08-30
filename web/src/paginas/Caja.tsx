@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from 'react';
+import { useLocation } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ErrorApi } from '../api/cliente';
 import {
@@ -20,6 +21,8 @@ export function Caja() {
   const qc = useQueryClient();
   const { puede } = useSesion();
   const [error, setError] = useState<string | null>(null);
+  // `RequiereCorte` manda aquí desde `/vender` cuando no hay corte abierto.
+  const vinoDeVender = (useLocation().state as { avisoCorte?: boolean } | null)?.avisoCorte === true;
 
   const corte = useQuery({ queryKey: ['caja', 'corte'], queryFn: corteAbierto });
 
@@ -33,6 +36,11 @@ export function Caja() {
     <div className="max-w-3xl space-y-6">
       <h1 className="text-xl font-semibold">Caja</h1>
       {error && <p className="text-sm text-red-600">{error}</p>}
+      {vinoDeVender && !corte.data && (
+        <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+          Para vender boletos primero abre el corte de caja del día.
+        </p>
+      )}
 
       {!corte.data ? (
         <AbrirCorte onListo={() => { setError(null); void invalidar(); }} onError={alError} />
