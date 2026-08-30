@@ -1986,6 +1986,46 @@ para que al día siguiente ya se pueda vender.
 (o re-guardar el horario). Los que se creen de ahora en adelante ya no lo
 necesitan.
 
+---
+
+## Sesión 45 — 2026-08-30 · El pull se atascaba en cientos de cupo_offline huérfanos
+
+`npm run materializar` corrió, las tarifas se dieron de alta, pero la ruta
+seguía sin verse. Diagnóstico contra la base viva: **el pull estaba 782 entradas
+atrás** (cursor local 1725, `max(seq)` de la nube 2507) y con una excepción
+`rechazo_ingesta` abierta en `core.cupo_offline` seq 1726 — "el pull no avanza
+hasta resolverlo". Todo lo nuevo (salidas del horario, tarifas) estaba parado
+detrás.
+
+Causa raíz: la suite de caos (`tests/sync/`, prefijo `019caa5f-`) crea datos en
+la Supabase compartida, publica por `trg_cambio_log`, borra los `core.*` — **pero
+no las entradas del `cambio_log`** —, y `repartir_cupo_offline` genera ids nuevos
+cada corrida. Se acumularon **~700 entradas huérfanas** (285 `cupo_offline`, 104
+de cada `salida`/`horario`/`ruta`/`usuario`). El motor las saltaba una por una
+tras la gracia de 10 min → días para drenar.
+
+- **`src/sync/pull.ts`**: un `conflicto` por **choque de unicidad** durante el
+  pull se omite **al toque, de cualquier clase** (antes: solo clase A, y las
+  demás tras 10 min). El pull es la dirección autoritativa — si una constraint
+  única rebota la versión de la nube, la fila LOCAL es la obsoleta y reintentar
+  nunca sirve. Un `exclusion_violation` (la invariante de asiento) SÍ sigue
+  bloqueando: es el conflicto genuino de clase D que se arbitra.
+- **`scripts/sanear-nube.ts`**: ya no se limita a las tablas de clase A —
+  recorre TODA tabla que aparezca en `sync.cambio_log` y tenga columna `id`, y
+  purga las entradas cuyo `fila_id` ya no existe. Dry-run: 705 huérfanas.
+- **`tests/sync/harness.ts`** `limpiarNube`: borra también su `sync.cambio_log`
+  (por prefijo y por payload) para no dejar huérfanos en cada corrida.
+- **`scripts/limpiar-dev.ts`**: el `pretest` barre también el prefijo `019caa5f-`
+  (solo en local — la base de dev lo hereda por pull de la Supabase compartida).
+- `tests/sync/caos-perdida.test.ts` +1 (choque de unicidad en `cupo_offline` se
+  omite en el primer pull, sin gracia). `npm test`: 485 verdes (1 flaky de lease
+  por carga, pasa aislada).
+
+**Para desatascar la nube ahora**: `npm run sanear:nube -- --aplicar` (borra las
+705). Con el fix de `pull.ts` desplegado, el nodo igual las salta en un ciclo.
+
+---
+
 Los cinco criterios de aceptación verdes contra Supabase real
 (`tests/sync/f1-criterios.test.ts`). Contrato de pruebas del motor cerrado
 (`salud.ts` Ses. 4, arbitraje/reasignación en F4, checksum dirigido de

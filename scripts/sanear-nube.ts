@@ -4,27 +4,28 @@
  *   npm run sanear:nube                 # informe (dry-run)
  *   npm run sanear:nube -- --aplicar    # borra de verdad
  *
- * POR QUÉ: `sync.cambio_log` es append-only y en la Supabase compartida acumuló
- * ~1200 entradas de la PoC/dev. Muchas referencian ids que la nube borró o
- * re-clavó después (la re-clave determinista de `tipo_unidad` en 0039, sucursales
- * de prueba eliminadas, salidas viejas). Un nodo que hace bootstrap las ignora
- * (arranca con el cursor en el máximo), pero un nodo que arrastra un cursor
- * viejo se atasca entrada por entrada.
+ * POR QUÉ: `sync.cambio_log` es append-only. En la Supabase compartida acumuló
+ * miles de entradas de la PoC y de la suite de caos (`tests/sync/`, prefijo de id
+ * `019caa5f-`): esas pruebas crean datos en la nube, publican por `trg_cambio_log`
+ * y luego BORRAN las filas de `core.*` —pero NO las del `cambio_log`—. Cada
+ * `repartir_cupo_offline` genera además ids nuevos, así que re-correr la suite
+ * multiplica los huérfanos.
  *
- * QUÉ BORRA: por cada tabla de clase A, las filas de `sync.cambio_log` cuyo
- * `fila_id` YA NO EXISTE como fila en esa tabla. Una entrada así no puede
- * aplicarse nunca —su `INSERT ... ON CONFLICT (id)` crea un duplicado o rebota
- * por FK— y su ausencia no pierde nada: el estado bueno está en la fila viva y en
- * las entradas más recientes.
+ * Un nodo que hace bootstrap los ignora (arranca con el cursor en el máximo),
+ * pero un nodo con un cursor viejo se atasca entrada por entrada: cada huérfano
+ * rebota por unicidad o por FK y el motor lo salta recién tras la gracia de 10
+ * min. Con cientos de huérfanos, el pull tarda días.
  *
- * NO toca entradas de filas que siguen existiendo (un nodo nuevo las ingiere o
- * las ignora por HLC).
+ * QUÉ BORRA: por cada tabla que aparezca en `sync.cambio_log` y tenga columna
+ * `id`, las entradas cuyo `fila_id` YA NO EXISTE como fila viva. Una entrada así
+ * no puede aplicarse nunca y su ausencia no pierde nada: el estado bueno está en
+ * la fila viva y en las entradas más recientes. NO toca entradas de filas que
+ * siguen existiendo.
  */
 
 import 'dotenv/config';
 import { Client } from 'pg';
 import { resolveConnection } from '../src/db/connection.js';
-import { tablasDeClase } from '../src/sync/clases.js';
 
 async function main(): Promise<void> {
   const aplicar = process.argv.includes('--aplicar');
@@ -41,17 +42,19 @@ async function main(): Promise<void> {
   const total0 = await c.query<{ n: string }>(`SELECT count(*) n FROM sync.cambio_log`);
   console.log(`  entradas totales: ${total0.rows[0]!.n}`);
 
-  let borrables = 0;
-  for (const tabla of tablasDeClase('A')) {
-    const [esquema, nombre] = tabla.split('.');
-    // ¿La tabla tiene columna `id`? (rol_permiso/parametro sí, tras 0012/0013.)
-    const tieneId = await c.query(
-      `SELECT 1 FROM information_schema.columns
-        WHERE table_schema = $1 AND table_name = $2 AND column_name = 'id'`,
-      [esquema, nombre],
-    );
-    if (tieneId.rowCount === 0) continue;
+  // Todas las tablas que aparecen en el log Y existen Y tienen columna `id`.
+  const { rows: tablas } = await c.query<{ tabla: string }>(
+    `SELECT DISTINCT cl.tabla
+       FROM sync.cambio_log cl
+       JOIN information_schema.columns col
+         ON col.table_schema = split_part(cl.tabla, '.', 1)
+        AND col.table_name   = split_part(cl.tabla, '.', 2)
+        AND col.column_name  = 'id'
+      ORDER BY 1`,
+  );
 
+  let borrables = 0;
+  for (const { tabla } of tablas) {
     const sql = `${aplicar ? 'DELETE' : 'SELECT count(*)'} FROM sync.cambio_log cl
        WHERE cl.tabla = $1
          AND NOT EXISTS (SELECT 1 FROM ${tabla} t WHERE t.id = cl.fila_id)`;
