@@ -15,9 +15,11 @@ import {
   datosManifiesto, generarManifiestos, salidasDelDia, type CopiaManifiesto,
 } from '../../fleet/manifiesto.js';
 import {
-  checklistAbordaje, corregirAbordaje, finalizarSalida, marcarEnRuta, registrarAbordaje,
+  buscarBoletoPorFolio, checklistAbordaje, corregirAbordaje, finalizarSalida,
+  marcarEnRuta, registrarAbordaje,
 } from '../../fleet/abordaje.js';
 import { exige } from '../autenticar.js';
+import { noEncontrado } from '../errores.js';
 
 const idParam = {
   type: 'object', required: ['id'],
@@ -53,6 +55,26 @@ export async function rutasViajes(app: FastifyInstance): Promise<void> {
     const { id } = req.params as { id: string };
     return checklistAbordaje(app.db, id);
   });
+
+  // Buscar un boleto por su folio (string base32, no un consecutivo). Devuelve el
+  // boleto + el contexto del viaje para capturar el abordaje o saltar al viaje.
+  app.get(
+    '/boleto',
+    {
+      schema: {
+        querystring: {
+          type: 'object', required: ['folio'],
+          properties: { folio: { type: 'string', minLength: 1, maxLength: 20 } },
+        },
+      },
+    },
+    async (req) => {
+      const { folio } = req.query as { folio: string };
+      const b = await buscarBoletoPorFolio(app.db, folio);
+      if (!b) throw noEncontrado('No hay ningún boleto con ese folio.');
+      return b;
+    },
+  );
 
   app.get(
     '/:id/manifiesto',

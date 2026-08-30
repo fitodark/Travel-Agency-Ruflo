@@ -1,9 +1,10 @@
-import { useState } from 'react';
+import { useState, type FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ErrorApi } from '../api/cliente';
 import {
-  checklist, finalizarViaje, generarManifiestos, marcarEnRuta, registrarAbordaje,
-  salidasDelDia, type ManifiestosEncolados, type SalidaDelDia,
+  buscarBoletoPorFolio, checklist, finalizarViaje, generarManifiestos, marcarEnRuta,
+  registrarAbordaje, salidasDelDia,
+  type BoletoPorFolio, type ManifiestosEncolados, type SalidaDelDia,
 } from '../api/viajes';
 
 const hoyIso = (): string => new Date().toISOString().slice(0, 10);
@@ -27,6 +28,11 @@ export function Viajes() {
     queryFn: () => salidasDelDia(fecha),
   });
 
+  const irAlViaje = (s: { fechaOperacion: string; salidaId: string }) => {
+    setFecha(s.fechaOperacion);
+    setAbierta(s.salidaId);
+  };
+
   return (
     <div className="max-w-4xl space-y-6">
       <div className="flex items-center justify-between">
@@ -41,6 +47,8 @@ export function Viajes() {
           />
         </label>
       </div>
+
+      <BuscarPorFolio onIrAlViaje={irAlViaje} />
 
       {salidas.isError && (
         <p className="text-sm text-red-600">No se pudo cargar el listado.</p>
@@ -59,6 +67,105 @@ export function Viajes() {
           />
         ))}
       </div>
+    </div>
+  );
+}
+
+/**
+ * Búsqueda de un boleto por su folio. El folio es un STRING de 6 caracteres
+ * (código de sucursal + contador base32), no un consecutivo numérico — se
+ * teclea/dicta tal cual viene impreso. Sirve para capturar el abordaje de un
+ * pasajero que llega con su boleto sin buscar su viaje a mano.
+ */
+function BuscarPorFolio(
+  { onIrAlViaje }: { onIrAlViaje: (s: { fechaOperacion: string; salidaId: string }) => void },
+) {
+  const [folio, setFolio] = useState('');
+  const [resultado, setResultado] = useState<BoletoPorFolio | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const buscar = useMutation({
+    mutationFn: () => buscarBoletoPorFolio(folio),
+    onSuccess: (b) => { setResultado(b); setError(null); },
+    onError: (e) => {
+      setResultado(null);
+      setError(e instanceof ErrorApi ? e.message : 'No se pudo buscar el folio.');
+    },
+  });
+
+  const abordaje = useMutation({
+    mutationFn: (abordo: boolean) => registrarAbordaje(resultado!.boletoId, abordo),
+    onSuccess: () => buscar.mutate(),
+    onError: (e) => setError(e instanceof ErrorApi ? e.message : 'No se pudo capturar el abordaje.'),
+  });
+
+  const enviar = (e: FormEvent) => { e.preventDefault(); if (folio.trim()) buscar.mutate(); };
+
+  return (
+    <div className="rounded border bg-white p-4 space-y-3">
+      <form onSubmit={enviar} className="flex flex-wrap items-end gap-3 text-sm">
+        <label className="flex-1 min-w-[12rem]">
+          <span className="text-slate-500">Buscar por folio</span>
+          <input
+            value={folio}
+            onChange={(e) => setFolio(e.target.value.toUpperCase())}
+            placeholder="p. ej. 1AB2C"
+            className="campo mt-1 font-mono tracking-wider"
+            maxLength={12}
+          />
+        </label>
+        <button type="submit" disabled={buscar.isPending} className="btn-primario">
+          {buscar.isPending ? 'Buscando…' : 'Buscar'}
+        </button>
+      </form>
+
+      {error && <p className="text-sm text-red-600">{error}</p>}
+
+      {resultado && (
+        <div className="rounded-lg bg-slate-50/70 p-3 text-sm">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <span className="font-mono text-base font-semibold tracking-wider">{resultado.folio}</span>
+            <span className={`rounded px-2 py-0.5 text-xs ${CHIP[resultado.salida.estado] ?? 'bg-slate-100'}`}>
+              {resultado.salida.estado}
+            </span>
+          </div>
+          <div className="mt-1 text-slate-600">
+            {resultado.pasajeroNombre} · asiento {resultado.asientoNum} · tramo {resultado.tramos}
+            {resultado.conflicto && <span className="ml-1 text-xs text-red-600">conflicto</span>}
+          </div>
+          <div className="mt-1 text-slate-500">
+            {resultado.salida.fechaOperacion} · {hora(resultado.salida.horaSalida)} ·{' '}
+            {resultado.salida.origen} → {resultado.salida.destino}
+            {resultado.salida.conductor ? ` · ${resultado.salida.conductor}` : ''}
+          </div>
+
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            {(['abordo', 'no_presento'] as const).map((quiere) => {
+              const activo = resultado.estadoAbordaje === quiere;
+              return (
+                <button
+                  key={quiere}
+                  disabled={abordaje.isPending}
+                  onClick={() => abordaje.mutate(quiere === 'abordo')}
+                  className={`rounded px-3 py-1 text-xs ${
+                    activo
+                      ? quiere === 'abordo' ? 'bg-green-600 text-white' : 'bg-slate-600 text-white'
+                      : 'border text-slate-600'
+                  }`}
+                >
+                  {quiere === 'abordo' ? 'abordó' : 'no se presentó'}
+                </button>
+              );
+            })}
+            <button
+              onClick={() => onIrAlViaje(resultado.salida)}
+              className="ml-auto text-xs text-brand-700 underline"
+            >
+              ver viaje completo →
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

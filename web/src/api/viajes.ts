@@ -24,6 +24,18 @@ export interface FilaChecklist {
   capturadoEn: string | null;
 }
 
+export interface BoletoPorFolio extends FilaChecklist {
+  salida: {
+    salidaId: string;
+    fechaOperacion: string;
+    horaSalida: string;
+    origen: string;
+    destino: string;
+    estado: string;
+    conductor: string | null;
+  };
+}
+
 export interface EstadoViaje {
   salidaId: string;
   estado: string;
@@ -41,6 +53,11 @@ export function salidasDelDia(fecha: string): Promise<SalidaDelDia[]> {
 
 export function checklist(salidaId: string): Promise<FilaChecklist[]> {
   return api<FilaChecklist[]>(`/viajes/${salidaId}/checklist`);
+}
+
+/** Busca un boleto por su folio (string). Lanza `ErrorApi` 404 si no existe. */
+export function buscarBoletoPorFolio(folio: string): Promise<BoletoPorFolio> {
+  return api<BoletoPorFolio>(`/viajes/boleto?folio=${encodeURIComponent(folio)}`);
 }
 
 export function registrarAbordaje(

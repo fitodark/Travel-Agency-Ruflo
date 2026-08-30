@@ -2123,6 +2123,28 @@ pero no la hora de paso por las terminales intermedias. Pidió un modal.
 
 ---
 
+## Sesión 50 — 2026-08-30 · Buscar un boleto por folio en Viajes
+
+QA pidió buscar en Viajes por folio. Validación del blueprint (02b §1): el folio
+NO es un consecutivo numérico — es un STRING de 6 caracteres `[código de
+sucursal][contador base32 de 5]`, alfabeto `0123456789ABCDEFGHJKMNPQRSTVWXYZ`
+(sin `I L O U`, se dictan por teléfono). `core.boleto.folio` es `char(6) UNIQUE`
+con índice `boleto_folio_idx`.
+
+- **`src/fleet/abordaje.ts`**: `normalizarFolio` (mayúsculas, quita espacios/
+  guiones, `O→0`, `I/L→1` — símbolos que un folio real nunca tiene) +
+  `buscarBoletoPorFolio` (match exacto tras normalizar sobre
+  `core.v_checklist_abordaje` + contexto de la salida: origen, destino, hora,
+  estado, conductor).
+- **`GET /viajes/boleto?folio=`** (`src/api/rutas/viajes.ts`): 404 si no existe.
+- **`web/src/paginas/Viajes.tsx`**: caja "Buscar por folio" arriba del listado.
+  El resultado muestra el boleto + el viaje, con los botones de abordaje
+  (abordó / no se presentó) y "ver viaje completo →" que abre ese viaje.
+- `tests/api/viajes.test.ts` +2 (folio case-insensitive trae el viaje; folio
+  inexistente o de longitud inválida → 404). `npm test` verde. Sin migración.
+
+---
+
 Los cinco criterios de aceptación verdes contra Supabase real
 (`tests/sync/f1-criterios.test.ts`). Contrato de pruebas del motor cerrado
 (`salud.ts` Ses. 4, arbitraje/reasignación en F4, checksum dirigido de
