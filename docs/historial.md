@@ -2026,6 +2026,31 @@ tras la gracia de 10 min → días para drenar.
 
 ---
 
+## Sesión 46 — 2026-08-30 · Pantalla de inicio + no se vende sin corte abierto
+
+QA: no se debe poder vender sin un corte de caja abierto. Al iniciar sesión la
+SPA debe llevar a una pantalla de inicio (por ahora, bienvenida; más adelante,
+reporte del corte activo), y desde ahí "Vender" — pero si no hay corte, a `/caja`
+a abrir el del día.
+
+- **`web/src/paginas/Home.tsx`** (nuevo): "Bienvenido a {sucursal}" + estado del
+  corte (abierto → cifras saldo/ingresos/egresos/en-caja; sin corte → aviso ámbar
+  + "Abrir corte del día") + accesos a Vender / Caja / Viajes.
+- **`App.tsx`**: `index` pasa de `Navigate to /vender` a `<Home />`. `/vender` va
+  envuelto en `<RequiereCorte>` — si `GET /caja/corte` da `null`, redirige a
+  `/caja` con `state.avisoCorte`. Login y ElegirSucursal ya navegaban a `/`.
+- **`Caja.tsx`**: banner ámbar "Para vender boletos primero abre el corte" cuando
+  se llega redirigido desde `/vender`.
+- **`Shell.tsx`**: ítem "Inicio" al tope del nav (`end` en el `NavLink` para que
+  solo esté activo en `/`); icono `inicio` en `iconos.tsx`.
+- Sin cambios de backend: `core.registrar_pago` ya exige un corte abierto para
+  cobrar (0023/F6); esto es la capa de UX que lo hace obvio antes de empezar.
+- `tsc` (`web/`) limpio, `vite build` OK. Verificado en el navegador: sin corte →
+  Home ámbar, `/vender` redirige a `/caja`; con corte → Home con cifras, Vender
+  entra normal.
+
+---
+
 Los cinco criterios de aceptación verdes contra Supabase real
 (`tests/sync/f1-criterios.test.ts`). Contrato de pruebas del motor cerrado
 (`salud.ts` Ses. 4, arbitraje/reasignación en F4, checksum dirigido de
