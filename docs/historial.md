@@ -2145,6 +2145,37 @@ con índice `boleto_folio_idx`.
 
 ---
 
+## Sesión 51 — 2026-08-30 · Despliegue a nube + `401 no_autorizado` → redirige a login
+
+**Despliegue a nube.** `db:migrate:nube`: nada pendiente — la nube ya estaba en
+`0043` (0042/0043 aplicadas el 29-30 ago). `sanear:nube --aplicar`: borró **4**
+huérfanas de `core.tipo_unidad` en `sync.cambio_log` (2817 → 2813, 0 restantes).
+
+**Sesión expirada.** QA reportó que una respuesta `no_autorizado` dejaba la
+pantalla sin redirigir. La SPA solo revisaba la sesión al montar; un `401` a
+mitad de uso (token vencido o revocado) no hacía nada. Ahora el cliente HTTP lo
+intercepta de forma global.
+
+- **`web/src/api/cliente.ts`**: ante `401` + `error: "no_autorizado"`, limpia el
+  token (`fijarToken(null)`) y dispara `alExpirarSesion()` (callback registrable
+  vía `fijarAlExpirarSesion`). El login fallido NO llega acá: responde
+  `credenciales` / `demasiados_intentos`, otro código.
+- **`web/src/auth/sesion.tsx`**: `<ProveedorSesion>` engancha el callback en un
+  `useEffect` → `setSesion(null)` + `expirada = true`. `<Protegida>` ve
+  `sesion === null` y hace `<Navigate to="/login">`. `iniciar` limpia `expirada`.
+- **`web/src/paginas/Login.tsx`**: aviso ámbar "Tu sesión expiró. Vuelve a
+  iniciar sesión." cuando `expirada`.
+- Sin backend, sin migración. `tsc` + `vite build` limpios. Verificado en el
+  navegador: (1) carga con token vencido → login + aviso; (2) sesión invalidada
+  server-side a mitad de uso, clic en Viajes → redirige con aviso, token
+  borrado; (3) login normal sin aviso, Viajes carga.
+- Nota (fuera de alcance): un token con formato NO-UUID hace que
+  `verificarSesion` reviente en SQL (`s.id = $1` sobre columna uuid) y la API
+  responde `409 conflicto_datos` en vez de `401`. El caso realista (UUID válido,
+  sesión inexistente) sí da `401 no_autorizado`.
+
+---
+
 Los cinco criterios de aceptación verdes contra Supabase real
 (`tests/sync/f1-criterios.test.ts`). Contrato de pruebas del motor cerrado
 (`salud.ts` Ses. 4, arbitraje/reasignación en F4, checksum dirigido de

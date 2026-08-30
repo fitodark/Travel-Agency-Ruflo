@@ -18,6 +18,17 @@ export class ErrorApi extends Error {
 const CLAVE = 'donaji.token';
 let enMemoria: string | null = null;
 
+/**
+ * Se invoca cuando la API responde `401 no_autorizado` (sesión expirada o
+ * revocada). El token ya se limpió antes de llamarlo. `<ProveedorSesion>` lo
+ * engancha para borrar la sesión, y `<Protegida>` redirige a `/login`.
+ */
+let alExpirarSesion: (() => void) | null = null;
+
+export function fijarAlExpirarSesion(fn: (() => void) | null): void {
+  alExpirarSesion = fn;
+}
+
 export function fijarToken(token: string | null): void {
   enMemoria = token;
   try {
@@ -52,7 +63,15 @@ export async function api<T>(ruta: string, opciones: RequestInit = {}): Promise<
   const cuerpo: unknown = res.status === 204 ? null : await res.json().catch(() => null);
   if (!res.ok) {
     const e = cuerpo as { error?: string; mensaje?: string } | null;
-    throw new ErrorApi(res.status, e?.error ?? 'error', e?.mensaje ?? res.statusText);
+    const codigo = e?.error ?? 'error';
+    // Sesión expirada o revocada: la API la rechaza con `401 no_autorizado`.
+    // Limpiamos el token y avisamos para volver a `/login`. (El login fallido
+    // NO llega acá: responde con `credenciales_invalidas` / `demasiados_intentos`.)
+    if (res.status === 401 && codigo === 'no_autorizado') {
+      if (token) fijarToken(null);
+      alExpirarSesion?.();
+    }
+    throw new ErrorApi(res.status, codigo, e?.mensaje ?? res.statusText);
   }
   return cuerpo as T;
 }
