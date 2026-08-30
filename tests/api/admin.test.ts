@@ -115,6 +115,49 @@ run('API · /admin (PostgreSQL real)', () => {
     const lista = await app.inject({ method: 'GET', url: `/admin/horarios?rutaId=${rutaId}`, headers: bearer(tok) });
     expect(lista.json()).toHaveLength(1);
     expect(lista.json()[0].pasos).toHaveLength(2);
+    // Sin conductor: no se materializa nada.
+    expect(horario.json().salidasCreadas).toBe(0);
+  });
+
+  it('crear un horario CON conductor materializa sus salidas en el acto', async () => {
+    const admin = await seedAuth(db, { rol: 'administrador', sucursales: 2 });
+    const tok = await tokenDe(db, admin.email, admin.sucursalAId, ahora);
+
+    const tipoUnidadId = (await app.inject({ method: 'GET', url: '/admin/tipos-unidad', headers: bearer(tok) })
+      .then((r) => r.json())) as { id: string }[];
+    const conductor = await app.inject({
+      method: 'POST', url: '/admin/conductores', headers: bearer(tok),
+      payload: { nombre: `Chofer ${Date.now()}`, tipoUnidadId: tipoUnidadId[0]!.id },
+    });
+    expect(conductor.statusCode, conductor.body).toBe(201);
+    const conductorId = conductor.json().id as string;
+
+    const ruta = await app.inject({
+      method: 'POST', url: '/admin/rutas-detalle', headers: bearer(tok),
+      payload: { nombre: `Ruta mat ${Date.now()}`, sucursalIds: [admin.sucursalAId, admin.sucursalBId] },
+    });
+    const rutaId = ruta.json().id as string;
+    const paradas = ((await app.inject({ method: 'GET', url: '/admin/rutas-detalle', headers: bearer(tok) })
+      .then((r) => r.json())) as { id: string; paradas: { id: string; orden: number }[] }[])
+      .find((x) => x.id === rutaId)!.paradas;
+
+    const horario = await app.inject({
+      method: 'POST', url: '/admin/horarios', headers: bearer(tok),
+      payload: {
+        rutaId, horaSalida: '06:30', diasSemana: [1, 2, 3, 4, 5, 6, 7], conductorId,
+        vigenteDesde: '2026-09-10',
+        pasos: paradas.map((p) => ({ rutaParadaId: p.id, orden: p.orden, horaPaso: p.orden === 0 ? '06:30' : '09:00' })),
+      },
+    });
+    expect(horario.statusCode, horario.body).toBe(201);
+    expect(horario.json().salidasCreadas).toBeGreaterThan(0);
+    expect(horario.json().avisoMaterializacion).toBeUndefined();
+
+    const horarioId = horario.json().id as string;
+    const { rows } = await db.query<{ n: string }>(
+      `SELECT count(*) AS n FROM core.salida WHERE horario_id = $1`, [horarioId],
+    );
+    expect(Number(rows[0]!.n)).toBe(horario.json().salidasCreadas);
   });
 
   it('un administrador da de alta una unidad y un conductor asociado', async () => {

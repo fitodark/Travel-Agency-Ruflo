@@ -203,11 +203,19 @@ export const crearRuta = (d: { nombre: string; sucursalIds: string[] }): Promise
 export const bajaRuta = (id: string): Promise<unknown> =>
   api(`/admin/rutas-detalle/${id}/baja`, { method: 'POST', body: '{}' });
 
+export interface ResultadoHorario {
+  id: string;
+  /** Salidas materializadas en el acto (0 si el horario no tiene conductor). */
+  salidasCreadas: number;
+  /** Presente si no se pudo materializar aún (horario no vigente); el job nocturno lo tomará. */
+  avisoMaterializacion?: string;
+}
+
 export const crearHorario = (d: {
   rutaId: string; horaSalida: string; diasSemana: number[];
   conductorId?: string; unidadId?: string; vigenteDesde?: string; vigenteHasta?: string;
   pasos: { rutaParadaId: string; orden: number; horaPaso: string }[];
-}): Promise<{ id: string }> => api('/admin/horarios', { method: 'POST', body: JSON.stringify(d) });
+}): Promise<ResultadoHorario> => api('/admin/horarios', { method: 'POST', body: JSON.stringify(d) });
 
 export const bajaHorario = (id: string): Promise<unknown> =>
   api(`/admin/horarios/${id}/baja`, { method: 'POST', body: '{}' });
