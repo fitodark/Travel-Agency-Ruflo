@@ -13,7 +13,7 @@ const MOTIVOS: Record<string, string> = {
 };
 
 export function Login() {
-  const { iniciar } = useSesion();
+  const { iniciar, expirada } = useSesion();
   const navigate = useNavigate();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -80,6 +80,12 @@ export function Login() {
             className="campo"
           />
         </label>
+
+        {!error && expirada && (
+          <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+            Tu sesión expiró. Vuelve a iniciar sesión.
+          </p>
+        )}
 
         {error && (
           <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>
