@@ -2,7 +2,7 @@
  * Primitivas de interfaz compartidas. Un solo lenguaje visual para toda la SPA
  * en vez de repetir `rounded border px-3 py-2` en cada pantalla.
  */
-import type { ButtonHTMLAttributes, ReactNode, SelectHTMLAttributes, InputHTMLAttributes } from 'react';
+import { useEffect, type ButtonHTMLAttributes, type ReactNode, type SelectHTMLAttributes, type InputHTMLAttributes } from 'react';
 
 type Variante = 'primario' | 'fantasma' | 'peligro';
 
@@ -155,6 +155,48 @@ export function Cargando({ texto = 'Cargando…' }: { texto?: string }) {
     <div className="flex items-center gap-2 text-sm text-slate-400">
       <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-slate-300 border-t-brand-500" />
       {texto}
+    </div>
+  );
+}
+
+/**
+ * Diálogo modal centrado. Se cierra con Escape o clic en el fondo. Sin portal:
+ * el overlay `fixed inset-0` cubre toda la ventana desde donde se monte.
+ */
+export function Modal({
+  titulo,
+  onCerrar,
+  children,
+}: {
+  titulo: string;
+  onCerrar: () => void;
+  children: ReactNode;
+}) {
+  useEffect(() => {
+    const alTecla = (e: KeyboardEvent) => { if (e.key === 'Escape') onCerrar(); };
+    document.addEventListener('keydown', alTecla);
+    return () => document.removeEventListener('keydown', alTecla);
+  }, [onCerrar]);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-tinta/40 p-4"
+      onClick={onCerrar}
+      role="presentation"
+    >
+      <div
+        className="tarjeta w-full max-w-md p-5 shadow-panel"
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-label={titulo}
+      >
+        <div className="flex items-start justify-between gap-4">
+          <h2 className="text-base font-semibold tracking-tight text-tinta">{titulo}</h2>
+          <button onClick={onCerrar} className="btn-sutil -mr-1 -mt-1 text-lg leading-none" aria-label="Cerrar">×</button>
+        </div>
+        <div className="mt-4">{children}</div>
+      </div>
     </div>
   );
 }

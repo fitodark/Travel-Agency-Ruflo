@@ -6,6 +6,7 @@ import {
   listarHorarios, listarRutasDetalle, listarSucursales, listarUnidades,
   type HorarioDetalle, type RutaDetalle,
 } from '../../api/admin';
+import { Modal } from '../../componentes/ui';
 
 const msg = (e: unknown) => (e instanceof ErrorApi ? e.message : 'No se pudo completar la operación.');
 const DIAS = [
@@ -282,6 +283,7 @@ function FilaHorario(
   },
 ) {
   const [abierto, setAbierto] = useState(false);
+  const [verParadas, setVerParadas] = useState(false);
   const [conductorId, setConductorId] = useState(h.conductorId ?? '');
   const [unidadId, setUnidadId] = useState(h.unidadId ?? '');
   const [vd, setVd] = useState(h.vigenteDesde ?? '');
@@ -328,12 +330,40 @@ function FilaHorario(
           {h.vigenteDesde ?? '—'}{h.vigenteHasta ? ` → ${h.vigenteHasta}` : ''}
         </span>
         <span className="ml-auto flex gap-3">
+          {h.pasos.length > 2 && (
+            <button className="btn-sutil" onClick={() => setVerParadas(true)}>paradas</button>
+          )}
           {h.activo && <button className="btn-sutil" onClick={abierto ? () => setAbierto(false) : abrir}>{abierto ? 'cerrar' : 'editar'}</button>}
           {h.activo
             ? <button className="btn-sutil" onClick={onBaja}>baja</button>
             : <span className="text-slate-400">baja</span>}
         </span>
       </div>
+
+      {verParadas && (
+        <Modal titulo={`Horas de paso · salida ${h.horaSalida.slice(0, 5)}`} onCerrar={() => setVerParadas(false)}>
+          <ol className="space-y-2">
+            {[...h.pasos].sort((a, b) => a.orden - b.orden).map((p, i) => (
+              <li key={p.orden} className="flex items-center gap-3 text-sm">
+                <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-medium ${
+                  i === 0 || i === h.pasos.length - 1 ? 'bg-brand-100 text-brand-700' : 'bg-slate-100 text-slate-500'
+                }`}>
+                  {p.orden + 1}
+                </span>
+                <span className="flex-1">
+                  {p.sucursal}
+                  {i === 0 && <span className="ml-1 text-xs text-slate-400">(origen)</span>}
+                  {i === h.pasos.length - 1 && <span className="ml-1 text-xs text-slate-400">(destino)</span>}
+                </span>
+                <span className="font-mono text-slate-700">{p.horaPaso.slice(0, 5)}</span>
+              </li>
+            ))}
+          </ol>
+          <p className="mt-3 text-xs text-slate-400">
+            Hora local de cada sucursal. El cierre de venta se aplica antes de cada paso.
+          </p>
+        </Modal>
+      )}
 
       {abierto && (
         <form

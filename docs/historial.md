@@ -2106,6 +2106,23 @@ limpia los duplicados existentes).
 
 ---
 
+## Sesión 49 — 2026-08-30 · Modal de horas de paso en el detalle del horario
+
+QA: en el listado de horarios se ve hora de salida, días, conductor y vigencia,
+pero no la hora de paso por las terminales intermedias. Pidió un modal.
+
+- **`web/src/componentes/ui.tsx`**: nuevo primitivo `Modal` (overlay `fixed
+  inset-0`, cierra con Escape o clic en el fondo, `role="dialog"`).
+- **`web/src/paginas/admin/Horarios.tsx`**: cada horario con más de dos paradas
+  tiene "paradas" — abre el modal con la lista numerada origen → intermedias →
+  destino y la hora local de cada una. El dato (`HorarioDetalle.pasos`) ya venía
+  del backend; solo faltaba mostrarlo.
+- Sin backend, sin migración. `tsc` (`web/`) limpio, `vite build` OK. Verificado
+  en el navegador con "HJP - PU FULL" (Oaxaca → Terminal 1 → Terminal 2 →
+  Puebla).
+
+---
+
 Los cinco criterios de aceptación verdes contra Supabase real
 (`tests/sync/f1-criterios.test.ts`). Contrato de pruebas del motor cerrado
 (`salud.ts` Ses. 4, arbitraje/reasignación en F4, checksum dirigido de
