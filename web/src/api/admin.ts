@@ -31,6 +31,7 @@ export interface SucursalAdmin {
   nombre: string;
   direccionCompleta: string | null;
   telefonoPrincipal: string | null;
+  celular: string | null;
   zonaHoraria: string;
   activo: boolean;
   effectiveFrom: string | null;
@@ -41,13 +42,13 @@ export interface SucursalAdmin {
 export const listarSucursales = (): Promise<SucursalAdmin[]> => api('/admin/sucursales');
 
 export const crearSucursal = (
-  d: { nombre: string; direccionCompleta: string; telefonoPrincipal: string; zonaHoraria?: string; codigo?: string } & Propagacion,
+  d: { nombre: string; direccionCompleta: string; telefonoPrincipal: string; celular?: string; zonaHoraria?: string; codigo?: string } & Propagacion,
 ): Promise<{ codigo: string }> =>
   api('/admin/sucursales', { method: 'POST', body: JSON.stringify(d) });
 
 export const editarSucursal = (
   id: string,
-  d: Partial<{ nombre: string; direccionCompleta: string; telefonoPrincipal: string; zonaHoraria: string }> & Propagacion,
+  d: Partial<{ nombre: string; direccionCompleta: string; telefonoPrincipal: string; celular: string; zonaHoraria: string }> & Propagacion,
 ): Promise<unknown> => api(`/admin/sucursales/${id}`, { method: 'PATCH', body: JSON.stringify(d) });
 
 export const bajaSucursal = (id: string): Promise<unknown> =>

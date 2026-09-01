@@ -2221,12 +2221,23 @@ y nube):
 **`.gitignore`**: `*.xlsx` + `~$*.xlsx` (se versiona el `.md` derivado, no el
 binario de Excel).
 
+**Segunda pasada (mismo día):**
+- **`celular` en el formulario de sucursales** — full-stack:
+  `src/admin/sucursales.ts` (`SucursalResumen`/`DatosSucursalNueva`/
+  `CambiosSucursal` + SELECT + `crear`/`editar`, cadena vacía → NULL),
+  `src/admin/rutas-sucursales.ts` (POST/PATCH: campo `celular` opcional),
+  `web/src/api/admin.ts` (`SucursalAdmin.celular` + params), y
+  `web/src/paginas/admin/Sucursales.tsx` (columnas Teléfono + Celular en la
+  tabla, input en alta y edición). `tsc` + `vite build` + `tests/admin/
+  sucursales.test.ts` (9) + `tests/api/admin.test.ts` (10) verdes.
+- **`barrerDominio` gana `sucursalesExtra: 'eliminar'`** (borra `usuario_sucursal`,
+  `folio_secuencia`, semilla HOTP y la fila; limpia `cambio_log` por `fila_id`).
+  `sembrar-qa.ts` pasa de `'desactivar'` a `'eliminar'`: **D/V/W/X/Y borradas de
+  raíz** en nube y local. Ahora `core.sucursal` tiene EXACTAMENTE las 4 reales.
+- Queda la agencia `Donaji (dev)` sin sucursales (dead weight, fuera de alcance).
+
 - **Pendiente para QA**: cargar rutas/horarios/tarifas/flota reales desde la
   sección Administración de la SPA. Sin eso "Vender" no encuentra salidas.
-- **Follow-up**: `celular` es solo dato por ahora — falta exponerlo en
-  `src/admin/sucursales.ts` (`listarSucursales`/`crear`/`editar`) y en la SPA
-  (`web/.../admin/Sucursales.tsx`). Queda también la agencia `Donaji (dev)` (solo
-  la sucursal `D`, inactiva).
 
 ---
 

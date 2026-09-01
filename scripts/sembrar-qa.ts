@@ -11,8 +11,8 @@
  *      cortes de caja, clientes… TODO. Es una "primera carga limpia": no queda
  *      ni un dato de prueba de sesiones anteriores.
  *   2. Da de alta las 4 sucursales reales (códigos 1–4) — ver `knowledge/sucursales.md`.
- *   3. Desactiva cualquier sucursal que no sea una de esas 4 (las `D/V/W/X/Y` de
- *      seeds y pruebas viejas).
+ *   3. ELIMINA cualquier sucursal que no sea una de esas 4 (las `D/V/W/X/Y` de
+ *      seeds y pruebas viejas): tras el barrido nada de operación las referencia.
  *   4. Siembra los 6 usuarios de prueba (un rol/asignación por escenario de login).
  *   NO siembra ningún viaje vendible: el catálogo de operación (rutas, horarios,
  *   tarifas, flota) se carga desde la sección Administración de la SPA, que es el
@@ -295,7 +295,7 @@ async function main(): Promise<void> {
   let sucursales: Map<string, string>;
   try {
     console.log('\nBarriendo dominio operativo y de catálogo de prueba…');
-    await barrerDominio(c, { limpiarLog: target === 'nube', sucursalesExtra: 'desactivar' });
+    await barrerDominio(c, { limpiarLog: target === 'nube', sucursalesExtra: 'eliminar' });
     console.log('\nSembrando sucursales y usuarios…');
     sucursales = await sembrar(c);
   } finally {
