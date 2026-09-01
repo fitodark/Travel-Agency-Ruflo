@@ -3,22 +3,34 @@
  *
  * Blueprint v0.2 · docs/architecture/02b-modelo-transaccional.md §3
  *
- * `sucursalId`, `usuarioId` y `rol` SIEMPRE salen de la sesión. La visibilidad
- * de movimientos inactivos la decide el rol: gerente/vendedor ven solo activos,
- * el administrador ve todo (`movimientosDeCorte`).
+ * `sucursalId`, `usuarioId` y `rol` SIEMPRE salen de la sesión.
+ *  - Visibilidad de movimientos INACTIVOS: la decide el rol (gerente/vendedor
+ *    ven solo activos, el administrador ve todo — `movimientosDeCorte`).
+ *  - Visibilidad de un CORTE y sus movimientos (0045): admin = todos; gerente =
+ *    su sucursal; vendedor = los que él abrió (`corteVisiblePor`).
  */
 
-import type { FastifyInstance } from 'fastify';
-import { abrirCorte, cerrarCorte, corteAbiertoDe, saldoCorte } from '../../caja/corte.js';
+import type { FastifyInstance, FastifyRequest } from 'fastify';
+import {
+  abrirCorte, cerrarCorte, corteAbiertoDe, corteVisiblePor, historialCortes,
+  saldoCorte, type AlcanceCorte,
+} from '../../caja/corte.js';
 import {
   anularMovimiento, movimientosDeCorte, registrarEgreso, type Rol,
 } from '../../caja/movimiento.js';
 import { exige } from '../autenticar.js';
+import { prohibido } from '../errores.js';
 
 const idParam = {
   type: 'object', required: ['id'],
   properties: { id: { type: 'string', format: 'uuid' } },
 } as const;
+
+const alcanceDe = (req: FastifyRequest): AlcanceCorte => ({
+  rol: req.sesion.rol as Rol,
+  usuarioId: req.sesion.usuarioId,
+  sucursalId: req.sesion.sucursalId!,
+});
 
 export async function rutasCaja(app: FastifyInstance): Promise<void> {
   app.addHook('preHandler', exige());
@@ -30,6 +42,28 @@ export async function rutasCaja(app: FastifyInstance): Promise<void> {
     const saldo = await saldoCorte(app.db, corteId);
     return { corteId, ...saldo };
   });
+
+  // Historial de cortes visible por rol (0045): admin = todos; gerente = su
+  // sucursal; vendedor = los que él abrió. Filtros opcionales por fecha/estado.
+  app.get(
+    '/cortes',
+    {
+      schema: {
+        querystring: {
+          type: 'object',
+          properties: {
+            desde: { type: 'string', format: 'date' },
+            hasta: { type: 'string', format: 'date' },
+            estado: { type: 'string', enum: ['abierto', 'cerrado'] },
+          },
+        },
+      },
+    },
+    async (req) => {
+      const q = req.query as { desde?: string; hasta?: string; estado?: 'abierto' | 'cerrado' };
+      return historialCortes(app.db, alcanceDe(req), q);
+    },
+  );
 
   app.post(
     '/corte',
@@ -83,6 +117,7 @@ export async function rutasCaja(app: FastifyInstance): Promise<void> {
     { schema: { params: idParam } },
     async (req) => {
       const { id } = req.params as { id: string };
+      if (!(await corteVisiblePor(app.db, id, alcanceDe(req)))) throw prohibido();
       return movimientosDeCorte(app.db, id, req.sesion.rol as Rol);
     },
   );

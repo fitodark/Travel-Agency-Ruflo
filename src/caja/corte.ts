@@ -9,6 +9,7 @@
  */
 
 import type { Consultable } from '../db/consulta.js';
+import type { Rol } from './movimiento.js';
 
 export async function abrirCorte(
   db: Consultable,
@@ -92,4 +93,100 @@ export async function corteAbiertoDe(
     [sucursalId],
   );
   return rows[0]?.id ?? null;
+}
+
+// ---------------------------------------------------------------------------
+// Historial de cortes, con visibilidad por rol (0045).
+//   administrador → todos los cortes de todas las sucursales
+//   gerente       → los cortes de la sucursal de su sesión
+//   vendedor      → solo los cortes que él mismo abrió
+// ---------------------------------------------------------------------------
+
+/** Contexto de sesión que decide qué cortes se ven. */
+export interface AlcanceCorte {
+  rol: Rol;
+  usuarioId: string;
+  sucursalId: string;
+}
+
+export interface CorteHistorial {
+  corteId: string;
+  sucursalId: string;
+  sucursal: string;
+  estado: 'abierto' | 'cerrado';
+  abiertoEn: Date;
+  cerradoEn: Date | null;
+  usuarioApertura: string;
+  usuarioCierre: string | null;
+  saldoInicial: number;
+  ingresos: number;
+  egresos: number;
+  saldoCalculado: number;
+  /** `null` mientras el corte sigue abierto. */
+  saldoDeclarado: number | null;
+  /** `declarado − calculado`; `null` mientras el corte sigue abierto. */
+  diferencia: number | null;
+}
+
+interface FilaCorteHistorial {
+  corte_id: string;
+  sucursal_id: string;
+  sucursal: string;
+  estado: 'abierto' | 'cerrado';
+  abierto_en: Date;
+  cerrado_en: Date | null;
+  usuario_apertura: string;
+  usuario_cierre: string | null;
+  saldo_inicial: string;
+  ingresos: string;
+  egresos: string;
+  saldo_calculado: string;
+  saldo_declarado: string | null;
+  diferencia: string | null;
+}
+
+const num = (v: string | null): number | null => (v === null ? null : Number(v));
+
+export async function historialCortes(
+  db: Consultable,
+  alcance: AlcanceCorte,
+  filtros: { desde?: string; hasta?: string; estado?: 'abierto' | 'cerrado' } = {},
+): Promise<CorteHistorial[]> {
+  const { rows } = await db.query<FilaCorteHistorial>(
+    `SELECT corte_id, sucursal_id, sucursal, estado, abierto_en, cerrado_en,
+            usuario_apertura, usuario_cierre, saldo_inicial, ingresos, egresos,
+            saldo_calculado, saldo_declarado, diferencia
+       FROM core.f_cortes_visibles($1::text, $2::uuid, $3::uuid, $4::date, $5::date, $6::text)`,
+    [
+      alcance.rol, alcance.usuarioId, alcance.sucursalId,
+      filtros.desde ?? null, filtros.hasta ?? null, filtros.estado ?? null,
+    ],
+  );
+  return rows.map((r) => ({
+    corteId: r.corte_id,
+    sucursalId: r.sucursal_id,
+    sucursal: r.sucursal,
+    estado: r.estado,
+    abiertoEn: r.abierto_en,
+    cerradoEn: r.cerrado_en,
+    usuarioApertura: r.usuario_apertura,
+    usuarioCierre: r.usuario_cierre,
+    saldoInicial: Number(r.saldo_inicial),
+    ingresos: Number(r.ingresos),
+    egresos: Number(r.egresos),
+    saldoCalculado: Number(r.saldo_calculado),
+    saldoDeclarado: num(r.saldo_declarado),
+    diferencia: num(r.diferencia),
+  }));
+}
+
+/** ¿El alcance de esta sesión puede ver este corte (y sus movimientos)? */
+export async function corteVisiblePor(
+  db: Consultable, corteId: string, alcance: AlcanceCorte,
+): Promise<boolean> {
+  const { rows } = await db.query<{ ok: boolean }>(
+    `SELECT core.corte_visible_por($1::uuid, $2::text, $3::uuid, $4::uuid) AS ok`,
+    [corteId, alcance.rol, alcance.usuarioId, alcance.sucursalId],
+  );
+  return rows[0]!.ok;
 }

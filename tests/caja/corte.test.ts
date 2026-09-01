@@ -9,7 +9,10 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 import 'dotenv/config';
 import { Client } from 'pg';
 import { resolveConnection } from '../../src/db/connection.js';
-import { abrirCorte, cerrarCorte, corteAbiertoDe, saldoCorte } from '../../src/caja/corte.js';
+import {
+  abrirCorte, cerrarCorte, corteAbiertoDe, corteVisiblePor, historialCortes, saldoCorte,
+  type AlcanceCorte,
+} from '../../src/caja/corte.js';
 import { crearUsuario, esperaError, seedCaja } from './fixture.js';
 
 const local = process.env['LOCAL_DATABASE_URL'];
@@ -142,5 +145,80 @@ run('corte de caja · ciclo de vida (PostgreSQL real)', () => {
   it('`corteAbiertoDe` devuelve null cuando no hay ninguno', async () => {
     const fx = await seedCaja(db);
     expect(await corteAbiertoDe(db, fx.sucursales[0]!)).toBeNull();
+  });
+
+  // -------------------------------------------------------------------------
+  // Historial de cortes visible por rol (0045).
+  // -------------------------------------------------------------------------
+  describe('historial por rol', () => {
+    /**
+     * Escenario: 2 sucursales. En A, un corte que abrió `vendedorA`. En B, un
+     * corte que abrió `vendedorB`. Un `gerente` de A.
+     */
+    async function escenario() {
+      const fx = await seedCaja(db, 2);
+      const [sucA, sucB] = fx.sucursales as [string, string];
+      const vendedorA = await crearUsuario(db, 'vendedor');
+      const vendedorB = await crearUsuario(db, 'vendedor');
+      const gerente = await crearUsuario(db, 'gerente');
+      const admin = await crearUsuario(db, 'administrador');
+      const corteA = await abrirCorte(db, { sucursalId: sucA, usuarioId: vendedorA, saldoInicial: 100 });
+      const corteB = await abrirCorte(db, { sucursalId: sucB, usuarioId: vendedorB, saldoInicial: 200 });
+      return { sucA, sucB, vendedorA, vendedorB, gerente, admin, corteA, corteB };
+    }
+    const alcance = (rol: AlcanceCorte['rol'], usuarioId: string, sucursalId: string): AlcanceCorte =>
+      ({ rol, usuarioId, sucursalId });
+
+    it('el administrador ve los cortes de todas las sucursales', async () => {
+      const e = await escenario();
+      const cortes = await historialCortes(db, alcance('administrador', e.admin, e.sucA));
+      const ids = cortes.map((c) => c.corteId);
+      expect(ids).toEqual(expect.arrayContaining([e.corteA, e.corteB]));
+    });
+
+    it('el gerente ve solo los cortes de la sucursal de su sesión', async () => {
+      const e = await escenario();
+      const cortes = await historialCortes(db, alcance('gerente', e.gerente, e.sucA));
+      expect(cortes.map((c) => c.corteId)).toContain(e.corteA);
+      expect(cortes.map((c) => c.corteId)).not.toContain(e.corteB);
+    });
+
+    it('el vendedor ve solo los cortes que él abrió', async () => {
+      const e = await escenario();
+      const cortes = await historialCortes(db, alcance('vendedor', e.vendedorA, e.sucA));
+      expect(cortes.map((c) => c.corteId)).toEqual([e.corteA]);
+
+      // vendedorB, aunque comparta sucursal si lo mandáramos ahí, no ve el de A.
+      const otros = await historialCortes(db, alcance('vendedor', e.vendedorB, e.sucA));
+      expect(otros.map((c) => c.corteId)).toEqual([e.corteB]);
+    });
+
+    it('el historial trae el saldo derivado y quién abrió', async () => {
+      const e = await escenario();
+      const [c] = await historialCortes(db, alcance('vendedor', e.vendedorA, e.sucA));
+      expect(c).toMatchObject({
+        corteId: e.corteA, estado: 'abierto', saldoInicial: 100,
+        ingresos: 0, egresos: 0, saldoCalculado: 100,
+        saldoDeclarado: null, diferencia: null,
+      });
+      expect(c!.usuarioApertura).toBeTruthy();
+    });
+
+    it('`corteVisiblePor` aplica la misma regla que el historial', async () => {
+      const e = await escenario();
+      expect(await corteVisiblePor(db, e.corteB, alcance('administrador', e.admin, e.sucA))).toBe(true);
+      expect(await corteVisiblePor(db, e.corteB, alcance('gerente', e.gerente, e.sucA))).toBe(false);
+      expect(await corteVisiblePor(db, e.corteA, alcance('gerente', e.gerente, e.sucA))).toBe(true);
+      expect(await corteVisiblePor(db, e.corteA, alcance('vendedor', e.vendedorB, e.sucB))).toBe(false);
+      expect(await corteVisiblePor(db, e.corteA, alcance('vendedor', e.vendedorA, e.sucA))).toBe(true);
+    });
+
+    it('filtra por estado', async () => {
+      const e = await escenario();
+      await cerrarCorte(db, { corteId: e.corteA, usuarioCierreId: e.vendedorA, saldoDeclarado: 100 });
+      const abiertos = await historialCortes(db, alcance('administrador', e.admin, e.sucA), { estado: 'abierto' });
+      expect(abiertos.map((c) => c.corteId)).not.toContain(e.corteA);
+      expect(abiertos.map((c) => c.corteId)).toContain(e.corteB);
+    });
   });
 });

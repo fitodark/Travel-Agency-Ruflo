@@ -2264,6 +2264,51 @@ manera —a veces sin locale, a veces con uno de 12 h—, así que salían cosas
   limpios. El input `<input type="time">` de Horarios lo pinta el navegador
   según el SO (24 h en un equipo con locale MX); su `value` siempre es `HH:MM`.
 
+## Sesión 54 — 2026-08-31 · Historial de cortes de caja, visible por rol
+
+QA: el administrador no podía ver los movimientos de cortes PASADOS —solo el
+corte abierto de su sucursal—. Faltaba consultar el historial de cortes y sus
+movimientos, con visibilidad por rol:
+- **administrador** → todos los cortes de todas las sucursales
+- **gerente** → los cortes de la sucursal que opera (la de su sesión)
+- **vendedor** → solo los cortes que él mismo abrió
+
+**Migración 0045** (`0045_historial_cortes_por_rol.sql`, a local y nube) — solo
+funciones, sin DML:
+- `core.corte_visible_por(corte_id, rol, usuario_id, sucursal_id) → boolean`:
+  RBAC de fila. La regla vive acá para que no se pueda saltar desde otra query.
+- `core.f_cortes_visibles(rol, usuario_id, sucursal_id, desde, hasta, estado)`:
+  historial con el saldo derivado (`v_corte_saldo`) + quién abrió/cerró, ya
+  filtrado por rol.
+
+**Backend**:
+- `src/caja/corte.ts`: `historialCortes(db, alcance, filtros)`, `corteVisiblePor`,
+  tipos `AlcanceCorte` / `CorteHistorial`.
+- `src/api/rutas/caja.ts`: `GET /caja/cortes` (nuevo, sin permiso extra — el rol
+  de la sesión decide el alcance); `GET /caja/corte/:id/movimientos` ahora exige
+  `corteVisiblePor` → **403** si el corte no es visible para ese rol.
+
+**Frontend** (`web/src/paginas/Caja.tsx`):
+- `<HistorialCortes>`: tabla del historial (columna Sucursal solo para el admin),
+  cada fila despliega los movimientos del corte (lazy). Fechas con `fechaHora`
+  (24 h). El `<CorteAbiertoVista>` maneja el 403 de movimientos con un aviso en
+  vez de la tabla.
+- `web/src/api/caja.ts`: `historialCortes()` + tipo `CorteHistorial`.
+
+**Pruebas**: `tests/caja/corte.test.ts` (+7: alcance admin/gerente/vendedor,
+`corteVisiblePor`, filtro por estado) y `tests/api/caja.test.ts` (+5: `GET
+/caja/cortes` por rol, vendedor→403 en corte ajeno, admin ve otra sucursal).
+55 verdes en caja/reportes/dashboard. `tsc` + `vite build` limpios.
+
+**Verificado en el navegador** (local): vendedor abre corte + egreso → lo ve en
+su historial y despliega sus movimientos; el gerente de la misma sucursal ve ese
+corte y uno cerrado previo; el admin (operando en CDMX) ve los cortes de
+Huajuapan con la columna Sucursal.
+
+**Decisión**: "la sucursal del gerente" = la de su sesión activa (no todas las
+que tenga asignadas). Consistente con el resto de la app; se cambia en una línea
+de la función SQL si se quiere lo otro.
+
 ---
 
 Los cinco criterios de aceptación verdes contra Supabase real
