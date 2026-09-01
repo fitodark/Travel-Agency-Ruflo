@@ -179,4 +179,66 @@ run('API · /caja (PostgreSQL real)', () => {
     });
     expect(r.statusCode).toBe(400);
   });
+
+  // -------------------------------------------------------------------------
+  // GET /caja/cortes — historial visible por rol (0045).
+  // -------------------------------------------------------------------------
+  describe('GET /caja/cortes (historial por rol)', () => {
+    /**
+     * Dos sucursales. Un corte en cada una, abierto por un vendedor distinto.
+     * Devuelve tokens de: admin (suc 0), gerente (suc 0), los dos vendedores.
+     */
+    async function escena() {
+      const fx = await seedCaja(db, 2);
+      const [sucA, sucB] = fx.sucursales as [string, string];
+      const vA = await crearUsuarioConAcceso(db, sucA, 'vendedor');
+      const vB = await crearUsuarioConAcceso(db, sucB, 'vendedor');
+      const ger = await crearUsuarioConAcceso(db, sucA, 'gerente');
+      const adm = await crearUsuarioConAcceso(db, sucA, 'administrador');
+      const tokVA = await tokenDe(db, vA.email, sucA, ahora);
+      const tokVB = await tokenDe(db, vB.email, sucB, ahora);
+      const tokGer = await tokenDe(db, ger.email, sucA, ahora);
+      const tokAdm = await tokenDe(db, adm.email, sucA, ahora);
+      const corteA = await abrirCorte(tokVA, 100);
+      const corteB = await abrirCorte(tokVB, 200);
+      return { sucA, sucB, tokVA, tokVB, tokGer, tokAdm, corteA, corteB };
+    }
+    const ids = (r: { json: () => { corteId: string }[] }) => r.json().map((c) => c.corteId);
+
+    it('el administrador ve los cortes de ambas sucursales', async () => {
+      const e = await escena();
+      const r = await app.inject({ method: 'GET', url: '/caja/cortes', headers: bearer(e.tokAdm) });
+      expect(r.statusCode).toBe(200);
+      expect(ids(r)).toEqual(expect.arrayContaining([e.corteA, e.corteB]));
+    });
+
+    it('el gerente ve solo los de su sucursal', async () => {
+      const e = await escena();
+      const r = await app.inject({ method: 'GET', url: '/caja/cortes', headers: bearer(e.tokGer) });
+      expect(ids(r)).toContain(e.corteA);
+      expect(ids(r)).not.toContain(e.corteB);
+    });
+
+    it('el vendedor ve solo los que él abrió', async () => {
+      const e = await escena();
+      const r = await app.inject({ method: 'GET', url: '/caja/cortes', headers: bearer(e.tokVA) });
+      expect(ids(r)).toEqual([e.corteA]);
+    });
+
+    it('un vendedor no puede ver los movimientos de un corte ajeno (403)', async () => {
+      const e = await escena();
+      const r = await app.inject({
+        method: 'GET', url: `/caja/corte/${e.corteB}/movimientos`, headers: bearer(e.tokVA),
+      });
+      expect(r.statusCode).toBe(403);
+    });
+
+    it('el administrador sí ve los movimientos de un corte de otra sucursal', async () => {
+      const e = await escena();
+      const r = await app.inject({
+        method: 'GET', url: `/caja/corte/${e.corteB}/movimientos`, headers: bearer(e.tokAdm),
+      });
+      expect(r.statusCode).toBe(200);
+    });
+  });
 });

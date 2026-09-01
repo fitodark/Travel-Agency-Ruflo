@@ -49,6 +49,36 @@ export function movimientos(corteId: string): Promise<Movimiento[]> {
   return api<Movimiento[]>(`/caja/corte/${corteId}/movimientos`);
 }
 
+export interface CorteHistorial {
+  corteId: string;
+  sucursalId: string;
+  sucursal: string;
+  estado: 'abierto' | 'cerrado';
+  abiertoEn: string;
+  cerradoEn: string | null;
+  usuarioApertura: string;
+  usuarioCierre: string | null;
+  saldoInicial: number;
+  ingresos: number;
+  egresos: number;
+  saldoCalculado: number;
+  saldoDeclarado: number | null;
+  diferencia: number | null;
+}
+
+/**
+ * Historial de cortes que el rol puede ver (lo decide la API por la sesión):
+ * admin = todos; gerente = su sucursal; vendedor = los que él abrió.
+ */
+export function historialCortes(
+  filtros: { desde?: string; hasta?: string; estado?: 'abierto' | 'cerrado' } = {},
+): Promise<CorteHistorial[]> {
+  const qs = new URLSearchParams(
+    Object.entries(filtros).filter(([, v]) => v) as [string, string][],
+  ).toString();
+  return api<CorteHistorial[]>(`/caja/cortes${qs ? `?${qs}` : ''}`);
+}
+
 export function registrarEgreso(
   corteId: string, datos: { monto: number; descripcion: string },
 ): Promise<{ movimientoId: string }> {
