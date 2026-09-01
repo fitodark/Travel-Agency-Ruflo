@@ -2239,6 +2239,31 @@ binario de Excel).
 - **Pendiente para QA**: cargar rutas/horarios/tarifas/flota reales desde la
   sección Administración de la SPA. Sin eso "Vender" no encuentra salidas.
 
+## Sesión 53 — 2026-08-31 · Hora en formato 24 h, sin segundos, en toda la SPA
+
+El cliente pidió que las horas se muestren como `13:00` y nunca `1:00 p. m.` ni
+segundos. Cada pantalla llamaba a `toLocaleString`/`toLocaleTimeString` a su
+manera —a veces sin locale, a veces con uno de 12 h—, así que salían cosas como
+`31/8/2026, 1:05:09 p. m.`.
+
+- **`web/src/lib/fechas.ts`** (nuevo): `hora()` / `fecha()` / `fechaHora()` con
+  `{ hour: '2-digit', minute: '2-digit', hour12: false }`. Un solo lugar para
+  todo el formato de fecha/hora de la SPA.
+- Migrados a los helpers: `Viajes` (`hora`), `Vender` (`fechaHora` ×2),
+  `Dashboard` (corte "Abierto"), `admin/Sucursales` (columna "Vigencia"),
+  `admin/Ticket` ("vigente desde").
+- **`src/dashboard/tablero.html`**: misma corrección en el tablero de nube
+  (JS inline, no entra al build de la SPA).
+- Ya estaban bien: plantillas de impresión (`manifiesto.ts` usa un regex
+  `T(\d{2}:\d{2})`), y `admin/Horarios` (`horaSalida.slice(0, 5)`).
+- **Sin cambio de datos**: los `time`/`timestamptz` de Postgres ya son 24 h; esto
+  es solo capa de presentación. Nada se guarda formateado.
+- Verificado en el navegador (login admin → Administración): la columna
+  "Vigencia" de Sucursales muestra `28/8/2026, 20:02`; el form de alta tiene el
+  campo Celular; solo aparecen las 4 sucursales reales. `tsc` + `vite build`
+  limpios. El input `<input type="time">` de Horarios lo pinta el navegador
+  según el SO (24 h en un equipo con locale MX); su `value` siempre es `HH:MM`.
+
 ---
 
 Los cinco criterios de aceptación verdes contra Supabase real
