@@ -69,10 +69,13 @@ export interface BarridoOpts {
   limpiarLog: boolean;
   /**
    * Qué hacer con las sucursales que no son las 4 reales:
-   *  - 'desactivar': `activo = false` (default; la app las oculta igual)
-   *  - 'conservar': no tocarlas
+   *  - 'eliminar': borrarlas de raíz (con su `usuario_sucursal`, `folio_secuencia`
+   *     y semilla HOTP). Solo es seguro tras el barrido del dominio, que ya
+   *     dejó las tablas de operación vacías.
+   *  - 'desactivar': `activo = false` (la app las oculta igual)
+   *  - 'conservar' (default): no tocarlas
    */
-  sucursalesExtra?: 'desactivar' | 'conservar';
+  sucursalesExtra?: 'eliminar' | 'desactivar' | 'conservar';
 }
 
 /**
@@ -89,27 +92,49 @@ export async function barrerDominio(c: Client, opts: BarridoOpts): Promise<void>
       if (r.rowCount) console.log(`  ${tabla.padEnd(24)} -${r.rowCount}`);
     }
 
-    if ((opts.sucursalesExtra ?? 'desactivar') === 'desactivar') {
+    const modoExtra = opts.sucursalesExtra ?? 'conservar';
+    if (modoExtra !== 'conservar') {
+      const filtro = modoExtra === 'eliminar' ? '' : ' AND activo';
       const { rows: otras } = await c.query<{ id: string; codigo: string }>(
-        `SELECT id, codigo FROM core.sucursal WHERE codigo <> ALL($1) AND activo`,
+        `SELECT id, codigo FROM core.sucursal WHERE codigo <> ALL($1)${filtro}`,
         [CODIGOS_REALES],
       );
       if (otras.length) {
         const ids = otras.map((r) => r.id);
-        await c.query(`DELETE FROM core.folio_secuencia WHERE sucursal_id = ANY($1::uuid[])`, [ids]);
-        await c.query(
-          `UPDATE core.sucursal
-              SET activo = false, effective_until = now(),
-                  desactivado_en = now(), desactivado_motivo = 'carga inicial QA'
-            WHERE id = ANY($1::uuid[])`,
-          [ids],
-        );
-        await c.query(
-          `UPDATE core.usuario_sucursal SET activo = false, effective_until = now()
-            WHERE sucursal_id = ANY($1::uuid[]) AND activo`,
-          [ids],
-        );
-        console.log(`  sucursales desactivadas: ${otras.map((r) => r.codigo).join(', ')}`);
+        if (modoExtra === 'eliminar') {
+          // Solo seguro tras el barrido: las tablas de operación ya están vacías,
+          // así que lo único que aún cuelga de estas sucursales es su enlace a
+          // usuarios, su secuencia de folios y su semilla HOTP.
+          await c.query(`DELETE FROM core.usuario_sucursal WHERE sucursal_id = ANY($1::uuid[])`, [ids]);
+          await c.query(`DELETE FROM core.folio_secuencia WHERE sucursal_id = ANY($1::uuid[])`, [ids]);
+          await c.query(`DELETE FROM auth_local.revocacion_hotp WHERE sucursal_id = ANY($1::uuid[])`, [ids]);
+          await c.query(`DELETE FROM core.sucursal WHERE id = ANY($1::uuid[])`, [ids]);
+          console.log(`  sucursales eliminadas: ${otras.map((r) => r.codigo).join(', ')}`);
+        } else {
+          await c.query(`DELETE FROM core.folio_secuencia WHERE sucursal_id = ANY($1::uuid[])`, [ids]);
+          await c.query(
+            `UPDATE core.sucursal
+                SET activo = false, effective_until = now(),
+                    desactivado_en = now(), desactivado_motivo = 'carga inicial QA'
+              WHERE id = ANY($1::uuid[])`,
+            [ids],
+          );
+          await c.query(
+            `UPDATE core.usuario_sucursal SET activo = false, effective_until = now()
+              WHERE sucursal_id = ANY($1::uuid[]) AND activo`,
+            [ids],
+          );
+          console.log(`  sucursales desactivadas: ${otras.map((r) => r.codigo).join(', ')}`);
+        }
+
+        if (opts.limpiarLog) {
+          // `core.sucursal` y `auth_local.revocacion_hotp` comparten `id` (== sucursal_id),
+          // así que un solo filtro por `fila_id` limpia el log de ambas.
+          const rs = await c.query(
+            `DELETE FROM sync.cambio_log WHERE fila_id = ANY($1::uuid[])`, [ids],
+          );
+          if (rs.rowCount) console.log(`  sync.cambio_log (sucursales) -${rs.rowCount}`);
+        }
       }
     }
 

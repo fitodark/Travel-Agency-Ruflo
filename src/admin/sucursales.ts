@@ -30,6 +30,8 @@ export interface DatosSucursalNueva {
   nombre: string;
   direccionCompleta: string;
   telefonoPrincipal: string;
+  /** Segundo teléfono (celular). Opcional. */
+  celular?: string | null;
   /** Un carácter de `ALFABETO_CODIGO`. Si se omite, se asigna el siguiente libre. */
   codigo?: string;
   zonaHoraria?: string;
@@ -39,6 +41,8 @@ export interface CambiosSucursal {
   nombre?: string;
   direccionCompleta?: string;
   telefonoPrincipal?: string;
+  /** Segundo teléfono (celular). Cadena vacía o `null` lo borra. */
+  celular?: string | null;
   zonaHoraria?: string;
 }
 
@@ -48,6 +52,7 @@ export interface SucursalResumen {
   codigo: string;
   direccionCompleta: string;
   telefonoPrincipal: string;
+  celular: string | null;
   zonaHoraria: string;
   activo: boolean;
   effectiveFrom: string;
@@ -76,11 +81,11 @@ const pasarModo = (o: OpcionesEscritura): {
 export async function listarSucursales(db: Consultable): Promise<SucursalResumen[]> {
   const { rows } = await db.query<{
     id: string; nombre: string; codigo: string; direccion_completa: string;
-    telefono_principal: string; zona_horaria: string; activo: boolean;
+    telefono_principal: string; celular: string | null; zona_horaria: string; activo: boolean;
     effective_from: Date; effective_until: Date | null; tiene_hotp: boolean;
   }>(
     `SELECT s.id, s.nombre, s.codigo, s.direccion_completa, s.telefono_principal,
-            s.zona_horaria, s.activo, s.effective_from, s.effective_until,
+            s.celular, s.zona_horaria, s.activo, s.effective_from, s.effective_until,
             EXISTS (SELECT 1 FROM auth_local.revocacion_hotp h
                      WHERE h.sucursal_id = s.id AND h.activo) AS tiene_hotp
        FROM core.sucursal s
@@ -92,6 +97,7 @@ export async function listarSucursales(db: Consultable): Promise<SucursalResumen
     codigo: r.codigo.trim(),
     direccionCompleta: r.direccion_completa,
     telefonoPrincipal: r.telefono_principal,
+    celular: r.celular,
     zonaHoraria: r.zona_horaria,
     activo: r.activo,
     effectiveFrom: r.effective_from.toISOString(),
@@ -143,6 +149,7 @@ export async function crearSucursal(
   const zona = datos.zonaHoraria ?? 'America/Mexico_City';
   await validarZona(db, zona);
 
+  const celular = datos.celular?.trim() ? datos.celular.trim() : null;
   const sucursal = await escribirConfig(db, {
     tabla: 'core.sucursal',
     fila: {
@@ -150,6 +157,7 @@ export async function crearSucursal(
       nombre: datos.nombre,
       direccion_completa: datos.direccionCompleta,
       telefono_principal: datos.telefonoPrincipal,
+      celular,
       codigo,
       zona_horaria: zona,
     },
@@ -182,6 +190,7 @@ export async function editarSucursal(
   if (cambios.nombre !== undefined) fila['nombre'] = cambios.nombre;
   if (cambios.direccionCompleta !== undefined) fila['direccion_completa'] = cambios.direccionCompleta;
   if (cambios.telefonoPrincipal !== undefined) fila['telefono_principal'] = cambios.telefonoPrincipal;
+  if (cambios.celular !== undefined) fila['celular'] = cambios.celular?.trim() ? cambios.celular.trim() : null;
   if (cambios.zonaHoraria !== undefined) {
     await validarZona(db, cambios.zonaHoraria);
     fila['zona_horaria'] = cambios.zonaHoraria;

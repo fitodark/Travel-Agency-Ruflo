@@ -38,6 +38,7 @@ export function AdminSucursales() {
           <thead className="border-b border-slate-200 bg-slate-50/70 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
             <tr>
               <th className="px-4 py-2.5">Cód.</th><th className="px-4 py-2.5">Nombre</th>
+              <th className="px-4 py-2.5">Teléfono</th><th className="px-4 py-2.5">Celular</th>
               <th className="px-4 py-2.5">Zona</th><th className="px-4 py-2.5">Vigencia</th>
               <th className="px-4 py-2.5">Estado</th><th className="px-4 py-2.5">HOTP</th>
               <th className="px-4 py-2.5"></th>
@@ -48,6 +49,8 @@ export function AdminSucursales() {
               <tr key={s.id} className="border-t border-slate-100 transition hover:bg-brand-50/40">
                 <td className="px-4 py-3 font-semibold">{s.codigo}</td>
                 <td className="px-4 py-3">{s.nombre}</td>
+                <td className="px-4 py-3 text-slate-500">{s.telefonoPrincipal ?? '—'}</td>
+                <td className="px-4 py-3 text-slate-500">{s.celular ?? '—'}</td>
                 <td className="px-4 py-3 text-slate-500">{s.zonaHoraria}</td>
                 <td className="px-4 py-3 text-slate-500">
                   {fecha(s.effectiveFrom)}{s.effectiveUntil ? ` → ${fecha(s.effectiveUntil)}` : ''}
@@ -75,7 +78,7 @@ export function AdminSucursales() {
               </tr>
             ))}
             {lista.data?.length === 0 && (
-              <tr><td colSpan={7} className="px-3 py-6 text-center text-slate-400">Sin sucursales.</td></tr>
+              <tr><td colSpan={9} className="px-3 py-6 text-center text-slate-400">Sin sucursales.</td></tr>
             )}
           </tbody>
         </table>
@@ -102,14 +105,14 @@ function AccionFila(
 
 function NuevaSucursal({ onCreada, onError }: { onCreada: () => void; onError: (m: string) => void }) {
   const modo = useModo();
-  const [f, setF] = useState({ nombre: '', direccionCompleta: '', telefonoPrincipal: '', zonaHoraria: 'America/Mexico_City', codigo: '' });
+  const [f, setF] = useState({ nombre: '', direccionCompleta: '', telefonoPrincipal: '', celular: '', zonaHoraria: 'America/Mexico_City', codigo: '' });
   const set = (k: keyof typeof f) => (e: { target: { value: string } }) => setF({ ...f, [k]: e.target.value });
   const m = useMutation({
     mutationFn: () => crearSucursal({
       nombre: f.nombre, direccionCompleta: f.direccionCompleta, telefonoPrincipal: f.telefonoPrincipal,
-      zonaHoraria: f.zonaHoraria, ...(f.codigo ? { codigo: f.codigo } : {}), ...modo.valor(),
+      celular: f.celular, zonaHoraria: f.zonaHoraria, ...(f.codigo ? { codigo: f.codigo } : {}), ...modo.valor(),
     }),
-    onSuccess: () => { setF({ ...f, nombre: '', direccionCompleta: '', telefonoPrincipal: '', codigo: '' }); onCreada(); },
+    onSuccess: () => { setF({ ...f, nombre: '', direccionCompleta: '', telefonoPrincipal: '', celular: '', codigo: '' }); onCreada(); },
     onError: (e) => onError(msg(e)),
   });
   const enviar = (e: FormEvent) => { e.preventDefault(); m.mutate(); };
@@ -121,6 +124,7 @@ function NuevaSucursal({ onCreada, onError }: { onCreada: () => void; onError: (
         <label>Nombre<input required value={f.nombre} onChange={set('nombre')} className="campo mt-1" /></label>
         <label>Dirección completa<input required value={f.direccionCompleta} onChange={set('direccionCompleta')} className="campo mt-1" /></label>
         <label>Teléfono<input required value={f.telefonoPrincipal} onChange={set('telefonoPrincipal')} className="campo mt-1" /></label>
+        <label>Celular (opcional)<input value={f.celular} onChange={set('celular')} className="campo mt-1" /></label>
         <label>Zona horaria<input value={f.zonaHoraria} onChange={set('zonaHoraria')} className="campo mt-1" /></label>
         <label>Código (opcional)<input maxLength={1} placeholder="auto" value={f.codigo} onChange={set('codigo')} className="campo mt-1" /></label>
         <div className="sm:col-span-2">{modo.nodo}</div>
@@ -139,7 +143,8 @@ function EditarSucursal(
   const modo = useModo();
   const [f, setF] = useState({
     nombre: s.nombre, direccionCompleta: s.direccionCompleta ?? '',
-    telefonoPrincipal: s.telefonoPrincipal ?? '', zonaHoraria: s.zonaHoraria,
+    telefonoPrincipal: s.telefonoPrincipal ?? '', celular: s.celular ?? '',
+    zonaHoraria: s.zonaHoraria,
   });
   const set = (k: keyof typeof f) => (e: { target: { value: string } }) => setF({ ...f, [k]: e.target.value });
   const m = useMutation({
@@ -157,6 +162,7 @@ function EditarSucursal(
       <label>Nombre<input value={f.nombre} onChange={set('nombre')} className="campo mt-1" /></label>
       <label>Dirección<input value={f.direccionCompleta} onChange={set('direccionCompleta')} className="campo mt-1" /></label>
       <label>Teléfono<input value={f.telefonoPrincipal} onChange={set('telefonoPrincipal')} className="campo mt-1" /></label>
+      <label>Celular<input value={f.celular} onChange={set('celular')} className="campo mt-1" placeholder="—" /></label>
       <label>Zona horaria<input value={f.zonaHoraria} onChange={set('zonaHoraria')} className="campo mt-1" /></label>
       <div className="sm:col-span-2">{modo.nodo}</div>
       <div className="sm:col-span-2 flex gap-2">
