@@ -2174,6 +2174,60 @@ intercepta de forma global.
   responde `409 conflicto_datos` en vez de `401`. El caso realista (UUID válido,
   sesión inexistente) sí da `401 no_autorizado`.
 
+## Sesión 52 — 2026-08-31 · Primera carga limpia: sucursales reales del cliente
+
+El cliente entregó sus **4 sucursales reales** (`knowledge/sucursales.md`):
+1 Huajuapan de León · 2 Acatlán de Osorio · 3 Acatitla · 4 CDMX. QA quería una
+carga inicial **sin datos de prueba**, conservando solo los 6 usuarios propuestos.
+
+- **`scripts/qa-comun.ts`** (nuevo): pieza compartida por `sembrar-qa` y
+  `limpiar-qa`. `barrerDominio(c, opts)` borra por completo el dominio operativo y
+  de catálogo (`TABLAS_A_BARRER`: rutas, horarios, tarifas, unidades, conductores,
+  salidas, cupos, ventas, boletos, pagos, cortes, clientes, eventos…) en una tx
+  con `SET CONSTRAINTS ALL DEFERRED`. Como **no hay triggers en DELETE**, además
+  limpia `sync.cambio_log` para `TABLAS_LOG_A_LIMPIAR` (si no, un bootstrap/pull
+  futuro revive el catálogo). Opción `sucursalesExtra: 'desactivar'` apaga las que
+  no son las 4 reales.
+- **`scripts/sembrar-qa.ts`**: `SUCURSALES` = las 4 reales (códigos 1–4, el `md`
+  trae un celular por sucursal pero `core.sucursal` solo tiene un campo de
+  teléfono → va el fijo). `USUARIOS` remapeados a los códigos reales (emails
+  `.oax`/`.tux` se conservan como identificadores heredados). **Se eliminó el
+  viaje vendible** (Ses. 41): la operación se carga desde Administración, que es
+  el flujo real. El seed ahora llama `barrerDominio` antes de sembrar.
+- **`scripts/limpiar-qa.ts`**: `CODIGOS` → 1–4, usa `barrerDominio` en vez del
+  borrado por ids fijos; el resto (usuarios, desactivar sucursales, `sync.nodo`)
+  igual.
+- **Ejecutado `npm run seed:qa`** contra la nube: barridas 1344 `cupo_offline`,
+  1883 `salida_parada`, 539 `salida`, rutas/horarios/tarifas HJP que QA armó a
+  mano, 3 ventas/boletos, 2 cortes, 6 clientes; 2687 filas de `sync.cambio_log`.
+  Sucursales D/V/W/X/Y desactivadas. Nodo local vaciado + bootstrap (98 filas,
+  cursor 5766) representando a Huajuapan (código 1). `tsc` limpio.
+- Verificado en nube y local: 4 sucursales activas con nombre/teléfono correctos,
+  6 usuarios con sus asignaciones (`admin` 1–4, `gerente`/`vendedor.oax` 1,
+  `vendedor.tux` 2, `multi` 1+3, `sin.sucursal` ninguna), todo el dominio en 0.
+**Migración 0044** (`0044_sucursal_celular_agencia_donaji.sql`, aplicada a local
+y nube):
+- `core.sucursal` gana `celular text` (nullable). Backfill con los celulares
+  reales del `md`: `1` 953 157 9395 · `2` NULL (no dio) · `3` 556 198 6891 ·
+  `4` 554 562 5879. `sembrar-qa.ts` también lo escribe (columna + `EXCLUDED`).
+- La agencia principal (`019caa5f-…a10100000000`, un id de fixture de la suite de
+  caos que un `seed:qa` viejo reutilizó) pasa de **"Donaji Caos" → "Agencia
+  Donaji"**. Backfill + rename van bajo `donaji.replicando = on` (no disparan
+  HLC / outbox / cambio_log: cada base los recibe al correr la migración).
+- **`tests/sync/harness.ts`**: `sembrarMaestros` ahora inserta `'Agencia Donaji'`
+  (antes `'Donaji Caos'`) para que un `npm test` no revierta el rename. La señal
+  de "fila de la suite de caos" es el prefijo del id, no el nombre.
+
+**`.gitignore`**: `*.xlsx` + `~$*.xlsx` (se versiona el `.md` derivado, no el
+binario de Excel).
+
+- **Pendiente para QA**: cargar rutas/horarios/tarifas/flota reales desde la
+  sección Administración de la SPA. Sin eso "Vender" no encuentra salidas.
+- **Follow-up**: `celular` es solo dato por ahora — falta exponerlo en
+  `src/admin/sucursales.ts` (`listarSucursales`/`crear`/`editar`) y en la SPA
+  (`web/.../admin/Sucursales.tsx`). Queda también la agencia `Donaji (dev)` (solo
+  la sucursal `D`, inactiva).
+
 ---
 
 Los cinco criterios de aceptación verdes contra Supabase real

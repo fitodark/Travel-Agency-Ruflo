@@ -5,21 +5,21 @@
  *   npm run limpiar:qa -- --target nube
  *
  * Qué borra:
+ *  - TODO el dominio operativo y de catálogo (rutas, horarios, tarifas, unidades,
+ *    conductores, salidas, cupos, ventas, boletos, pagos, cortes, clientes…),
+ *    lo haya sembrado el seed o lo haya armado QA a mano en Administración.
  *  - Los 5 usuarios de prueba (gerente@, vendedor.oax@, vendedor.tux@, multi@,
  *    sin.sucursal@donaji.local) con sus credenciales, sesiones y asignaciones.
- *  - El viaje vendible de QA de ids fijos (ruta "QA Oaxaca-Puebla", su horario,
- *    tarifa, unidad QA-01, "Conductor QA") con sus salidas materializadas y
- *    CUALQUIER venta/boleto/lease encima (datos de prueba, desechables).
- *  - Las 3 sucursales de prueba (códigos 1, 2, 3): se DESACTIVAN (`activo=false`),
- *    no se borran. Hard-borrarlas rompería contra cualquier corte de caja, venta
- *    o ruta que QA haya creado a mano sobre ellas; desactivarlas es lo que hace
- *    la propia app y re-`seed:qa` las reactiva. Su `folio_secuencia` y
- *    `revocacion_hotp` sí se borran.
- *  - En la NUBE: además las filas de `sync.cambio_log` de esas entidades, para que
- *    un pull no las vuelva a bajar.
+ *  - Las 4 sucursales de prueba (códigos 1–4): se DESACTIVAN (`activo=false`), no
+ *    se borran. Hard-borrarlas rompería contra cualquier resto que las referencie;
+ *    desactivarlas es lo que hace la propia app y re-`seed:qa` las reactiva. Su
+ *    `folio_secuencia` sí se borra.
+ *  - En la NUBE: además las filas de `sync.cambio_log` del catálogo barrido, para
+ *    que un pull no las vuelva a bajar.
  *
  * Qué NO toca: `admin@donaji.local` (lo comparte `sembrar-admin.ts`); solo se
- * quitan sus asignaciones a las sucursales de prueba.
+ * quitan sus asignaciones a las sucursales de prueba. Tampoco `core.agencia`,
+ * `core.tipo_unidad`, `core.parametro` ni `core.rol_permiso` (semilla base).
  *
  * Un nodo que ya había bajado los datos y no corre este limpiado contra su base
  * local se queda con residuo: córrelo también ahí (es el comportamiento por
@@ -29,21 +29,8 @@
 import 'dotenv/config';
 import { Client } from 'pg';
 import { resolveConnection } from '../src/db/connection.js';
+import { barrerDominio, CODIGOS_REALES } from './qa-comun.js';
 
-const CODIGOS = ['1', '2', '3'];
-
-/** Ids fijos del viaje vendible — deben coincidir con `VIAJE` de `sembrar-qa.ts`. */
-const VIAJE = {
-  ruta:      'd0d0da01-0000-7000-8000-000000000001',
-  paradaOax: 'd0d0da01-0000-7000-8000-0000000000a0',
-  paradaPue: 'd0d0da01-0000-7000-8000-0000000000b0',
-  unidad:    'd0d0da01-0000-7000-8000-000000000010',
-  conductor: 'd0d0da01-0000-7000-8000-000000000020',
-  horario:   'd0d0da01-0000-7000-8000-000000000030',
-  hpOax:     'd0d0da01-0000-7000-8000-0000000000a1',
-  hpPue:     'd0d0da01-0000-7000-8000-0000000000b1',
-  tarifa:    'd0d0da01-0000-7000-8000-000000000040',
-} as const;
 const EMAILS = [
   'gerente@donaji.local',
   'vendedor.oax@donaji.local',
@@ -52,23 +39,19 @@ const EMAILS = [
   'sin.sucursal@donaji.local',
 ];
 
-async function limpiar(c: Client, esNube: boolean): Promise<void> {
+async function limpiarUsuariosYSucursales(c: Client, esNube: boolean): Promise<void> {
   await c.query('BEGIN');
   try {
+    await c.query('SET CONSTRAINTS ALL DEFERRED');
+
     const { rows: sucs } = await c.query<{ id: string }>(
-      `SELECT id FROM core.sucursal WHERE codigo = ANY($1)`, [CODIGOS],
+      `SELECT id FROM core.sucursal WHERE codigo = ANY($1)`, [CODIGOS_REALES],
     );
     const { rows: usrs } = await c.query<{ id: string }>(
       `SELECT id FROM core.usuario WHERE email = ANY($1::citext[])`, [EMAILS],
     );
     const sucIds = sucs.map((r) => r.id);
     const usrIds = usrs.map((r) => r.id);
-
-    // Primero el viaje: sus salidas y andamiaje cuelgan de las sucursales de QA
-    // (`unidad.sucursal_base_id`, `salida_parada.sucursal_id`), así que hay que
-    // borrarlo antes que ellas.
-    const viajeIds = await limpiarViajeVendible(c);
-    const todos = [...sucIds, ...usrIds, ...viajeIds];
 
     const pasos: Array<[string, string, unknown[]]> = [
       ['auth_local.sesion',              `DELETE FROM auth_local.sesion WHERE usuario_id = ANY($1::uuid[])`, [usrIds]],
@@ -79,9 +62,8 @@ async function limpiar(c: Client, esNube: boolean): Promise<void> {
       ['auth_local.revocacion_hotp',     `DELETE FROM auth_local.revocacion_hotp WHERE sucursal_id = ANY($1::uuid[])`, [sucIds]],
       ['core.folio_secuencia',           `DELETE FROM core.folio_secuencia WHERE sucursal_id = ANY($1::uuid[])`, [sucIds]],
       ['core.usuario',                   `DELETE FROM core.usuario WHERE id = ANY($1::uuid[])`, [usrIds]],
-      // Las sucursales se DESACTIVAN (no se borran): un corte de caja / venta /
-      // ruta que QA armó a mano las referencia por FK. La propia app las quita
-      // así, y re-`seed:qa` las reactiva por `ON CONFLICT (codigo)`.
+      // Las sucursales se DESACTIVAN (no se borran): re-`seed:qa` las reactiva
+      // por `ON CONFLICT (codigo)`.
       ['core.sucursal (desactivar)',     `UPDATE core.sucursal SET activo = false, effective_until = now() WHERE id = ANY($1::uuid[]) AND activo`, [sucIds]],
     ];
     for (const [nombre, sql, params] of pasos) {
@@ -89,14 +71,14 @@ async function limpiar(c: Client, esNube: boolean): Promise<void> {
       if (r.rowCount) console.log(`  ${nombre.padEnd(30)} -${r.rowCount}`);
     }
 
-    if (esNube && todos.length > 0) {
+    if (esNube && usrIds.length > 0) {
       const r = await c.query(
-        `DELETE FROM sync.cambio_log WHERE fila_id = ANY($1::uuid[])`, [todos],
+        `DELETE FROM sync.cambio_log WHERE fila_id = ANY($1::uuid[])`, [usrIds],
       );
-      if (r.rowCount) console.log(`  sync.cambio_log                 -${r.rowCount}`);
+      if (r.rowCount) console.log(`  sync.cambio_log (usuarios)      -${r.rowCount}`);
     }
 
-    // El nodo local deja de "ser" una de las sucursales borradas.
+    // El nodo local deja de "ser" una de las sucursales desactivadas.
     await c.query(
       `UPDATE sync.nodo SET sucursal_id = NULL
         WHERE singleton AND sucursal_id = ANY($1::uuid[])`, [sucIds],
@@ -107,54 +89,6 @@ async function limpiar(c: Client, esNube: boolean): Promise<void> {
     await c.query('ROLLBACK').catch(() => { /* ya revertida */ });
     throw err;
   }
-}
-
-/**
- * Borra el viaje vendible de QA (ids fijos de `VIAJE`): sus salidas materializadas
- * y todo lo que cuelga de ellas (ventas, boletos, pagos, leases, ocupaciones,
- * eventos, cupos), luego el andamiaje (horario, tarifa, ruta, conductor, unidad).
- * NO toca rutas/horarios que QA haya armado a mano — esos referencian sucursales
- * que solo se desactivan, así que no bloquean nada. Devuelve los `fila_id`
- * borrados para limpiar su `sync.cambio_log` en la nube.
- */
-async function limpiarViajeVendible(c: Client): Promise<string[]> {
-  const col = async (sql: string, params: unknown[]): Promise<string[]> =>
-    (await c.query<{ id: string }>(sql, params)).rows.map((r) => r.id);
-
-  const salIds = await col(`SELECT id FROM core.salida WHERE horario_id = $1::uuid`, [VIAJE.horario]);
-  const bolIds = salIds.length
-    ? await col(`SELECT id FROM core.boleto WHERE salida_id = ANY($1::uuid[])`, [salIds]) : [];
-  const ventaIds = salIds.length
-    ? await col(`SELECT id FROM core.venta WHERE salida_id = ANY($1::uuid[])`, [salIds]) : [];
-
-  const pasos: Array<[string, string, unknown[]]> = [
-    ['core.pago',              `DELETE FROM core.pago WHERE venta_id = ANY($1::uuid[])`, [ventaIds]],
-    ['core.print_job',         `DELETE FROM core.print_job WHERE boleto_id = ANY($1::uuid[])`, [bolIds]],
-    ['core.nota_auditoria',    `DELETE FROM core.nota_auditoria WHERE entidad = 'core.boleto' AND entidad_id = ANY($1::uuid[])`, [bolIds]],
-    ['core.cambio_conductor',  `DELETE FROM core.cambio_conductor WHERE salida_id = ANY($1::uuid[])`, [salIds]],
-    ['core.evento_abordaje',   `DELETE FROM core.evento_abordaje WHERE salida_id = ANY($1::uuid[])`, [salIds]],
-    ['core.evento_salida',     `DELETE FROM core.evento_salida WHERE salida_id = ANY($1::uuid[])`, [salIds]],
-    ['core.asiento_lease',     `DELETE FROM core.asiento_lease WHERE salida_id = ANY($1::uuid[])`, [salIds]],
-    ['core.asiento_ocupacion', `DELETE FROM core.asiento_ocupacion WHERE salida_id = ANY($1::uuid[])`, [salIds]],
-    ['core.boleto',            `DELETE FROM core.boleto WHERE salida_id = ANY($1::uuid[])`, [salIds]],
-    ['core.venta',             `DELETE FROM core.venta WHERE salida_id = ANY($1::uuid[])`, [salIds]],
-    ['core.cupo_offline',      `DELETE FROM core.cupo_offline WHERE salida_id = ANY($1::uuid[])`, [salIds]],
-    ['core.salida_parada',     `DELETE FROM core.salida_parada WHERE salida_id = ANY($1::uuid[])`, [salIds]],
-    ['core.salida',            `DELETE FROM core.salida WHERE id = ANY($1::uuid[])`, [salIds]],
-    ['core.horario_parada',    `DELETE FROM core.horario_parada WHERE horario_id = $1::uuid`, [VIAJE.horario]],
-    ['core.horario',           `DELETE FROM core.horario WHERE id = $1::uuid`, [VIAJE.horario]],
-    ['core.tarifa',            `DELETE FROM core.tarifa WHERE id = $1::uuid`, [VIAJE.tarifa]],
-    ['core.ruta_parada',       `DELETE FROM core.ruta_parada WHERE ruta_id = $1::uuid`, [VIAJE.ruta]],
-    ['core.ruta',              `DELETE FROM core.ruta WHERE id = $1::uuid`, [VIAJE.ruta]],
-    ['core.conductor',         `DELETE FROM core.conductor WHERE id = $1::uuid`, [VIAJE.conductor]],
-    ['core.unidad',            `DELETE FROM core.unidad WHERE id = $1::uuid`, [VIAJE.unidad]],
-  ];
-  for (const [nombre, sql, params] of pasos) {
-    const r = await c.query(sql, params);
-    if (r.rowCount) console.log(`  ${nombre.padEnd(30)} -${r.rowCount}`);
-  }
-
-  return [...Object.values(VIAJE), ...salIds, ...bolIds, ...ventaIds];
 }
 
 async function main(): Promise<void> {
@@ -176,7 +110,8 @@ async function main(): Promise<void> {
     const c = new Client(conn.config);
     await c.connect();
     try {
-      await limpiar(c, t === 'nube');
+      await barrerDominio(c, { limpiarLog: t === 'nube', sucursalesExtra: 'conservar' });
+      await limpiarUsuariosYSucursales(c, t === 'nube');
     } finally {
       await c.end();
     }

@@ -26,3 +26,8 @@ exports/
 
 # Artefacto de runtime de ruflo (indice vectorial)
 ruvector.db
+
+# Hojas de cálculo fuente: se versiona el .md derivado (p. ej. knowledge/sucursales.md),
+# no el binario ni sus archivos de bloqueo de Excel.
+*.xlsx
+~$*.xlsx

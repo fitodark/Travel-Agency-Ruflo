@@ -186,8 +186,13 @@ export async function soltarNodo(admin: Client, dbName: string): Promise<void> {
  * no destruye nada.
  */
 export async function sembrarMaestros(cloud: Client, ids: Ids): Promise<void> {
+  // "Agencia Donaji" y no un nombre de fixture: un `seed:qa` viejo reutilizó
+  // esta fila (id `019caa5f-…a10100000000`, ns 'a1') como agencia principal, y la
+  // carga inicial real la renombró (migración 0044). Que la suite escriba el
+  // mismo nombre evita que un `npm test` lo revierta. La señal de "esto es de la
+  // suite de caos" es el prefijo del id (`PREFIJO_CAOS`), no el nombre.
   await cloud.query(
-    `INSERT INTO core.agencia (id, nombre) VALUES ($1, 'Donaji Caos')
+    `INSERT INTO core.agencia (id, nombre) VALUES ($1, 'Agencia Donaji')
      ON CONFLICT (id) DO UPDATE SET nombre = EXCLUDED.nombre`,
     [ids.agencia],
   );
