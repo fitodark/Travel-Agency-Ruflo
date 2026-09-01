@@ -6,6 +6,7 @@ import {
   buscarSalidas, registrarVenta,
   type ResultadoVenta, type SalidaDisponible,
 } from '../api/ventas';
+import { fechaHora } from '../lib/fechas';
 
 type Paso = 1 | 2 | 3 | 4 | 5 | 6 | 'listo';
 
@@ -230,7 +231,7 @@ export function Vender() {
               }`}
             >
               <div className="flex justify-between">
-                <span className="font-medium">{new Date(s.horaSalidaOrigen).toLocaleString()}</span>
+                <span className="font-medium">{fechaHora(s.horaSalidaOrigen)}</span>
                 <span>{s.importe === null ? 'sin tarifa' : `$${s.importe}`}</span>
               </div>
               <div className="text-xs text-slate-600">
@@ -310,7 +311,7 @@ export function Vender() {
       {paso === 5 && salida && (
         <div className="space-y-3 tarjeta p-4 text-sm">
           <div>
-            <div className="font-medium">{new Date(salida.horaSalidaOrigen).toLocaleString()}</div>
+            <div className="font-medium">{fechaHora(salida.horaSalidaOrigen)}</div>
             <div className="text-xs text-slate-500">
               {[salida.origenNombre, ...salida.escalas, salida.destinoNombre].join(' → ')} · {salida.rutaNombre}
             </div>

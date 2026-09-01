@@ -81,7 +81,13 @@
   const CLAVE = 'donaji.tablero.token';
   const $ = (id) => document.getElementById(id);
   const money = (n) => Number(n).toLocaleString('es-MX', { style: 'currency', currency: 'MXN' });
-  const fecha = (s) => s ? new Date(s).toLocaleString('es-MX') : '—';
+  // 24 h, sin segundos, sin AM/PM — igual que la SPA (web/src/lib/fechas.ts).
+  const fecha = (s) => {
+    if (!s) return '—';
+    const d = new Date(s);
+    return d.toLocaleDateString('es-MX') + ', '
+      + d.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit', hour12: false });
+  };
   const iso = (d) => d.toISOString().slice(0, 10);
 
   let token = null;
