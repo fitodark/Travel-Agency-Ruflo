@@ -6,11 +6,9 @@ import {
   registrarAbordaje, salidasDelDia,
   type BoletoPorFolio, type ManifiestosEncolados, type SalidaDelDia,
 } from '../api/viajes';
+import { hora } from '../lib/fechas';
 
 const hoyIso = (): string => new Date().toISOString().slice(0, 10);
-
-const hora = (iso: string): string =>
-  new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
 const CHIP: Record<string, string> = {
   programada: 'bg-slate-100 text-slate-600',

@@ -5,6 +5,7 @@ import {
   type Rango, type Severidad,
 } from '../api/reportes';
 import { useSesion } from '../auth/sesion';
+import { fechaHora } from '../lib/fechas';
 
 const iso = (d: Date): string => d.toISOString().slice(0, 10);
 const rangoInicial = (): Rango => {
@@ -170,7 +171,7 @@ function Cortes({ rango }: { rango: Rango }) {
       q={q}
       columnas={[
         { titulo: 'Sucursal', celda: (f) => f.sucursal },
-        { titulo: 'Abierto', celda: (f) => new Date(f.abiertoEn).toLocaleString() },
+        { titulo: 'Abierto', celda: (f) => fechaHora(f.abiertoEn) },
         { titulo: 'Estado', celda: (f) => f.estado },
         { titulo: 'Inicial', celda: (f) => money(f.saldoInicial), alDerecha: true },
         { titulo: 'Ingresos', celda: (f) => money(f.ingresos), alDerecha: true },

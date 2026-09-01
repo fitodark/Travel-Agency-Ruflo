@@ -3,9 +3,9 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ErrorApi } from '../../api/cliente';
 import { guardarTicket, ticketVigente } from '../../api/admin';
 import { useModo } from '../../componentes/admin/Modo';
+import { fechaHora } from '../../lib/fechas';
 
 const msg = (e: unknown) => (e instanceof ErrorApi ? e.message : 'No se pudo publicar el ticket.');
-const fecha = (s?: string | null) => (s ? new Date(s).toLocaleString('es-MX') : null);
 
 export function AdminTicket() {
   const qc = useQueryClient();
@@ -51,7 +51,7 @@ export function AdminTicket() {
             {m.isPending ? 'Publicando…' : 'Publicar versión'}
           </button>
           <span className="text-slate-400 text-xs">
-            {fecha(vigente.data?.effective_from) ? `vigente desde ${fecha(vigente.data?.effective_from)}` : 'sin configuración previa'}
+            {vigente.data?.effective_from ? `vigente desde ${fechaHora(vigente.data.effective_from)}` : 'sin configuración previa'}
           </span>
         </div>
       </form>

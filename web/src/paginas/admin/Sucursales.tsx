@@ -6,8 +6,7 @@ import {
   type SucursalAdmin,
 } from '../../api/admin';
 import { useModo } from '../../componentes/admin/Modo';
-
-const fecha = (s: string | null) => (s ? new Date(s).toLocaleString('es-MX') : '—');
+import { fechaHora as fecha } from '../../lib/fechas';
 const msg = (e: unknown) => (e instanceof ErrorApi ? e.message : 'No se pudo completar la operación.');
 
 export function AdminSucursales() {
