@@ -80,7 +80,17 @@ export function rutasConfig(app: FastifyInstance, { db, ahora }: OpcionesRutas):
   app.get<{ Querystring: { agenciaId?: string } }>(
     '/ticket',
     { schema: { querystring: { type: 'object', properties: { agenciaId: { type: 'string', format: 'uuid' } } } } },
-    async (req) => (await ticketVigente(db, await resolverAgencia(db, req.query.agenciaId), ahora())) ?? {},
+    async (req, reply) => {
+      try {
+        const agenciaId = await resolverAgencia(db, req.query.agenciaId);
+        return (await ticketVigente(db, agenciaId, ahora())) ?? {};
+      } catch (err) {
+        if (esValidacion(err)) {
+          return reply.status(400).send({ error: 'ticket_invalido', mensaje: err.message });
+        }
+        throw err;
+      }
+    },
   );
 
   app.post<{ Body: {
@@ -109,20 +119,27 @@ export function rutasConfig(app: FastifyInstance, { db, ahora }: OpcionesRutas):
     },
     async (req, reply) => {
       const b = req.body;
-      const r = await configurarTicket(db, {
-        agenciaId: await resolverAgencia(db, b.agenciaId),
-        ...(b.logoUrl !== undefined ? { logoUrl: b.logoUrl } : {}),
-        ...(b.telefonoAtencion !== undefined ? { telefonoAtencion: b.telefonoAtencion } : {}),
-        ...(b.leyendaPie !== undefined ? { leyendaPie: b.leyendaPie } : {}),
-        ...(b.credencialesProveedor !== undefined ? { credencialesProveedor: b.credencialesProveedor } : {}),
-        ...(b.hmacQrSecreto !== undefined ? { hmacQrSecreto: b.hmacQrSecreto } : {}),
-      }, {
-        ...(b.modo ? { modo: b.modo } : {}),
-        ...(b.fechaProgramada ? { fechaProgramada: new Date(b.fechaProgramada) } : {}),
-        ...(b.confirmarInmediato ? { confirmarInmediato: true } : {}),
-        ahora,
-      });
-      return reply.status(201).send({ ...r, escritoPor: req.admin.email });
+      try {
+        const r = await configurarTicket(db, {
+          agenciaId: await resolverAgencia(db, b.agenciaId),
+          ...(b.logoUrl !== undefined ? { logoUrl: b.logoUrl } : {}),
+          ...(b.telefonoAtencion !== undefined ? { telefonoAtencion: b.telefonoAtencion } : {}),
+          ...(b.leyendaPie !== undefined ? { leyendaPie: b.leyendaPie } : {}),
+          ...(b.credencialesProveedor !== undefined ? { credencialesProveedor: b.credencialesProveedor } : {}),
+          ...(b.hmacQrSecreto !== undefined ? { hmacQrSecreto: b.hmacQrSecreto } : {}),
+        }, {
+          ...(b.modo ? { modo: b.modo } : {}),
+          ...(b.fechaProgramada ? { fechaProgramada: new Date(b.fechaProgramada) } : {}),
+          ...(b.confirmarInmediato ? { confirmarInmediato: true } : {}),
+          ahora,
+        });
+        return reply.status(201).send({ ...r, escritoPor: req.admin.email });
+      } catch (err) {
+        if (esValidacion(err)) {
+          return reply.status(400).send({ error: 'ticket_invalido', mensaje: err.message });
+        }
+        throw err;
+      }
     },
   );
 

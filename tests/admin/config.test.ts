@@ -43,18 +43,23 @@ run('consola · impresora / ticket / tarifas (PostgreSQL real)', () => {
 
   // ---- impresora ------------------------------------------------------
   it('configurarImpresora crea y luego actualiza la misma fila (cambiar la IP)', async () => {
+    // Sucursal propia: la "más antigua" del entorno puede tener ya su Enduro
+    // configurada de verdad, y entonces la primera llamada sería un UPDATE.
+    const { sucursales } = await seedRuta(db, { paradas: 2 });
+    const sucPropia = sucursales[0]!;
+
     const a = await configurarImpresora(db, {
-      sucursalId, nombre: 'Enduro', transporte: 'tcp', ip: '192.168.1.50',
+      sucursalId: sucPropia, nombre: 'Enduro', transporte: 'tcp', ip: '192.168.1.50',
     }, { ahora });
     expect(a.creada).toBe(true);
 
     const b = await configurarImpresora(db, {
-      sucursalId, nombre: 'Enduro', transporte: 'tcp', ip: '192.168.1.99',
+      sucursalId: sucPropia, nombre: 'Enduro', transporte: 'tcp', ip: '192.168.1.99',
     }, { ahora });
     expect(b.creada).toBe(false);
     expect(b.id).toBe(a.id);
 
-    const lista = await listarImpresoras(db, sucursalId);
+    const lista = await listarImpresoras(db, sucPropia);
     expect(lista).toHaveLength(1);
     expect(lista[0]!['ip']).toBe('192.168.1.99');
   });
