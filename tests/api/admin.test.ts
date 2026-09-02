@@ -13,6 +13,7 @@ import { Client } from 'pg';
 import type { FastifyInstance } from 'fastify';
 import { resolveConnection } from '../../src/db/connection.js';
 import { seedAuth } from '../auth/fixture.js';
+import { seedRuta } from '../fleet/fixture.js';
 import { abrirApp, bearer, tokenDe } from './helpers.js';
 
 const local = process.env['LOCAL_DATABASE_URL'];
@@ -268,6 +269,45 @@ run('API · /admin (PostgreSQL real)', () => {
       payload: { nombre: 'x', sucursalIds: [admin.sucursalAId] },
     });
     expect(r.statusCode).toBe(400);
+  });
+
+  it('POST /admin/ticket publica el pie del boleto, incluido el secreto HMAC del QR', async () => {
+    const admin = await seedAuth(db, { rol: 'administrador' });
+    const tok = await tokenDe(db, admin.email, admin.sucursalAId, ahora);
+
+    const guardar = await app.inject({
+      method: 'POST', url: '/admin/ticket', headers: bearer(tok),
+      payload: {
+        agenciaId: admin.agenciaId,
+        leyendaPie: 'Buen viaje, estamos para servirle',
+        telefonoAtencion: '953 000 0000',
+        hmacQrSecreto: 'clave-de-prueba-0123456789abcdef',
+        modo: 'inmediato', confirmarInmediato: true,
+      },
+    });
+    expect(guardar.statusCode, guardar.body).toBe(201);
+    expect(guardar.json().escritoPor).toBe(admin.email);
+
+    const vigente = await app.inject({
+      method: 'GET', url: `/admin/ticket?agenciaId=${admin.agenciaId}`, headers: bearer(tok),
+    });
+    expect(vigente.json().leyenda_pie).toBe('Buen viaje, estamos para servirle');
+    expect(vigente.json().hmac_qr_secreto).toBe('clave-de-prueba-0123456789abcdef');
+  });
+
+  it('POST /admin/ticket sin agenciaId y con ambigüedad real de agencia → 400, no 500', async () => {
+    const admin = await seedAuth(db, { rol: 'administrador' });
+    const tok = await tokenDe(db, admin.email, admin.sucursalAId, ahora);
+    // Una segunda agencia CON sucursales activas: ambigüedad genuina (no la
+    // deriva de una agencia huérfana, que `resolverAgencia` sí sabe descartar).
+    await seedRuta(db, { paradas: 2 });
+
+    const r = await app.inject({
+      method: 'POST', url: '/admin/ticket', headers: bearer(tok),
+      payload: { leyendaPie: 'x', modo: 'inmediato', confirmarInmediato: true },
+    });
+    expect(r.statusCode, r.body).toBe(400);
+    expect(r.json().mensaje).toMatch(/agencia/i);
   });
 
   it('POST /admin/config/:tabla rechaza una tabla fuera de la lista', async () => {
