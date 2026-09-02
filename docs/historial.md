@@ -2335,6 +2335,56 @@ total y el número de boletos.
 fecha/costo/tramo; id inexistente → 404). 11 verdes en `viajes`, 46 en `fleet`.
 `tsc` (raíz y `web/`) limpio.
 
+## Sesión 56 — 2026-09-01 · Impresión del boleto: cablearla en el spooler (F5)
+
+Se instaló y configuró la Enduro. Con eso se cerró el hilo pendiente de F5: el
+boleto ya se imprime al vender.
+
+**Antes, tres tropiezos de camino:**
+- `POST /api/admin/ticket` daba **500** al guardar el pie del boleto. Causa: hay
+  dos `core.agencia` activas en la nube (`Agencia Donaji` con sucursales +
+  `Donaji (dev)` huérfana) y el form no manda `agenciaId`, así que
+  `resolverAgencia` lanzaba; y esa ruta era la única de config sin `try/catch`.
+  Fix: `resolverAgencia` (`src/admin/lookups.ts`) elige la agencia que tiene
+  sucursales activas cuando hay huérfanas; `GET`/`POST /admin/ticket`
+  (`src/admin/rutas-config.ts`) ahora devuelven 400 con mensaje. Rama
+  `fix-admin-ticket-500`.
+- `npm run printer:poc` fallaba con "Falta LOCAL_DATABASE_URL": los tres CLIs de
+  impresión (`poc-ticket`, `poc-manifiesto`, `spooler-run`) no hacían
+  `import 'dotenv/config'`. Rama `fix-printer-tools-dotenv`.
+- El **secreto HMAC del QR** guardado quedó de 11 caracteres y el `logo_url` es
+  una ruta local de Windows — a revisar (el logo aún no se imprime; el QR es
+  texto plano por diseño y solo un lector dedicado muestra el crudo).
+
+**Cableado del boleto:**
+- **Migración 0046** (`0046_snapshot_boleto_completo.sql`, solo `CREATE OR
+  REPLACE FUNCTION`, a local y nube): `core.snapshot_boleto` añade
+  `origen_direccion`, `origen_telefono`, `unidad`, `emitido_en`,
+  `saldo_pendiente` y `fecha_hora_viaje` (ya formateada, `AT TIME ZONE` de la
+  sucursal de ascenso). Los boletos ya emitidos conservan su snapshot viejo.
+- `src/printing/spooler.ts`: `'boleto'` entra en `TEMPLATES_SOPORTADOS`;
+  `renderPrintJob` mapea el snapshot (snake_case) → `DatosBoleto` con
+  `snapshotABoleto()` y llama `renderBoleto`; `procesarCola` carga además la
+  `core.config_ticket` de la agencia (leyendas + clave del QR) por sucursal.
+- `src/printing/tools/poc-ticket.ts`: `--boleto <uuid>` imprime un boleto REAL
+  desde `core.snapshot_boleto`, sin tocar `core.print_job`.
+- `scripts/limpiar-dev.ts`: limpia `core.print_job` no impreso (un job huérfano
+  descuadraba el spooler ahora que sí reclama `boleto`) y solo borra agencias
+  huérfanas (la fila `019caa5f-…a101…` es a la vez ancla de la suite de caos y
+  la agencia real).
+
+**Pruebas**: `tests/printing/spooler.test.ts` (el test "no toca los boletos"
+pasa a "imprime el boleto de una venta liquidada, con el pie"),
+`tests/ventas/venta.test.ts` (+5 asserts: el snapshot lleva los campos nuevos).
+155 verdes en printing/ventas/fleet. `tsc` limpio.
+
+**Verificado en papel**: `npm run printer:poc -- --boleto <uuid> --transport
+capture` rendea el boleto real de silvia hernández (Acatlán→CDMX) con dirección,
+teléfono, folio, asiento, fecha/hora e importe correctos.
+
+Pendiente: aplicar 0046 en la nube (`db:migrate:nube`); pantalla de verificación
+del QR en la SPA (`verifyQrText` escrita pero sin cablear).
+
 ---
 
 Los cinco criterios de aceptación verdes contra Supabase real

@@ -63,7 +63,12 @@ const POC: Array<[string, string]> = [
   ['usuario', `DELETE FROM core.usuario WHERE id::text LIKE $1`],
   ['folio_secuencia', `DELETE FROM core.folio_secuencia WHERE sucursal_id::text LIKE $1`],
   ['sucursal', `DELETE FROM core.sucursal WHERE id::text LIKE $1`],
-  ['agencia', `DELETE FROM core.agencia WHERE id::text LIKE $1`],
+  // Solo agencias que quedaron HUÉRFANAS. La fila `019caa5f-…a10100000000` la
+  // reusa la suite de caos como agencia principal (harness.ts §190) y además es
+  // la agencia real "Agencia Donaji" tras la migración 0044, con 4 sucursales
+  // (`01a04b40-…`) que no matchean el prefijo: borrarla revienta la FK.
+  ['agencia', `DELETE FROM core.agencia a WHERE a.id::text LIKE $1
+                 AND NOT EXISTS (SELECT 1 FROM core.sucursal s WHERE s.agencia_id = a.id)`],
   // El log de bajada: si esto queda, el pull vuelve a traer las filas de la PoC
   // a cada nodo. En la nube hay que borrarlo; en local está vacío.
   ['sync.cambio_log', `DELETE FROM sync.cambio_log WHERE fila_id::text LIKE $1 OR payload->>'id' LIKE $1`],
@@ -72,6 +77,11 @@ const POC: Array<[string, string]> = [
 const SYNC: Array<[string, string]> = [
   ['auth_local.sesion', `DELETE FROM auth_local.sesion`],
   ['auth_local.intento', `DELETE FROM auth_local.intento`],
+  // La cola del spooler: jobs a medio imprimir de una corrida manual
+  // (`npm run printer:spooler`) o de un `seed:qa` con venta. Ahora que el
+  // spooler SÍ reclama los `boleto`, un job huérfano pendiente descuadra
+  // `tests/printing/spooler.test.ts`. Los `impreso` son historial y se dejan.
+  ['core.print_job', `DELETE FROM core.print_job WHERE estado <> 'impreso'`],
   ['sync.outbox', `DELETE FROM sync.outbox WHERE estado IN ('rechazado', 'enviado')`],
   ['sync.excepcion', `TRUNCATE sync.excepcion`],
   ['sync.salud', `TRUNCATE sync.salud`],

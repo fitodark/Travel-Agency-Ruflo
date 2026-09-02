@@ -9,8 +9,9 @@
  *   1. Reclamar  — `UPDATE ... estado='imprimiendo', intentos+1` con
  *      `FOR UPDATE SKIP LOCKED`. Es atómico: si el proceso muere aquí, el job
  *      queda en `imprimiendo` y se recupera en el arranque siguiente.
- *   2. Renderizar — por `template_key`, con el ancho y la code page de la
- *      impresora de esa sucursal.
+ *   2. Renderizar — por `template_key` (boleto o manifiesto), con el ancho y la
+ *      code page de la impresora y, para el boleto, la config de ticket de la
+ *      agencia (leyendas + clave del QR).
  *   3. Enviar     — por el transporte que declara `core.config_impresora`.
  *   4. Finalizar  — `impreso` con éxito; si falla, vuelve a `pendiente` hasta
  *      agotar `maxIntentos` y entonces `revision_manual`.
@@ -24,15 +25,22 @@
 import type { Client } from 'pg';
 import type { CodePageName } from './escpos/codepage.js';
 import {
+  aConfigTicket,
   cargarConfigImpresora,
+  cargarConfigTicket,
   crearTransporte as crearTransporteReal,
   type ConfigImpresoraRow,
 } from './config.js';
+import { renderBoleto, type ConfigTicket, type DatosBoleto } from './templates/boleto.js';
 import { renderManifiesto, type DatosManifiesto } from './templates/manifiesto.js';
 import type { EscPosTransport } from './transport/types.js';
 
 /** Templates que el spooler ya sabe renderizar. */
-export const TEMPLATES_SOPORTADOS = ['manifiesto_conductor', 'manifiesto_terminal'] as const;
+export const TEMPLATES_SOPORTADOS = [
+  'boleto',
+  'manifiesto_conductor',
+  'manifiesto_terminal',
+] as const;
 
 const CODE_PAGES: readonly string[] = ['CP437', 'CP850', 'CP858'];
 
@@ -42,14 +50,42 @@ const aCodePage = (raw: string): CodePageName =>
 export interface ContextoImpresion {
   cols: number;
   codePage: CodePageName;
+  /** Config de ticket (leyendas, clave del QR) vigente para la agencia. */
+  ticket: ConfigTicket;
+}
+
+/**
+ * El snapshot congelado (`core.snapshot_boleto`, snake_case) a la forma que
+ * consume `renderBoleto`. El ticket ya impreso no debe cambiar aunque los datos
+ * de origen cambien: por eso se lee del snapshot, nunca de las tablas vivas.
+ */
+export function snapshotABoleto(datos: unknown): DatosBoleto {
+  const d = (datos ?? {}) as Record<string, unknown>;
+  const texto = (v: unknown): string => (v == null ? '' : String(v));
+  const b: DatosBoleto = {
+    folio: texto(d['folio']),
+    pasajero: texto(d['pasajero']),
+    asiento: Number(d['asiento']),
+    origen: {
+      nombre: texto(d['origen']),
+      direccion: texto(d['origen_direccion']),
+      telefono: texto(d['origen_telefono']),
+    },
+    destino: texto(d['destino']),
+    fechaHoraViaje: texto(d['fecha_hora_viaje']),
+    unidad: texto(d['unidad']),
+    importe: Number(d['importe']),
+    vendedor: texto(d['vendedor']),
+    emitidoEn: texto(d['emitido_en']),
+    porReservacion: Boolean(d['es_reservacion']),
+  };
+  const saldo = Number(d['saldo_pendiente']);
+  if (Number.isFinite(saldo) && saldo > 0) b.saldoPendiente = saldo;
+  return b;
 }
 
 /**
  * Renderiza el documento de un `print_job` a bytes ESC/POS.
- *
- * El `boleto` NO está cableado a propósito: su plantilla sigue pendiente de que
- * el cliente apruebe el prototipo. El spooler nunca reclama esos jobs (ver
- * `TEMPLATES_SOPORTADOS`), así que quedan en `pendiente` sin marcarse como error.
  */
 export function renderPrintJob(
   templateKey: string,
@@ -57,6 +93,12 @@ export function renderPrintJob(
   ctx: ContextoImpresion,
 ): Buffer {
   switch (templateKey) {
+    case 'boleto':
+      return renderBoleto(snapshotABoleto(datos), {
+        ...ctx.ticket,
+        cols: ctx.cols,
+        codePage: ctx.codePage,
+      });
     case 'manifiesto_conductor':
     case 'manifiesto_terminal':
       return renderManifiesto(datos as DatosManifiesto, {
@@ -143,9 +185,18 @@ export async function procesarCola(
       continue;
     }
 
+    // Config de ticket de la agencia de esta sucursal (leyendas, clave del QR).
+    // Ausente = boleto sin pie ni firma HMAC, pero se imprime igual.
+    const { rows: [ag] } = await db.query<{ agencia_id: string }>(
+      `SELECT agencia_id FROM core.sucursal WHERE id = $1`,
+      [sucursal_id],
+    );
+    const configTicket = ag ? await cargarConfigTicket(db, ag.agencia_id) : null;
+
     const ctx: ContextoImpresion = {
       cols: impresora.ancho_cols,
       codePage: aCodePage(impresora.code_page),
+      ticket: aConfigTicket(impresora, configTicket),
     };
 
     // Se reclama el lote entero de una vez: un job que falla vuelve a
