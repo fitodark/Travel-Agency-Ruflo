@@ -201,3 +201,122 @@ export async function checklistAbordaje(
     capturadoEn: r.capturado_en,
   }));
 }
+
+export interface DetalleBoleto {
+  boletoId: string;
+  folio: string;
+  pasajeroNombre: string;
+  asientoNum: number;
+  tramos: string;
+  estado: string;
+  conflicto: boolean;
+  /** Costo de este boleto (numeric → number). */
+  importe: number;
+  impresoEn: Date | null;
+  /** Fecha y hora en que se registró la venta del boleto. */
+  vendidoEn: Date;
+  venta: {
+    ventaId: string;
+    esReservacion: boolean;
+    importeTotal: number;
+    /** Boletos vivos de la misma venta (contexto cuando fue una venta múltiple). */
+    boletosEnLaVenta: number;
+    contactoTelefono: string;
+    clienteNombre: string | null;
+  };
+  vendedor: { nombre: string; rol: string };
+  sucursalVenta: string;
+  ruta: { origen: string; destino: string; origenHora: Date; destinoHora: Date };
+  salida: {
+    salidaId: string;
+    fechaOperacion: string;
+    estado: string;
+    conductor: string | null;
+  };
+}
+
+/**
+ * Detalle completo de un boleto para la modal del listado de viajes: quién lo
+ * vendió y con qué rol, en qué sucursal, cuándo, cuánto costó y su tramo
+ * (origen → destino, con las horas de paso). El folio y el boleto son únicos
+ * globales, así que no se filtra por sucursal.
+ */
+export async function detalleBoleto(
+  db: Consultable, boletoId: string,
+): Promise<DetalleBoleto | null> {
+  const { rows } = await db.query<{
+    boleto_id: string; folio: string; pasajero_nombre: string; asiento_num: number;
+    tramos: string; estado: string; importe: string; impreso_en: Date | null;
+    vendido_en: Date;
+    venta_id: string; es_reservacion: boolean; importe_total: string;
+    contacto_telefono: string; boletos_en_venta: string; cliente_nombre: string | null;
+    vendedor_nombre: string; vendedor_rol: string; sucursal_venta: string;
+    salida_id: string; fecha_operacion: string; salida_estado: string;
+    conductor: string | null;
+    origen: string; destino: string; origen_hora: Date; destino_hora: Date;
+  }>(
+    `SELECT b.id AS boleto_id, b.folio, b.pasajero_nombre, b.asiento_num,
+            b.tramos::text AS tramos, b.estado, b.importe, b.impreso_en,
+            b.creado_en AS vendido_en,
+            v.id AS venta_id, v.es_reservacion, v.importe_total, v.contacto_telefono,
+            (SELECT count(*) FROM core.boleto bb
+              WHERE bb.venta_id = v.id AND bb.activo) AS boletos_en_venta,
+            cli.nombre AS cliente_nombre,
+            u.nombre AS vendedor_nombre, u.rol AS vendedor_rol,
+            suv.nombre AS sucursal_venta,
+            s.id AS salida_id, s.fecha_operacion::text AS fecha_operacion,
+            s.estado AS salida_estado, s.conductor_nombre_snapshot AS conductor,
+            spo.nombre AS origen, spd.nombre AS destino,
+            sppo.hora_paso_programada AS origen_hora,
+            sppd.hora_paso_programada AS destino_hora
+       FROM core.boleto b
+       JOIN core.venta v      ON v.id  = b.venta_id
+       JOIN core.usuario u    ON u.id  = v.usuario_id
+       JOIN core.sucursal suv ON suv.id = v.sucursal_venta_id
+       LEFT JOIN core.cliente cli ON cli.id = v.cliente_id
+       JOIN core.salida s     ON s.id  = b.salida_id
+       JOIN core.salida_parada sppo ON sppo.salida_id = s.id AND sppo.orden = lower(b.tramos)
+       JOIN core.sucursal spo ON spo.id = sppo.sucursal_id
+       JOIN core.salida_parada sppd ON sppd.salida_id = s.id AND sppd.orden = upper(b.tramos)
+       JOIN core.sucursal spd ON spd.id = sppd.sucursal_id
+      WHERE b.id = $1::uuid AND b.activo`,
+    [boletoId],
+  );
+
+  const r = rows[0];
+  if (!r) return null;
+  return {
+    boletoId: r.boleto_id,
+    folio: r.folio,
+    pasajeroNombre: r.pasajero_nombre,
+    asientoNum: Number(r.asiento_num),
+    tramos: r.tramos,
+    estado: r.estado,
+    conflicto: r.estado === 'conflicto_sobreventa',
+    importe: Number(r.importe),
+    impresoEn: r.impreso_en,
+    vendidoEn: r.vendido_en,
+    venta: {
+      ventaId: r.venta_id,
+      esReservacion: r.es_reservacion,
+      importeTotal: Number(r.importe_total),
+      boletosEnLaVenta: Number(r.boletos_en_venta),
+      contactoTelefono: r.contacto_telefono,
+      clienteNombre: r.cliente_nombre,
+    },
+    vendedor: { nombre: r.vendedor_nombre, rol: r.vendedor_rol },
+    sucursalVenta: r.sucursal_venta,
+    ruta: {
+      origen: r.origen,
+      destino: r.destino,
+      origenHora: r.origen_hora,
+      destinoHora: r.destino_hora,
+    },
+    salida: {
+      salidaId: r.salida_id,
+      fechaOperacion: r.fecha_operacion,
+      estado: r.salida_estado,
+      conductor: r.conductor,
+    },
+  };
+}

@@ -2,11 +2,15 @@ import { useState, type FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ErrorApi } from '../api/cliente';
 import {
-  buscarBoletoPorFolio, checklist, finalizarViaje, generarManifiestos, marcarEnRuta,
-  registrarAbordaje, salidasDelDia,
+  buscarBoletoPorFolio, checklist, detalleBoleto, finalizarViaje, generarManifiestos,
+  marcarEnRuta, registrarAbordaje, salidasDelDia,
   type BoletoPorFolio, type ManifiestosEncolados, type SalidaDelDia,
 } from '../api/viajes';
-import { hora } from '../lib/fechas';
+import { Modal } from '../componentes/ui';
+import { fechaHora, hora } from '../lib/fechas';
+
+const mxn = (n: number): string =>
+  n.toLocaleString('es-MX', { style: 'currency', currency: 'MXN' });
 
 const hoyIso = (): string => new Date().toISOString().slice(0, 10);
 
@@ -200,6 +204,7 @@ function DetalleViaje({ salida }: { salida: SalidaDelDia }) {
   const qc = useQueryClient();
   const [error, setError] = useState<string | null>(null);
   const [manifiestos, setManifiestos] = useState<ManifiestosEncolados | null>(null);
+  const [boletoDetalle, setBoletoDetalle] = useState<string | null>(null);
 
   const lista = useQuery({
     queryKey: ['viajes', 'checklist', salida.salidaId],
@@ -288,7 +293,16 @@ function DetalleViaje({ salida }: { salida: SalidaDelDia }) {
           {lista.data?.map((f) => (
             <tr key={f.boletoId} className={`border-t ${f.conflicto ? 'bg-red-50' : ''}`}>
               <td className="py-1.5">{f.asientoNum}</td>
-              <td className="py-1.5 font-mono text-xs">{f.folio}</td>
+              <td className="py-1.5">
+                <button
+                  type="button"
+                  onClick={() => setBoletoDetalle(f.boletoId)}
+                  className="font-mono text-xs text-brand-700 underline underline-offset-2 hover:text-brand-800"
+                  title="Ver detalle del boleto"
+                >
+                  {f.folio}
+                </button>
+              </td>
               <td className="py-1.5">
                 {f.pasajeroNombre}
                 {f.conflicto && <span className="ml-1 text-xs text-red-600">conflicto</span>}
@@ -326,6 +340,106 @@ function DetalleViaje({ salida }: { salida: SalidaDelDia }) {
           )}
         </tbody>
       </table>
+
+      {boletoDetalle && (
+        <ModalDetalleBoleto
+          boletoId={boletoDetalle}
+          onCerrar={() => setBoletoDetalle(null)}
+        />
+      )}
     </div>
+  );
+}
+
+/**
+ * Detalle completo del boleto vendido: quién lo vendió y con qué rol, en qué
+ * sucursal, cuándo (formato 24 h), el costo y el tramo origen → destino.
+ */
+function ModalDetalleBoleto({
+  boletoId, onCerrar,
+}: {
+  boletoId: string;
+  onCerrar: () => void;
+}) {
+  const detalle = useQuery({
+    queryKey: ['viajes', 'boleto-detalle', boletoId],
+    queryFn: () => detalleBoleto(boletoId),
+  });
+
+  return (
+    <Modal titulo="Detalle del boleto" onCerrar={onCerrar}>
+      {detalle.isPending && <p className="text-sm text-slate-400">Cargando…</p>}
+      {detalle.isError && (
+        <p className="text-sm text-red-600">No se pudo cargar el detalle del boleto.</p>
+      )}
+
+      {detalle.data && (
+        <div className="space-y-4 text-sm">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <span className="font-mono text-lg font-semibold tracking-wider">
+              {detalle.data.folio}
+            </span>
+            <span className="text-slate-500">
+              {detalle.data.pasajeroNombre} · asiento {detalle.data.asientoNum}
+              {detalle.data.conflicto && (
+                <span className="ml-1 text-xs text-red-600">conflicto</span>
+              )}
+            </span>
+          </div>
+
+          <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2">
+            <dt className="text-slate-500">Ruta</dt>
+            <dd>
+              {detalle.data.ruta.origen} → {detalle.data.ruta.destino}
+              <span className="text-slate-400">
+                {' '}· {hora(detalle.data.ruta.origenHora)}–{hora(detalle.data.ruta.destinoHora)}
+              </span>
+            </dd>
+
+            <dt className="text-slate-500">Costo del boleto</dt>
+            <dd className="font-medium">{mxn(detalle.data.importe)}</dd>
+
+            <dt className="text-slate-500">Vendido por</dt>
+            <dd>
+              {detalle.data.vendedor.nombre}{' '}
+              <span className="text-slate-400">({detalle.data.vendedor.rol})</span>
+            </dd>
+
+            <dt className="text-slate-500">Sucursal de venta</dt>
+            <dd>{detalle.data.sucursalVenta}</dd>
+
+            <dt className="text-slate-500">Fecha y hora de venta</dt>
+            <dd>{fechaHora(detalle.data.vendidoEn)}</dd>
+
+            <dt className="text-slate-500">Tipo</dt>
+            <dd>
+              {detalle.data.venta.esReservacion ? 'Reservación' : 'Venta'}
+              {detalle.data.venta.boletosEnLaVenta > 1 && (
+                <span className="text-slate-400">
+                  {' '}· {detalle.data.venta.boletosEnLaVenta} boletos, total{' '}
+                  {mxn(detalle.data.venta.importeTotal)}
+                </span>
+              )}
+            </dd>
+
+            <dt className="text-slate-500">Contacto</dt>
+            <dd>
+              {detalle.data.venta.contactoTelefono}
+              {detalle.data.venta.clienteNombre && (
+                <span className="text-slate-400"> · {detalle.data.venta.clienteNombre}</span>
+              )}
+            </dd>
+          </dl>
+
+          <p className="border-t pt-2 text-xs text-slate-500">
+            Salida {detalle.data.salida.fechaOperacion}
+            {detalle.data.salida.conductor ? ` · ${detalle.data.salida.conductor}` : ''}
+            {detalle.data.impresoEn
+              ? ` · impreso ${fechaHora(detalle.data.impresoEn)}`
+              : ' · sin imprimir'}
+          </p>
+        </div>
+      )}
+    </Modal>
   );
 }

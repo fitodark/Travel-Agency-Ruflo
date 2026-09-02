@@ -15,8 +15,8 @@ import {
   datosManifiesto, generarManifiestos, salidasDelDia, type CopiaManifiesto,
 } from '../../fleet/manifiesto.js';
 import {
-  buscarBoletoPorFolio, checklistAbordaje, corregirAbordaje, finalizarSalida,
-  marcarEnRuta, registrarAbordaje,
+  buscarBoletoPorFolio, checklistAbordaje, corregirAbordaje, detalleBoleto,
+  finalizarSalida, marcarEnRuta, registrarAbordaje,
 } from '../../fleet/abordaje.js';
 import { exige } from '../autenticar.js';
 import { noEncontrado } from '../errores.js';
@@ -75,6 +75,15 @@ export async function rutasViajes(app: FastifyInstance): Promise<void> {
       return b;
     },
   );
+
+  // Detalle completo de un boleto vendido, para la modal del listado de viajes:
+  // vendedor, sucursal y fecha/hora de venta, costo y tramo (origen → destino).
+  app.get('/boleto/:id/detalle', { schema: { params: idParam } }, async (req) => {
+    const { id } = req.params as { id: string };
+    const d = await detalleBoleto(app.db, id);
+    if (!d) throw noEncontrado('No hay ningún boleto con ese id.');
+    return d;
+  });
 
   app.get(
     '/:id/manifiesto',

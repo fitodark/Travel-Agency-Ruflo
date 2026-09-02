@@ -180,4 +180,35 @@ run('API · /viajes (PostgreSQL real)', () => {
       expect(r.statusCode, folio).toBe(404);
     }
   });
+
+  it('GET /viajes/boleto/:id/detalle trae vendedor, sucursal, fecha, costo y tramo', async () => {
+    const { fx, token, b1 } = await prep();
+
+    const r = await app.inject({
+      method: 'GET', url: url(`/boleto/${b1.boletoId}/detalle`), headers: bearer(token),
+    });
+    expect(r.statusCode, r.body).toBe(200);
+    const d = r.json();
+    expect(d.boletoId).toBe(b1.boletoId);
+    expect(d.importe).toBe(450);
+    expect(d.vendedor.nombre).toBe('Vendedor Prueba');
+    expect(d.vendedor.rol).toBe('vendedor');
+    expect(d.sucursalVenta).toBeTruthy();
+    expect(d.vendidoEn).toEqual(expect.any(String));
+    expect(d.ruta.origen).toBeTruthy();
+    expect(d.ruta.destino).toBeTruthy();
+    expect(d.ruta.origen).not.toBe(d.ruta.destino);
+    expect(d.salida.salidaId).toBe(fx.salidaId);
+    expect(d.venta.boletosEnLaVenta).toBe(1);
+  });
+
+  it('GET /viajes/boleto/:id/detalle con un id inexistente → 404', async () => {
+    const { token } = await prep();
+    const r = await app.inject({
+      method: 'GET',
+      url: url('/boleto/00000000-0000-7000-8000-000000000000/detalle'),
+      headers: bearer(token),
+    });
+    expect(r.statusCode).toBe(404);
+  });
 });
