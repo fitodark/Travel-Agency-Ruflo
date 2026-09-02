@@ -2309,6 +2309,32 @@ Huajuapan con la columna Sucursal.
 que tenga asignadas). Consistente con el resto de la app; se cambia en una línea
 de la función SQL si se quiere lo otro.
 
+## Sesión 55 — 2026-09-01 · Modal de detalle del boleto en el listado de viajes
+
+En el detalle de un viaje (la lista de pasajeros que abordan la unidad), cada
+folio abre ahora una modal con la información complementaria del boleto vendido:
+**vendedor** (nombre y rol), **sucursal de venta**, **fecha y hora de venta**
+(formato 24 h vía `fechaHora`), **costo del boleto** y la **ruta origen →
+destino** de su tramo con las horas de paso. Como contexto: tipo (venta /
+reservación), teléfono de contacto y cliente, y si fue una venta múltiple, el
+total y el número de boletos.
+
+**Backend** (sin migración — solo lectura sobre el modelo existente):
+- `src/fleet/abordaje.ts`: `detalleBoleto(db, boletoId)` + tipo `DetalleBoleto`.
+  Une `boleto → venta → usuario → sucursal_venta → salida_parada` (origen/destino
+  por `lower/upper(tramos)`). La fecha de venta es `boleto.creado_en`.
+- `src/api/rutas/viajes.ts`: `GET /viajes/boleto/:id/detalle` (solo sesión, sin
+  permiso extra — igual que `/checklist`); 404 si el boleto no existe.
+
+**Frontend** (`web/src/paginas/Viajes.tsx`):
+- `<ModalDetalleBoleto>` (usa el `Modal` compartido de `componentes/ui`). El
+  folio de cada fila del checklist es el disparador.
+- `web/src/api/viajes.ts`: `detalleBoleto()` + tipo `DetalleBoleto`.
+
+**Pruebas**: `tests/api/viajes.test.ts` (+2: el detalle trae vendedor/sucursal/
+fecha/costo/tramo; id inexistente → 404). 11 verdes en `viajes`, 46 en `fleet`.
+`tsc` (raíz y `web/`) limpio.
+
 ---
 
 Los cinco criterios de aceptación verdes contra Supabase real

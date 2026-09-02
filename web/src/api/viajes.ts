@@ -36,6 +36,36 @@ export interface BoletoPorFolio extends FilaChecklist {
   };
 }
 
+export interface DetalleBoleto {
+  boletoId: string;
+  folio: string;
+  pasajeroNombre: string;
+  asientoNum: number;
+  tramos: string;
+  estado: string;
+  conflicto: boolean;
+  importe: number;
+  impresoEn: string | null;
+  vendidoEn: string;
+  venta: {
+    ventaId: string;
+    esReservacion: boolean;
+    importeTotal: number;
+    boletosEnLaVenta: number;
+    contactoTelefono: string;
+    clienteNombre: string | null;
+  };
+  vendedor: { nombre: string; rol: string };
+  sucursalVenta: string;
+  ruta: { origen: string; destino: string; origenHora: string; destinoHora: string };
+  salida: {
+    salidaId: string;
+    fechaOperacion: string;
+    estado: string;
+    conductor: string | null;
+  };
+}
+
 export interface EstadoViaje {
   salidaId: string;
   estado: string;
@@ -58,6 +88,11 @@ export function checklist(salidaId: string): Promise<FilaChecklist[]> {
 /** Busca un boleto por su folio (string). Lanza `ErrorApi` 404 si no existe. */
 export function buscarBoletoPorFolio(folio: string): Promise<BoletoPorFolio> {
   return api<BoletoPorFolio>(`/viajes/boleto?folio=${encodeURIComponent(folio)}`);
+}
+
+/** Detalle completo de un boleto vendido (vendedor, sucursal, fecha, costo, tramo). */
+export function detalleBoleto(boletoId: string): Promise<DetalleBoleto> {
+  return api<DetalleBoleto>(`/viajes/boleto/${encodeURIComponent(boletoId)}/detalle`);
 }
 
 export function registrarAbordaje(
