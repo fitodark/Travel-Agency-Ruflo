@@ -8,19 +8,23 @@
  *   npm run printer:poc -- --transport capture            fuerza captura en memoria
  *   npm run printer:poc -- --transport tcp --host 1.2.3.4 fuerza red
  *   npm run printer:poc -- --transport usb --printer "XP-80"
+ *   npm run printer:poc -- --boleto <uuid>                 imprime un boleto REAL
  *
  * SIN argumentos lee la configuración de la BASE DE DATOS, que es como opera en una
  * terminal real: dar de alta una impresora es insertar una fila, no editar código. Los
  * argumentos existen para probar antes de que exista esa fila.
  *
- * El boleto de muestra lleva acentos y `ñ` a propósito: la codificación es la fuente
- * #1 de tickets defectuosos y hay que verla en papel, no en un test.
+ * Con `--boleto <uuid>` el contenido sale de `core.snapshot_boleto` (el mismo
+ * snapshot congelado que imprime el spooler), sin tocar `core.print_job`. Sin él,
+ * usa un boleto de muestra con acentos y `ñ` a propósito: la codificación es la
+ * fuente #1 de tickets defectuosos y hay que verla en papel, no en un test.
  */
 
 import 'dotenv/config';
 import { Client } from 'pg';
 import { resolveConnection } from '../../db/connection.js';
 import { cargarConfiguracionImpresion } from '../config.js';
+import { snapshotABoleto } from '../spooler.js';
 import { renderBoleto, type ConfigTicket, type DatosBoleto } from '../templates/boleto.js';
 import { decodeText } from '../escpos/codepage.js';
 import { CaptureTransport, stripCommandsRaw } from '../transport/capture.js';
@@ -130,11 +134,33 @@ async function resolverOrigen(): Promise<{
   };
 }
 
+/** El boleto de muestra, o uno real de `core.snapshot_boleto` con `--boleto <uuid>`. */
+async function resolverBoleto(): Promise<DatosBoleto> {
+  const boletoId = readArg('boleto');
+  if (!boletoId) return BOLETO;
+
+  const client = new Client(resolveConnection('local').config);
+  await client.connect();
+  try {
+    const { rows } = await client.query<{ s: unknown }>(
+      'SELECT core.snapshot_boleto($1::uuid) AS s',
+      [boletoId],
+    );
+    if (!rows[0]?.s) throw new Error(`no hay ningún boleto con id ${boletoId}`);
+    return snapshotABoleto(rows[0].s);
+  } finally {
+    await client.end();
+  }
+}
+
 async function main(): Promise<void> {
-  const { transporte, ticket, origen, cerrar } = await resolverOrigen();
+  const [{ transporte, ticket, origen, cerrar }, boleto] = await Promise.all([
+    resolverOrigen(),
+    resolverBoleto(),
+  ]);
 
   try {
-    const bytes = renderBoleto(BOLETO, ticket);
+    const bytes = renderBoleto(boleto, ticket);
 
     console.log(`Configuración: ${origen}`);
     console.log(`Transporte   : ${transporte.label}`);

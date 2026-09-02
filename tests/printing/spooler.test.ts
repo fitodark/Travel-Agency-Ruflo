@@ -3,9 +3,10 @@
  *
  * Blueprint v0.2 · docs/architecture/03-auth-impresion-config.md §2.1–§2.4
  *
- * Los `print_job` los crea `core.generar_manifiestos` (F7); aquí se prueba que el
- * spooler los reclama, renderiza, envía y finaliza — con un transporte falso
- * inyectado, sin impresora física.
+ * Los `print_job` los crean `core.generar_manifiestos` (F7) y `core.registrar_venta`
+ * (F4, el boleto cuando el saldo llega a cero); aquí se prueba que el spooler los
+ * reclama, renderiza, envía y finaliza — con un transporte falso inyectado, sin
+ * impresora física.
  */
 
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -14,10 +15,13 @@ import { Client } from 'pg';
 import { resolveConnection } from '../../src/db/connection.js';
 import { generarManifiestos } from '../../src/fleet/manifiesto.js';
 import { procesarCola } from '../../src/printing/spooler.js';
+import { registrarVenta } from '../../src/ventas/venta.js';
 import { decodeText } from '../../src/printing/escpos/codepage.js';
 import { stripCommandsRaw } from '../../src/printing/transport/capture.js';
 import type { EscPosTransport, ProbeResult } from '../../src/printing/transport/types.js';
-import { crearUsuario, seedSalida, sembrarOcupacion } from '../ventas/fixture.js';
+import {
+  antesDelCierre, crearUsuario, seedCorte, seedSalida, sembrarOcupacion,
+} from '../ventas/fixture.js';
 
 const local = process.env['LOCAL_DATABASE_URL'];
 const run = local ? describe : describe.skip;
@@ -171,23 +175,47 @@ run('spooler de impresión (PostgreSQL real)', () => {
     for (const row of rows) expect(row.ultimo_error).toMatch(/atascada/);
   });
 
-  it('no toca los jobs de boleto (plantilla aún sin cablear)', async () => {
-    const { sucursalId } = await prep();
+  it('imprime también el boleto de una venta liquidada, con el pie de ticket', async () => {
+    const fx = await seedSalida(db, { paradas: 3, diasAdelante: 20 });
+    const sucursalId = fx.sucursales[0]!;
     await seedImpresora(sucursalId);
+    const usuarioId = await crearUsuario(db);
+    const corteId = await seedCorte(db, sucursalId, usuarioId);
+    const ahora = await antesDelCierre(db, fx.salidaId, 0);
+
+    // Config de ticket con clave HMAC: el QR del boleto debe llevar el campo V:.
     await db.query(
-      `INSERT INTO core.print_job (sucursal_id, template_key, datos, estado)
-       VALUES ($1, 'boleto', '{"folio":"AAA111"}'::jsonb, 'pendiente')`,
+      `INSERT INTO core.config_ticket (agencia_id, leyenda_pie, hmac_qr_secreto, effective_from)
+       SELECT s.agencia_id, 'Buen viaje', 'clave-de-prueba-hmac', now() - interval '1 day'
+         FROM core.sucursal s WHERE s.id = $1`,
       [sucursalId],
     );
-    const t = new TransporteFalso();
 
+    const venta = await registrarVenta(db, {
+      salidaId: fx.salidaId, sucursalVentaId: sucursalId, usuarioId,
+      contactoTelefono: '953 111 2222', origenOrden: 0, destinoOrden: 2,
+      pasajeros: [{ asientoNum: 2, nombre: 'Ana Ruiz', importe: 450 }],
+      pago: { metodo: 'efectivo', monto: 450, corteCajaId: corteId },
+      ahora,
+    });
+    expect(venta.printJobs).toBe(1);
+
+    const t = new TransporteFalso();
     const r = await procesarCola(db, { crearTransporte: () => t });
 
-    expect(r.impresos).toBe(2);
-    const { rows } = await db.query<{ estado: string }>(
-      `SELECT estado FROM core.print_job WHERE template_key = 'boleto'`,
+    expect(r.impresos).toBe(1);
+    expect(t.writes).toHaveLength(1);
+
+    const { rows: [bol] } = await db.query<{ folio: string; estado: string }>(
+      `SELECT b.folio, j.estado
+         FROM core.print_job j JOIN core.boleto b ON b.id = j.boleto_id
+        WHERE j.template_key = 'boleto' AND b.venta_id = $1`,
+      [venta.ventaId],
     );
-    expect(rows[0]!.estado).toBe('pendiente');
+    expect(bol!.estado).toBe('impreso');
+    expect(t.papel).toContain('ASIENTO 2');
+    expect(t.papel).toContain(bol!.folio.trim());
+    expect(t.papel).toContain('Buen viaje');
   });
 
   it('recupera un job que quedó en imprimiendo de una corrida interrumpida', async () => {

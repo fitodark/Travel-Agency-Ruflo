@@ -84,6 +84,20 @@ run('registro de venta (PostgreSQL real)', () => {
     );
     expect(Number(pj[0]!.n)).toBe(2);
     expect(pj[0]!.folio, 'el snapshot lleva el folio').toMatch(/^.\w{5}$/);
+
+    // El snapshot congelado lleva TODO lo que `renderBoleto` necesita (migr. 0046).
+    const { rows: snap } = await db.query<{ datos: Record<string, unknown> }>(
+      `SELECT datos FROM core.print_job
+        WHERE template_key = 'boleto'
+          AND boleto_id IN (SELECT id FROM core.boleto WHERE venta_id = $1)
+        LIMIT 1`, [r.ventaId],
+    );
+    const d = snap[0]!.datos;
+    expect(d['origen_direccion']).toBeTruthy();
+    expect(d['origen_telefono']).toBeTruthy();
+    expect(d['fecha_hora_viaje']).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/);
+    expect(d['emitido_en']).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/);
+    expect(d, 'la clave existe aunque la salida no tenga unidad').toHaveProperty('unidad');
   });
 
   it('los folios son distintos y llevan el prefijo de la sucursal', async () => {
