@@ -12,6 +12,7 @@
  * F5 (manifiesto correcto por ambos transportes).
  */
 
+import 'dotenv/config';
 import { Client } from 'pg';
 import { resolveConnection } from '../../db/connection.js';
 import { datosManifiesto, type CopiaManifiesto } from '../../fleet/manifiesto.js';

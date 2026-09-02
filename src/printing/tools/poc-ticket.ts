@@ -17,6 +17,7 @@
  * #1 de tickets defectuosos y hay que verla en papel, no en un test.
  */
 
+import 'dotenv/config';
 import { Client } from 'pg';
 import { resolveConnection } from '../../db/connection.js';
 import { cargarConfiguracionImpresion } from '../config.js';
