@@ -2380,10 +2380,40 @@ pasa a "imprime el boleto de una venta liquidada, con el pie"),
 
 **Verificado en papel**: `npm run printer:poc -- --boleto <uuid> --transport
 capture` rendea el boleto real de silvia hernández (Acatlán→CDMX) con dirección,
-teléfono, folio, asiento, fecha/hora e importe correctos.
+teléfono, folio, asiento, fecha/hora e importe correctos. 0046 aplicada a la
+nube. Venta real + `printer:spooler` → ticket físico OK.
 
-Pendiente: aplicar 0046 en la nube (`db:migrate:nube`); pantalla de verificación
-del QR en la SPA (`verifyQrText` escrita pero sin cablear).
+## Sesión 57 — 2026-09-01 · El spooler imprime al instante (LISTEN/NOTIFY)
+
+El spooler vaciaba la cola por poll cada ~10 s, así que un ticket podía tardar
+eso tras la venta — fuera del objetivo de 3 s p95 (blueprint §1.3). Ahora
+imprime en el commit de la venta.
+
+- **Migración 0047** (`0047_notify_print_job.sql`, a local y nube): trigger
+  `AFTER INSERT ON core.print_job` → `pg_notify('print_job_nuevo', sucursal_id)`.
+  Guardado con `es_nube` (en la nube no hay spooler), igual que el trigger del
+  outbox. `pg_notify` entrega el aviso a los `LISTEN` justo al hacer commit la
+  transacción de la venta.
+- **`src/printing/servicio.ts`** (nuevo, espeja `src/sync/servicio.ts`):
+  - `crearEjecutor(correr, {debounceMs})` — coalescedor: junta N avisos casi
+    simultáneos (los N boletos de una venta) en una pasada, y encadena UNA más
+    si llega otro aviso mientras corre.
+  - `iniciarSpooler(config, opts)` — `LISTEN print_job_nuevo`, una pasada por
+    aviso (coalescida), poll de respaldo (60 s) para jobs de cuando el proceso
+    estaba caído, y reconexión si el LISTEN se cae (con catch-up).
+- **`src/printing/tools/spooler-run.ts`**: usa `iniciarSpooler`. `--once` sigue
+  siendo una pasada directa; `--interval` ahora ajusta el poll de RESPALDO
+  (default 60 s, antes 10 s de poll principal).
+- La venta sigue sin bloquearse ni fallar por la impresora: el aviso es un
+  "corre ya", no impresión síncrona. Un solo spooler por terminal (D-1).
+
+**Pruebas**: `tests/printing/servicio.test.ts` (5: coalescedor ×3 con reloj
+real; el trigger dispara `pg_notify` con la sucursal; `iniciarSpooler` corre una
+pasada al llegar un job). 160 verdes en printing/ventas/fleet. `tsc` limpio.
+Servicio arranca y escucha OK.
+
+Pendiente: aplicar 0047 en la nube; pantalla de verificación del QR en la SPA
+(`verifyQrText` escrita pero sin cablear).
 
 ---
 
