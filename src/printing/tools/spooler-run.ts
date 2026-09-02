@@ -11,6 +11,7 @@
  * consumir la cola, usa `npm run printer:poc-manifiesto`.
  */
 
+import 'dotenv/config';
 import { Client } from 'pg';
 import { resolveConnection } from '../../db/connection.js';
 import { procesarCola, type ResumenSpooler } from '../spooler.js';
