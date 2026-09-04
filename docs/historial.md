@@ -2417,6 +2417,38 @@ Pendiente: aplicar 0047 en la nube; pantalla de verificación del QR en la SPA
 
 ---
 
+## Sesión 58 — 2026-09-03 · Evaluación y plan: paradas autorizadas + tarifa por parada
+
+Sesiones con el cliente sobre el flujo real de rutas: una ruta (Huajuapan→CDMX)
+tiene **terminales** (ascenso/descenso) y **paradas autorizadas de solo
+descenso** — no son sucursales, no venden, cada una con su propia tarifa desde el
+origen (que puede ser mayor que la del destino final).
+
+- **Evaluación del modelo actual.** Ya soporta: paradas intermedias
+  (`ruta_parada`), hora de paso por parada (`horario_parada`), **tarifa por par de
+  paradas** (`core.tarifa` versionada), venta por tramo (`int4range`). Huecos:
+  `ruta_parada.sucursal_id` obliga a que toda parada sea `core.sucursal`;
+  `registrar_venta` suma el importe a ciegas; nada impide vender "ascenso" en una
+  parada de descenso; `repartir_cupo_offline` (`0019`) asume que toda intermedia
+  vende y sobre-reparte bloques.
+- **Plan de implementación** en `docs/architecture/05-paradas-autorizadas-tarifas.md`
+  (7 fases, migraciones `0048`–`0053`): catálogo `core.punto_ruta` (`terminal` |
+  `parada_descenso`), `ruta_parada.punto_id` / `salida_parada.punto_id`, dos
+  rangos en el boleto (`tramos` = viaje, `tramos_ocupacion` = hasta fin de ruta si
+  el destino es parada de descenso), validación de importe vs `core.tarifa`
+  (estricta, con interruptor `validar_tarifa_estricta`), ruta = baja+alta (no
+  edición in-place, cambia ~cada 2 años), materialización y cupo offline contando
+  solo terminales con ascenso.
+- **8 decisiones fijadas** (D1–D8) y **9 preguntas abiertas** (P-1…P-9) con la
+  fase que bloquea cada una. Respuestas del cliente de la sesión del 2 sep
+  transcritas en §7 del doc.
+- **Estado: PAUSA — se espera la retro del cliente** con las respuestas a
+  P-1…P-9. QA pidió no retrabajar: no arrancar una fase hasta cerrar su pregunta
+  bloqueante. Fase 0 (`0048`, catálogo, refactor puro) no tiene bloqueante.
+- Sin código todavía. Memoria: `donaji-rutas-paradas-tarifas`.
+
+---
+
 Los cinco criterios de aceptación verdes contra Supabase real
 (`tests/sync/f1-criterios.test.ts`). Contrato de pruebas del motor cerrado
 (`salud.ts` Ses. 4, arbitraje/reasignación en F4, checksum dirigido de
