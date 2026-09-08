@@ -310,12 +310,10 @@ reserva la registra la terminal de origen, que aparta el asiento desde el orden 
 - **F3-D2 (Fase 4):** el guard de descuento es por `orden` (`destino = n-1`), no por
   `punto_ruta.tipo`. Correcto mientras las rutas siempre empiecen/terminen en terminal (D5).
   Reescribir contra `tipo='terminal'` + extremo de ruta en Fase 4/5 (hermano de F2-D1).
-- **F3-D3 (secuencia):** los descuentos **no funcionan hasta Fase 5** — no hay forma de crear
-  tarifas `inapam`/`menor` (`crearTarifa` solo hace `general`, no hay UI admin). Entre Fase 3
-  y 5: `registrar_venta` con `categoria='inapam'` siempre `RAISE`; la SPA oculta el selector si
-  `salida.tarifas` no trae descuentos. Fase 3 entrega la **validación estricta** (el pedido
-  central de D4) + el esquema. Si el cliente necesita INAPAM/menor operativos antes de Fase 5,
-  extender `crearTarifa` con el arg de categoría es barato. **Pendiente de confirmar.**
+- **F3-D3 (secuencia) — CONFIRMADO:** los descuentos INAPAM/menor **esperan a Fase 5** (que
+  trae el alta de tarifas por categoría en `Tarifas.tsx` + `crearTarifa` con el arg). Entre
+  Fase 3 y 5, `registrar_venta` con `categoria='inapam'` da `RAISE` y la SPA oculta el selector.
+  Fase 3 entrega solo la validación estricta (el pedido central de D4) + el esquema.
 - **P-2 RESUELTA:** montos fijos, sin cortesías ni importe 0, sin tope hoy (campo listo).
 - **Bloqueante:** ninguno.
 
