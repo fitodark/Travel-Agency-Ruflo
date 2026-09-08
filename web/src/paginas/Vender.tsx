@@ -4,8 +4,14 @@ import { ErrorApi } from '../api/cliente';
 import { listarPuntos } from '../api/catalogos';
 import {
   buscarSalidas, registrarVenta,
-  type ResultadoVenta, type SalidaDisponible,
+  type CategoriaPasajero, type ResultadoVenta, type SalidaDisponible,
 } from '../api/ventas';
+
+const CATEGORIAS: { valor: CategoriaPasajero; etiqueta: string }[] = [
+  { valor: 'general', etiqueta: 'General' },
+  { valor: 'inapam', etiqueta: 'INAPAM' },
+  { valor: 'menor', etiqueta: 'Menor' },
+];
 import { fechaHora } from '../lib/fechas';
 
 type Paso = 1 | 2 | 3 | 4 | 5 | 6 | 'listo';
@@ -50,13 +56,24 @@ export function Vender() {
   const [salida, setSalida] = useState<SalidaDisponible | null>(null);
   const [asientos, setAsientos] = useState<number[]>([]);
   const [nombres, setNombres] = useState<Record<number, string>>({});
+  const [categorias, setCategorias] = useState<Record<number, CategoriaPasajero>>({});
   const [metodo, setMetodo] = useState<'efectivo' | 'transferencia' | 'sin_pago'>('efectivo');
   const [referencia, setReferencia] = useState('');
   const [resultado, setResultado] = useState<ResultadoVenta | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const importeUnit = salida?.importe ?? 0;
-  const total = useMemo(() => importeUnit * asientos.length, [importeUnit, asientos.length]);
+  // Categorías con tarifa capturada para este tramo: `general` siempre; `inapam` /
+  // `menor` solo si la ruta las tiene. El descuento solo aplica terminal↔terminal
+  // (D4) — el backend lo valida; aquí solo se ofrece lo que hay.
+  const catsDisponibles = CATEGORIAS.filter(
+    (c) => c.valor === 'general' || salida?.tarifas?.[c.valor] != null,
+  );
+  const importeDe = (a: number): number =>
+    salida?.tarifas?.[categorias[a] ?? 'general'] ?? salida?.importe ?? 0;
+  const total = useMemo(
+    () => asientos.reduce((s, a) => s + importeDe(a), 0),
+    [asientos, categorias, salida],
+  );
 
   const busqueda = useMutation({
     mutationFn: () =>
@@ -81,7 +98,8 @@ export function Vender() {
         pasajeros: asientos.map((a) => ({
           asientoNum: a,
           nombre: nombres[a] ?? '',
-          importe: importeUnit,
+          importe: importeDe(a),
+          categoria: categorias[a] ?? 'general',
         })),
         ...(metodo === 'sin_pago'
           ? {}
@@ -103,6 +121,7 @@ export function Vender() {
     setSalida(null);
     setAsientos([]);
     setNombres({});
+    setCategorias({});
     setResultado(null);
     setError(null);
     setMetodo('efectivo');
@@ -281,14 +300,34 @@ export function Vender() {
       {paso === 4 && (
         <div className="space-y-3 tarjeta p-4">
           {asientos.map((a) => (
-            <label key={a} className="block text-sm">
-              Asiento {a} — nombre del pasajero
-              <input
-                value={nombres[a] ?? ''}
-                onChange={(e) => setNombres((p) => ({ ...p, [a]: e.target.value }))}
-                className="campo mt-1"
-              />
-            </label>
+            <div key={a} className="space-y-1">
+              <label className="block text-sm">
+                Asiento {a} — nombre del pasajero
+                <input
+                  value={nombres[a] ?? ''}
+                  onChange={(e) => setNombres((p) => ({ ...p, [a]: e.target.value }))}
+                  className="campo mt-1"
+                />
+              </label>
+              {catsDisponibles.length > 1 && (
+                <label className="block text-sm">
+                  Categoría
+                  <select
+                    value={categorias[a] ?? 'general'}
+                    onChange={(e) =>
+                      setCategorias((p) => ({ ...p, [a]: e.target.value as CategoriaPasajero }))
+                    }
+                    className="campo mt-1"
+                  >
+                    {catsDisponibles.map((c) => (
+                      <option key={c.valor} value={c.valor}>
+                        {c.etiqueta} — ${salida?.tarifas?.[c.valor] ?? salida?.importe ?? 0}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+            </div>
           ))}
           <label className="block text-sm">
             Teléfono de contacto (obligatorio)
@@ -319,8 +358,11 @@ export function Vender() {
           <ul className="divide-y">
             {asientos.map((a) => (
               <li key={a} className="flex justify-between py-1">
-                <span>Asiento {a} · {nombres[a]}</span>
-                <span>${importeUnit}</span>
+                <span>
+                  Asiento {a} · {nombres[a]}
+                  {(categorias[a] ?? 'general') !== 'general' && ` · ${categorias[a]}`}
+                </span>
+                <span>${importeDe(a)}</span>
               </li>
             ))}
           </ul>

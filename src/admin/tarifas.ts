@@ -89,9 +89,13 @@ export async function crearTarifa(
 
   const cuando = await cuandoEntra(db, opts);
 
+  // `crearTarifa` solo maneja la tarifa `general` hoy; el contrato con categoría
+  // (inapam/menor) es Fase 5. El filtro evita que un cambio de tarifa general
+  // cierre también las de descuento del mismo tramo (0051).
   const { rows: previa } = await db.query<{ id: string }>(
     `SELECT id FROM core.tarifa
       WHERE ruta_id = $1 AND parada_origen_orden = $2 AND parada_destino_orden = $3
+        AND categoria_pasajero = 'general'
         AND activo AND effective_until IS NULL
       ORDER BY effective_from DESC LIMIT 1`,
     [datos.rutaId, datos.paradaOrigenOrden, datos.paradaDestinoOrden],

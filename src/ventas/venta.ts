@@ -17,6 +17,8 @@ export interface Pasajero {
   asientoNum: number;
   nombre: string;
   importe: number;
+  /** Categoría de tarifa (D4). Por defecto `general`. Descuento solo terminal↔terminal. */
+  categoria?: 'general' | 'inapam' | 'menor';
   /** Lease adquirido en el paso 3 (venta con conexión fuera del cupo propio). */
   leaseId?: string;
 }
@@ -53,6 +55,7 @@ export interface BoletoEmitido {
   asientoNum: number;
   pasajero: string;
   importe: number;
+  categoria: 'general' | 'inapam' | 'menor';
 }
 
 export interface ResultadoVenta {
@@ -72,6 +75,7 @@ function pasajeroAJson(p: Pasajero): Record<string, unknown> {
     asiento_num: p.asientoNum,
     nombre: p.nombre,
     importe: p.importe,
+    ...(p.categoria ? { categoria: p.categoria } : {}),
     ...(p.leaseId ? { lease_id: p.leaseId } : {}),
   };
 }
@@ -103,6 +107,7 @@ interface BoletoEmitidoRaw {
   asiento_num: number;
   pasajero: string;
   importe: number;
+  categoria: 'general' | 'inapam' | 'menor';
 }
 
 export async function registrarVenta(
@@ -146,6 +151,7 @@ function normalizar(f: FilaVenta): ResultadoVenta {
       asientoNum: Number(b.asiento_num),
       pasajero: b.pasajero,
       importe: Number(b.importe),
+      categoria: b.categoria ?? 'general',
     })),
     printJobs: Number(f.print_jobs),
     imprimible: f.imprimible,

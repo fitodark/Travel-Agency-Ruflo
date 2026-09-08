@@ -18,7 +18,11 @@ export interface SalidaDisponible {
   destinoNombre: string;
   /** Paradas intermedias entre origen y destino; vacío si es directo. */
   escalas: string[];
+  /** Tarifa vigente por categoría de pasajero: `{ general, inapam?, menor? }` (D4). */
+  tarifas: Partial<Record<'general' | 'inapam' | 'menor', number>>;
 }
+
+export type CategoriaPasajero = 'general' | 'inapam' | 'menor';
 
 export interface BuscarParams {
   fecha: string;
@@ -59,6 +63,7 @@ export interface Pasajero {
   asientoNum: number;
   nombre: string;
   importe: number;
+  categoria?: CategoriaPasajero;
   leaseId?: string;
 }
 
