@@ -285,17 +285,37 @@ reserva la registra la terminal de origen, que aparta el asiento desde el orden 
 - **Bloqueante:** ninguno. Verificado: 0 regresiones (mismas 70 fallas preexistentes),
   `tests/ventas` + `tests/fleet` verdes, +4 casos nuevos.
 
-### Fase 3 — Validación de tarifa en la venta  ·  `0051`
+### Fase 3 — Validación de tarifa en la venta  ·  `0051`  ✅ MERGEADA (PR #65, `569c0d5`)
 
-- `core.tarifa` → `ADD COLUMN categoria_pasajero` (`general`|`inapam`|`menor`), `tope_asientos`.
-  Reconstruir `core.v_tarifa_vigente` con la categoría en la llave.
-- `core.registrar_venta`: resolver la tarifa para `(ruta, origen_orden, destino_orden,
-  pasajero.categoria)`; sin tarifa ⇒ `RAISE`; cada `pasajero.importe` debe igualar esa tarifa.
-- Si `categoria ≠ general`: exigir que `origen_orden` y `destino_orden` sean terminales
-  extremos de la ruta (descuento solo Huajuapan↔CDMX). En parada intermedia ⇒ `RAISE`.
-- Parámetro `validar_tarifa_estricta` (default `true`).
-- `pasajeroSchema` / `Vender.tsx`: selector de categoría; el corte y `operacion.ts`
-  desglosan por categoría. La categoría **no** se imprime (D7) — solo nombre.
+- `core.tarifa` → `categoria_pasajero` (`general`|`inapam`|`menor`, en la llave) + `tope_asientos`
+  (nullable, inerte). `core.v_tarifa_vigente` recreada (DROP+CREATE; una vista `SELECT *`
+  congela columnas). `core.boleto` → `categoria_pasajero` (no se imprime, D7).
+- `core.buscar_salidas` (DROP+CREATE) → 17ª col `tarifas jsonb` = `{categoria: importe}` del
+  tramo (subquery escalar correlacionada, `{}` si no hay); `importe` escalar = tarifa `general`.
+- `core.registrar_venta` (re-emitida desde `0050`) → cada pasajero lleva `categoria`; valida
+  `importe` vs la tarifa vigente de su `(ruta, tramo, categoria)`; sin tarifa o importe ≠
+  tarifa ⇒ `RAISE` (salvo `validar_tarifa_estricta = false`). Descuento (`categoria ≠ general`)
+  solo si `origen_orden = 0 AND destino_orden = n-1`. Guarda `categoria` en `core.boleto`.
+- `validar_tarifa_estricta` (`core.parametro`, default `true`, vía la migración). El interruptor
+  off = **no valida el importe**; el CHECK de categoría y el guard de descuento siguen activos.
+- Web (opción 1): selector de categoría por asiento en `Vender.tsx` paso 4; `importe` por
+  pasajero desde `salida.tarifas[categoria]`. `ventaSchema` (JSON schema fastify) += `categoria`
+  enum. `crearTarifa` cierra solo la tarifa `general` previa.
+- **Sin compat trigger** — el `DEFAULT 'general'` es el valor correcto para todo dato pre-Fase-3.
+- **F3-D1 (runbook de deploy):** `validar_tarifa_estricta='true'` es efectivo en cuanto aterriza
+  `0051`. **Antes del deploy nube+4 terminales, auditar que cada `(ruta, tramo vendible)` en
+  producción tenga fila `core.tarifa` vigente `general`.** *Auditado 2026-09-08: `HJP - CDMX`
+  6/6 tramos cubiertos — OK.* Si en el futuro hay hueco: sembrar el param en `'false'`, llenar
+  tarifas, flipear a `'true'`.
+- **F3-D2 (Fase 4):** el guard de descuento es por `orden` (`destino = n-1`), no por
+  `punto_ruta.tipo`. Correcto mientras las rutas siempre empiecen/terminen en terminal (D5).
+  Reescribir contra `tipo='terminal'` + extremo de ruta en Fase 4/5 (hermano de F2-D1).
+- **F3-D3 (secuencia):** los descuentos **no funcionan hasta Fase 5** — no hay forma de crear
+  tarifas `inapam`/`menor` (`crearTarifa` solo hace `general`, no hay UI admin). Entre Fase 3
+  y 5: `registrar_venta` con `categoria='inapam'` siempre `RAISE`; la SPA oculta el selector si
+  `salida.tarifas` no trae descuentos. Fase 3 entrega la **validación estricta** (el pedido
+  central de D4) + el esquema. Si el cliente necesita INAPAM/menor operativos antes de Fase 5,
+  extender `crearTarifa` con el arg de categoría es barato. **Pendiente de confirmar.**
 - **P-2 RESUELTA:** montos fijos, sin cortesías ni importe 0, sin tope hoy (campo listo).
 - **Bloqueante:** ninguno.
 
