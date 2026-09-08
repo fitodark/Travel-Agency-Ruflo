@@ -38,12 +38,34 @@ export interface SalidaFixture {
  */
 export async function seedSalida(
   client: Client,
-  opts: SeedRutaOpts & { diasAdelante?: number } = {},
+  opts: SeedRutaOpts & {
+    diasAdelante?: number;
+    /**
+     * Desde Fase 3 (migración 0051) `core.registrar_venta` valida el importe
+     * contra `core.tarifa` cuando `validar_tarifa_estricta` (default `true`).
+     * Por comodidad, `seedSalida` siembra una tarifa `general` para CADA tramo
+     * `[i,j)` de la ruta a este importe (default 450). Los tests que venden a
+     * otro importe pasan `tarifaImporte`; los que prueban la ausencia de tarifa
+     * pasan `sinTarifas: true`.
+     */
+    tarifaImporte?: number;
+    sinTarifas?: boolean;
+  } = {},
 ): Promise<SalidaFixture> {
   const ruta = await seedRuta(client, opts);
   const desde = new Date(Date.now() + (opts.diasAdelante ?? 7) * 86_400_000)
     .toISOString().slice(0, 10);
   await materializarHorario(client, ruta.horarioId, { dias: 0, desde });
+
+  const nParadas = opts.paradas ?? 3;
+  if (!opts.sinTarifas) {
+    const importe = opts.tarifaImporte ?? 450;
+    for (let i = 0; i < nParadas; i++) {
+      for (let j = i + 1; j < nParadas; j++) {
+        await seedTarifa(client, ruta.horarioId, i, j, importe);
+      }
+    }
+  }
 
   const { rows } = await client.query<{ id: string; fecha: string }>(
     `SELECT id, fecha_operacion::text AS fecha
@@ -64,19 +86,24 @@ export async function seedSalida(
   };
 }
 
-/** Una tarifa vigente para un tramo de la ruta del horario. */
+/**
+ * Una tarifa vigente para un tramo de la ruta del horario. Desde Fase 3
+ * (migración 0051) la tarifa lleva `categoria_pasajero` (`general` por defecto);
+ * el descuento (`inapam` / `menor`) solo aplica terminal-extremo → terminal-extremo.
+ */
 export async function seedTarifa(
   client: Client,
   horarioId: string,
   origenOrden: number,
   destinoOrden: number,
   importe: number,
+  categoria: 'general' | 'inapam' | 'menor' = 'general',
 ): Promise<void> {
   await client.query(
-    `INSERT INTO core.tarifa (ruta_id, parada_origen_orden, parada_destino_orden, importe)
-     SELECT h.ruta_id, $2::smallint, $3::smallint, $4::numeric
+    `INSERT INTO core.tarifa (ruta_id, parada_origen_orden, parada_destino_orden, importe, categoria_pasajero)
+     SELECT h.ruta_id, $2::smallint, $3::smallint, $4::numeric, $5::text
        FROM core.horario h WHERE h.id = $1`,
-    [horarioId, origenOrden, destinoOrden, importe],
+    [horarioId, origenOrden, destinoOrden, importe, categoria],
   );
 }
 

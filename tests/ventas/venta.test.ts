@@ -354,16 +354,18 @@ run('registro de venta (PostgreSQL real)', () => {
 
   it('el importe total es la suma de los importes de los pasajeros', async () => {
     const c = await preparar();
+    // Con `validar_tarifa_estricta` (Fase 3) cada importe debe igualar la tarifa
+    // del tramo; el fixture siembra 450 para [0,3). La aserción es la suma.
     const r = await registrarVenta(db, {
       salidaId: c.salidaId, sucursalVentaId: c.sucursales[0]!, usuarioId: c.usuarioId,
       contactoTelefono: '953 111 2222', origenOrden: 0, destinoOrden: 3,
       pasajeros: [
         { asientoNum: 2, nombre: 'A', importe: 450 },
-        { asientoNum: 3, nombre: 'B', importe: 500 },
-        { asientoNum: 4, nombre: 'C', importe: 480 },
+        { asientoNum: 3, nombre: 'B', importe: 450 },
+        { asientoNum: 4, nombre: 'C', importe: 450 },
       ],
       ahora: c.ahora,
     });
-    expect(r.importeTotal).toBe(1430);
+    expect(r.importeTotal).toBe(1350);
   });
 });

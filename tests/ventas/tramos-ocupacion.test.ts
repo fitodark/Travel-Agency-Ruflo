@@ -31,7 +31,7 @@ run('tramos_ocupacion — ocupación del asiento (PostgreSQL real)', () => {
     (await db.query<{ r: string }>(sql, params)).rows[0]!.r;
 
   it('venta terminal→terminal: tramos_ocupacion == tramos, el tramo posterior queda revendible', async () => {
-    const fx = await seedSalida(db, { paradas: 4, diasAdelante: 20 });
+    const fx = await seedSalida(db, { paradas: 4, diasAdelante: 20, tarifaImporte: 100 });
     const usuarioId = await crearUsuario(db);
     await seedCorte(db, fx.sucursales[0]!, usuarioId);
     const ahora = await antesDelCierre(db, fx.salidaId, 0);
@@ -76,7 +76,7 @@ run('tramos_ocupacion — ocupación del asiento (PostgreSQL real)', () => {
   };
 
   it('tramo_ocupacion: destino = parada de descenso ⇒ el rango llega a n-1', async () => {
-    const fx = await seedSalida(db, { paradas: 4, diasAdelante: 20 });
+    const fx = await seedSalida(db, { paradas: 4, diasAdelante: 20, tarifaImporte: 100 });
     await paradaDescenso(fx, 2);
     expect(await rango(`SELECT core.tramo_ocupacion($1, 0, 2)::text AS r`, [fx.salidaId])).toBe('[0,3)');
     // terminal→terminal no se toca
@@ -100,7 +100,7 @@ run('tramos_ocupacion — ocupación del asiento (PostgreSQL real)', () => {
   };
 
   it('tramo_ocupacion: origen = parada de ascenso sin POS ⇒ el rango empieza en 0 (P-3 / D3)', async () => {
-    const fx = await seedSalida(db, { paradas: 4, diasAdelante: 20 });
+    const fx = await seedSalida(db, { paradas: 4, diasAdelante: 20, tarifaImporte: 100 });
     await paradaAscenso(fx, 1);
     // origen orden 1 = parada de ascenso ⇒ lower = 0; destino orden 3 = terminal
     expect(await rango(`SELECT core.tramo_ocupacion($1, 1, 3)::text AS r`, [fx.salidaId])).toBe('[0,3)');
@@ -110,7 +110,7 @@ run('tramos_ocupacion — ocupación del asiento (PostgreSQL real)', () => {
   });
 
   it('venta a una parada de descenso: el asiento se ocupa hasta el fin de la ruta y no se revende aguas abajo', async () => {
-    const fx = await seedSalida(db, { paradas: 4, diasAdelante: 20 });
+    const fx = await seedSalida(db, { paradas: 4, diasAdelante: 20, tarifaImporte: 100 });
     await paradaDescenso(fx, 2);
     const usuarioId = await crearUsuario(db);
     await seedCorte(db, fx.sucursales[0]!, usuarioId);
@@ -137,7 +137,7 @@ run('tramos_ocupacion — ocupación del asiento (PostgreSQL real)', () => {
   });
 
   it('asientos_libres respeta tramos_ocupacion: el asiento no aparece libre para [2,3) tras un boleto a la parada de descenso', async () => {
-    const fx = await seedSalida(db, { paradas: 4, diasAdelante: 20 });
+    const fx = await seedSalida(db, { paradas: 4, diasAdelante: 20, tarifaImporte: 100 });
     await paradaDescenso(fx, 2);
     const usuarioId = await crearUsuario(db);
     await seedCorte(db, fx.sucursales[0]!, usuarioId);

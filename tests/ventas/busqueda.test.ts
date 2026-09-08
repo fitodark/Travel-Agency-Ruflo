@@ -267,7 +267,7 @@ run('búsqueda de salidas (PostgreSQL real)', () => {
   // Tarifa
   // -------------------------------------------------------------------------
   it('devuelve la tarifa vigente del tramo, y null si no está capturada', async () => {
-    const fx = await seedSalida(db, { paradas: 4 });
+    const fx = await seedSalida(db, { paradas: 4, sinTarifas: true });
 
     const sinTarifa = await buscarSalidas(db, {
       fecha: fx.fechaOperacion,
@@ -277,6 +277,7 @@ run('búsqueda de salidas (PostgreSQL real)', () => {
       sucursalVendedoraId: fx.sucursales[0]!,
     });
     expect(sinTarifa[0]!.importe).toBeNull();
+    expect(sinTarifa[0]!.tarifas).toEqual({});
 
     await seedTarifa(db, fx.horarioId, 0, 3, 480);
     const conTarifa = await buscarSalidas(db, {
@@ -287,6 +288,8 @@ run('búsqueda de salidas (PostgreSQL real)', () => {
       sucursalVendedoraId: fx.sucursales[0]!,
     });
     expect(conTarifa[0]!.importe).toBe(480);
+    // `tarifas` lleva el mapa { categoria: importe }; `general` == la columna escalar.
+    expect(conTarifa[0]!.tarifas).toEqual({ general: 480 });
   });
 
   it('no devuelve nada si el destino va antes que el origen en la ruta', async () => {
