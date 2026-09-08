@@ -61,11 +61,15 @@ BEGIN
 END $$;
 
 
--- 5. `core.buscar_salidas` — misma firma y RETURNS TABLE que 0049; el
---    `LEFT JOIN core.v_tarifa_vigente` ahora puede matchear 3 filas por tramo
---    (general/inapam/menor) y duplicaría salidas. Se fija a 'general'.
+-- 5. `core.buscar_salidas` — cambia el `RETURNS TABLE` (gana `tarifas jsonb`),
+--    así que DROP + CREATE (patrón 0043). La columna escalar `importe` sigue
+--    siendo la tarifa 'general' (el `LEFT JOIN t` filtrado a 'general' — sin él
+--    matchearía 3 filas por tramo y duplicaría salidas). `tarifas` lleva el mapa
+--    { categoria: importe } para que la SPA arme el selector por pasajero (D4).
 -- ---------------------------------------------------------------------------
-CREATE OR REPLACE FUNCTION core.buscar_salidas(
+DROP FUNCTION IF EXISTS core.buscar_salidas(date, uuid, uuid, integer, uuid, boolean, timestamptz);
+
+CREATE FUNCTION core.buscar_salidas(
   p_fecha               date,
   p_origen              uuid,
   p_destino             uuid,
@@ -90,7 +94,8 @@ RETURNS TABLE (
   ruta_nombre        text,
   origen_nombre      text,
   destino_nombre     text,
-  escalas            text[]
+  escalas            text[],
+  tarifas            jsonb
 )
 LANGUAGE sql STABLE AS $$
   SELECT s.id,
@@ -117,7 +122,19 @@ LANGUAGE sql STABLE AS $$
             WHERE spx.salida_id = s.id
               AND spx.orden > spo.orden
               AND spx.orden < spd.orden
-         ), ARRAY[]::text[])
+         ), ARRAY[]::text[]),
+         COALESCE((
+           SELECT jsonb_object_agg(x.categoria_pasajero, x.importe)
+             FROM (
+               SELECT DISTINCT ON (t2.categoria_pasajero)
+                      t2.categoria_pasajero, t2.importe
+                 FROM core.v_tarifa_vigente t2
+                WHERE t2.ruta_id = h.ruta_id
+                  AND t2.parada_origen_orden = spo.orden
+                  AND t2.parada_destino_orden = spd.orden
+                ORDER BY t2.categoria_pasajero, t2.effective_from DESC
+             ) x
+         ), '{}'::jsonb)
     FROM core.salida s
     JOIN core.salida_parada spo
       ON spo.salida_id = s.id AND spo.punto_id = p_origen
@@ -159,7 +176,7 @@ LANGUAGE sql STABLE AS $$
 $$;
 
 COMMENT ON FUNCTION core.buscar_salidas(date, uuid, uuid, integer, uuid, boolean, timestamptz) IS
-  'Paso 2 del flujo de venta: salidas del día origen→destino (origen/destino = core.punto_ruta.id) con ruta, escalas, disponibilidad por tramo y tarifa general. El origen debe permitir ascenso. Blueprint F4 · 05 §4.';
+  'Paso 2 del flujo de venta: salidas del día origen→destino (origen/destino = core.punto_ruta.id) con ruta, escalas, disponibilidad, tarifa general (columna `importe`) y el mapa `tarifas` {categoria: importe} para el selector por pasajero. El origen debe permitir ascenso. Blueprint F4 · 05 §4.';
 
 
 -- 6. `core.registrar_venta` — copia vigente de 0050 + resolución de la tarifa por

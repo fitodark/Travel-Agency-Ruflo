@@ -56,6 +56,8 @@ export interface SalidaDisponible {
   destinoNombre: string;
   /** Paradas intermedias entre origen y destino, en orden. Vacío si es directo. */
   escalas: string[];
+  /** Tarifa vigente por categoría de pasajero: `{ general, inapam?, menor? }` (D4). */
+  tarifas: Partial<Record<'general' | 'inapam' | 'menor', number>>;
 }
 
 interface FilaBusqueda {
@@ -75,6 +77,7 @@ interface FilaBusqueda {
   origen_nombre: string;
   destino_nombre: string;
   escalas: string[] | null;
+  tarifas: Record<string, number | string> | null;
 }
 
 export async function buscarSalidas(
@@ -85,7 +88,7 @@ export async function buscarSalidas(
     `SELECT salida_id, horario_id, fecha_operacion::text AS fecha_operacion,
             hora_salida_origen, origen_orden, destino_orden, estado,
             cierre_venta_en, importe, asientos_ofrecibles, disponibles, seleccionable,
-            ruta_nombre, origen_nombre, destino_nombre, escalas
+            ruta_nombre, origen_nombre, destino_nombre, escalas, tarifas
        FROM core.buscar_salidas($1::date, $2::uuid, $3::uuid, $4::int, $5::uuid,
                                 $6::boolean, $7::timestamptz)`,
     [
@@ -116,5 +119,8 @@ export async function buscarSalidas(
     origenNombre: f.origen_nombre,
     destinoNombre: f.destino_nombre,
     escalas: f.escalas ?? [],
+    tarifas: Object.fromEntries(
+      Object.entries(f.tarifas ?? {}).map(([k, v]) => [k, Number(v)]),
+    ),
   }));
 }
