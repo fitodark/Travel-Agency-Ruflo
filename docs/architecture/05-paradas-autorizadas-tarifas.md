@@ -212,22 +212,26 @@ reserva la registra la terminal de origen, que aparta el asiento desde el orden 
   seguridad; el compat trigger ya lo puebla vía `donaji.replicando`). Luego `SET NOT NULL`
   en `ruta_parada.punto_id` / `salida_parada.punto_id` y wiring de `bootstrap.ts` /
   `ORDEN_TOPOLOGICO` (`core.punto_ruta` antes de `ruta_parada`/`salida_parada`).
-- **Fase 1 NO hace ningún `DROP COLUMN`** (análisis de blast radius del `architect`):
-  `salida_parada.sucursal_id` lo leen hoy `snapshot_boleto` (`0046`), `datos_manifiesto` /
-  `salidas_del_dia` (`0026`), vistas `api.*` (`0030`) y `src/fleet/abordaje.ts` — todo
-  territorio de Fase 5. **Ambas** columnas `sucursal_id` y **ambos** `trg_aa_compat_punto`
-  se quedan; `materializar_salidas` sigue poblando `punto_id` **y** `sucursal_id` en paralelo.
-  `salida_parada.sucursal_id` → `DROP NOT NULL` (para las paradas de descenso de Fase 4).
-  El `DROP COLUMN` de las dos + retiro de triggers + re-cableo de
-  `snapshot_boleto`/manifiesto/`api`/`abordaje` se hace **junto en Fase 5** (o `0053b`).
-  *(La cabecera de `0048` dice "se elimina en 0049" — quedó desactualizada; la de `0049`
-  lo aclara. No se re-edita `0048`, ya mergeado.)*
+- **`DROP COLUMN core.ruta_parada.sucursal_id`** + retiro de `trg_ruta_parada_compat_punto`.
+  Verificado seguro por el `architect`: todos los lectores terminal-side de esa columna
+  migraron en Fase 0 (`listarRutasDetalle`/`listarHorarios` en `horarios.ts`, `listarRutas`
+  en `tarifas.ts`), `sync.ingest_fila` (`0031`) tolera la columna ausente en el payload, y
+  ya era nullable desde `0048`.
+- **`salida_parada.sucursal_id` NO se dropea en Fase 1** — lo leen `snapshot_boleto` (`0046`),
+  `datos_manifiesto` / `salidas_del_dia` (`0026`), vistas `api.*` (`0030`) y
+  `src/fleet/abordaje.ts` (blast radius = Fase 5). Solo `DROP NOT NULL` (para las paradas de
+  descenso de Fase 4). Su compat trigger (`trg_salida_parada_compat_punto`) **se queda**;
+  `materializar_salidas` sigue poblando `punto_id` **y** `sucursal_id` en paralelo.
+  El `DROP COLUMN` + retiro de ese trigger + re-cableo de `snapshot_boleto`/manifiesto/
+  `api`/`abordaje` van **juntos en Fase 5** (o un `0053b`).
+  *(La cabecera de `0048` dice "se elimina en 0049" — cierto solo para `ruta_parada`; la de
+  `0049` lo aclara. No se re-edita `0048`, ya mergeado.)*
 - Helper `core.asegurar_punto_terminal(sucursal_id uuid)` — find-or-create del punto
-  terminal por id determinista `md5('core.punto_ruta:'||sucursal_id)`. Es el camino de
-  escritura explícito para `crearRuta` / `seedRuta` (el compat trigger sigue existiendo
-  como red para el ingest, pero el código local ya no depende de él).
-- `crearRuta` (`src/admin/horarios.ts`) y `seedRuta` (`tests/fleet/fixture.ts`) → escriben
-  `punto_id` (vía `asegurar_punto_terminal`) + banderas explícitas.
+  terminal por id determinista `md5('core.punto_ruta:'||sucursal_id)`. Reemplaza al compat
+  trigger de `ruta_parada` (que se retira): es el camino de escritura para `crearRuta` /
+  `seedRuta` ahora que `ruta_parada` ya no tiene `sucursal_id`.
+- `crearRuta` (`src/admin/horarios.ts`) y `seedRuta` (`tests/fleet/fixture.ts`) → insertan
+  `ruta_parada` con `punto_id` (vía `asegurar_punto_terminal`) + banderas explícitas.
 - `core.buscar_salidas` (versión vigente en `0043`) → `p_origen` / `p_destino` pasan a ser
   **punto ids**; origen debe tener `ruta_parada.permite_ascenso`; destino cualquier punto
   posterior; join a `core.punto_ruta` para `origen_nombre` / `destino_nombre` / `escalas`.
@@ -238,15 +242,15 @@ reserva la registra la terminal de origen, que aparta el asiento desde el orden 
   `web/src/paginas/Vender.tsx` (selector Origen = puntos con `permite_ascenso`, Destino = puntos posteriores).
 - **P-1 RESUELTA:** la bandera es `ruta_parada.permite_ascenso` / `permite_descenso` (D2).
   Origen válido = `permite_ascenso`. Añadir fixture con parada de solo ascenso (retorno).
-- **`crearRuta` debe setear `permite_ascenso`/`permite_descenso` explícito** en cada
-  `INSERT INTO core.ruta_parada`: el `DEFAULT false/false` de `0048` viola
-  `ruta_parada_rol_chk` si el insertador da `punto_id` pero omite las banderas. (El compat
-  trigger solo las rellena cuando `punto_id IS NULL`, así que el camino explícito debe
-  darlas. Hallazgo del review de Fase 0, D3.)
-- **Fixture:** el compat trigger de `ruta_parada` sobrevive, así que `seedRuta` no se rompe;
-  el `tester` solo añade `puntos: string[]` a `RutaFixture` para que los tests de
-  `buscar_salidas` pasen punto ids, + una opción `paradaAscensoEnOrden` (parada de solo
-  ascenso del retorno). La reescritura del `INSERT` de `seedRuta` es deseable, no bloqueante.
+- **`crearRuta` / `seedRuta` setean `permite_ascenso`/`permite_descenso` explícito** en cada
+  `INSERT INTO core.ruta_parada` — obligatorio ahora que `ruta_parada` no tiene `sucursal_id`
+  ni compat trigger: el `DEFAULT false/false` de `0048` viola `ruta_parada_rol_chk` sin las
+  banderas. (Hallazgo del review de Fase 0, D3.)
+- **Fixture:** `seedRuta` (`tests/fleet/fixture.ts`) reescribe su `INSERT` de `ruta_parada`
+  para usar `asegurar_punto_terminal` + banderas; `RutaFixture` gana `puntos: string[]`;
+  nueva opción `paradaAscensoEnOrden` (parada de solo ascenso del retorno). Los tests de
+  `buscar_salidas` pasan `fx.puntos[...]` en vez de `fx.sucursales[...]`. Arrastre a arreglar:
+  `fleet`, `ventas`, `api/admin`, `caja`.
 - **Bloqueante:** ninguno.
 
 ### Fase 2 — Semántica de ocupación del asiento  ·  `0050`
