@@ -293,9 +293,14 @@ reserva la registra la terminal de origen, que aparta el asiento desde el orden 
   core.horario_parada`. `parada_descenso` → `hora_paso_programada` / `cierre_venta_en`
   en `NULL`.
 - `core.repartir_cupo_offline` (`0019`): `v_n_intermedias` cuenta solo puntos
-  `terminal` con ascenso; las `parada_descenso` no entran al `FOR` de vendedoras ni
-  reciben bloque. El chequeo `v_n_bloques - v_n_intermedias >= 1` usa el conteo
-  corregido.
+  `terminal` con ascenso; las paradas (`tipo='parada'`, ascenso o descenso) no entran al
+  `FOR` de vendedoras ni reciben bloque. El chequeo `v_n_bloques - v_n_intermedias >= 1`
+  usa el conteo corregido.
+- **`core.cupo_offline.sucursal_id` es NOT NULL** (hallazgo de Fase 1): una parada no-terminal
+  (sin `sucursal_id`) que llegue al reparto revienta el `INSERT`. La corrección de arriba
+  (excluir las paradas del reparto) ya lo cubre; alternativa defensiva = `DROP NOT NULL` en
+  esa columna. En Fase 1 el fixture `paradaAscensoEnOrden` se prueba solo a nivel `seedRuta`
+  (sin materializar) por esto.
 - **Bloqueante:** ninguno (depende de Fase 0 y 1).
 
 ### Fase 5 — Impresión, manifiesto y alta de rutas  ·  `0053` + admin + SPA
