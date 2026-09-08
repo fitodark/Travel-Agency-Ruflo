@@ -212,12 +212,18 @@ reserva la registra la terminal de origen, que aparta el asiento desde el orden 
   seguridad; el compat trigger ya lo puebla vía `donaji.replicando`). Luego `SET NOT NULL`
   en `ruta_parada.punto_id` / `salida_parada.punto_id` y wiring de `bootstrap.ts` /
   `ORDEN_TOPOLOGICO` (`core.punto_ruta` antes de `ruta_parada`/`salida_parada`).
-- `DROP COLUMN ruta_parada.sucursal_id` + retirar `trg_aa_compat_punto` **de `ruta_parada`**.
-- **`salida_parada.sucursal_id` NO se dropea en Fase 1** — se queda hasta **Fase 5**, cuando
-  `snapshot_boleto` + funciones de manifiesto + `abordaje.ts` se re-cablean a `punto_ruta`
-  (D7/D11). El compat trigger de `salida_parada` (o `materializar_salidas` poblando ambos
-  `punto_id` y `sucursal_id`) se mantiene hasta entonces. (Ajuste de alcance del `coder`,
-  blast radius.)
+- **Fase 1 NO hace ningún `DROP COLUMN`** (análisis de blast radius del `architect`):
+  `salida_parada.sucursal_id` lo leen hoy `snapshot_boleto` (`0046`), `datos_manifiesto` /
+  `salidas_del_dia` (`0026`), vistas `api.*` (`0030`) y `src/fleet/abordaje.ts` — todo
+  territorio de Fase 5. **Ambas** columnas `sucursal_id` y **ambos** `trg_aa_compat_punto`
+  se quedan; `materializar_salidas` sigue poblando `punto_id` **y** `sucursal_id` en paralelo.
+  `salida_parada.sucursal_id` → `DROP NOT NULL` (para las paradas de descenso de Fase 4).
+  El `DROP COLUMN` de las dos + retiro de triggers + re-cableo de
+  `snapshot_boleto`/manifiesto/`api`/`abordaje` se hace **junto en Fase 5** (o `0053b`).
+  *(La cabecera de `0048` dice "se elimina en 0049" — quedó desactualizada; la de `0049`
+  lo aclara. No se re-edita `0048`, ya mergeado.)*
+- `crearRuta` (`src/admin/horarios.ts`) y `seedRuta` (`tests/fleet/fixture.ts`) → escriben
+  `punto_id` + banderas explícitas; dejan de depender del compat trigger en el camino local.
 - `core.buscar_salidas` (versión vigente en `0043`) → `p_origen` / `p_destino` pasan a ser
   **punto ids**; origen debe tener `ruta_parada.permite_ascenso`; destino cualquier punto
   posterior; join a `core.punto_ruta` para `origen_nombre` / `destino_nombre` / `escalas`.
@@ -283,10 +289,12 @@ reserva la registra la terminal de origen, que aparta el asiento desde el orden 
 
 - `core.snapshot_boleto`: `origen` / `destino` desde `punto_ruta.nombre`; sin `referencia`;
   añadir **punto de ascenso** del pasajero (D7).
-- **Re-cablear a `punto_ruta` lo que aún lee `salida_parada.sucursal_id`** (`snapshot_boleto`,
-  funciones de manifiesto `0026`, `src/fleet/abordaje.ts`), y recién entonces
-  `DROP COLUMN salida_parada.sucursal_id` + retirar el compat trigger de `salida_parada` /
-  dejar que `materializar_salidas` pueble solo `punto_id`. (Diferido desde Fase 1 por blast radius.)
+- **Re-cablear a `punto_ruta` todo lo que aún lee `sucursal_id`** de `ruta_parada` /
+  `salida_parada` — `core.snapshot_boleto` (`0046`), `core.datos_manifiesto` /
+  `core.salidas_del_dia` (`0026`), vistas `api.*` (`0030`), `src/fleet/abordaje.ts` — y recién
+  entonces `DROP COLUMN` en **ambas** tablas + retirar **ambos** `trg_aa_compat_punto` +
+  dejar que `materializar_salidas` pueble solo `punto_id`. Puede ir en un `0053b` dedicado.
+  (Diferido completo desde Fase 1 por blast radius.)
 - **Reimpresión** de boleto (`src/printing/templates/boleto.ts`): parámetro `reimpreso`
   que agrega la leyenda tomada de `config_ticket.leyenda_reimpresion` (N-4); mismo contenido
   que el original. La original del wizard va sin leyenda. Acción de reimpresión en Viajes /
