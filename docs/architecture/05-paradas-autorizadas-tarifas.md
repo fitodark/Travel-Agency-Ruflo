@@ -207,18 +207,22 @@ reserva la registra la terminal de origen, que aparta el asiento desde el orden 
 
 ### Fase 1 — Bandera ascenso/descenso en búsqueda y venta  ·  `0049`
 
-- **Ventana coordinada 5 nodos** (el usuario migra nube + 4 terminales a mano): antes del
-  `SET NOT NULL`, backfillear `punto_id` en cada nodo (red de seguridad; el compat trigger
-  ya lo puebla vía `donaji.replicando`). Luego `SET NOT NULL` en `ruta_parada.punto_id` /
-  `salida_parada.punto_id`, wiring de `bootstrap.ts` / `ORDEN_TOPOLOGICO`, y retirar
-  `trg_aa_compat_punto` de ambas tablas.
-- `DROP COLUMN ruta_parada.sucursal_id`, `salida_parada.sucursal_id` (tras confirmar que los
-  5 nodos tienen `punto_id` poblado).
-- `core.buscar_salidas` → `p_origen` / `p_destino` pasan a ser **punto ids**; origen
-  debe ser `tipo='terminal'`; destino cualquier punto posterior; join a
-  `core.punto_ruta` para nombres y escalas.
-- `core.registrar_venta` y `core.adquirir_lease` → `RAISE` si el `orden` de origen es
-  un `parada_descenso`.
+- **Ventana coordinada 5 nodos** (el usuario migra nube + 4 terminales a `0048` **antes** de
+  aplicar `0049`): antes del `SET NOT NULL`, backfillear `punto_id` en cada nodo (red de
+  seguridad; el compat trigger ya lo puebla vía `donaji.replicando`). Luego `SET NOT NULL`
+  en `ruta_parada.punto_id` / `salida_parada.punto_id` y wiring de `bootstrap.ts` /
+  `ORDEN_TOPOLOGICO` (`core.punto_ruta` antes de `ruta_parada`/`salida_parada`).
+- `DROP COLUMN ruta_parada.sucursal_id` + retirar `trg_aa_compat_punto` **de `ruta_parada`**.
+- **`salida_parada.sucursal_id` NO se dropea en Fase 1** — se queda hasta **Fase 5**, cuando
+  `snapshot_boleto` + funciones de manifiesto + `abordaje.ts` se re-cablean a `punto_ruta`
+  (D7/D11). El compat trigger de `salida_parada` (o `materializar_salidas` poblando ambos
+  `punto_id` y `sucursal_id`) se mantiene hasta entonces. (Ajuste de alcance del `coder`,
+  blast radius.)
+- `core.buscar_salidas` (versión vigente en `0043`) → `p_origen` / `p_destino` pasan a ser
+  **punto ids**; origen debe tener `ruta_parada.permite_ascenso`; destino cualquier punto
+  posterior; join a `core.punto_ruta` para `origen_nombre` / `destino_nombre` / `escalas`.
+- `core.registrar_venta` (`0023`) y `core.adquirir_lease` (`0022`) → `RAISE` si el punto de
+  origen de la venta NO tiene `permite_ascenso` (una parada de solo descenso nunca origina).
 - Código: `src/ventas/busqueda.ts`, `src/api/rutas/ventas.ts` (querystring
   `origen`/`destino` = punto ids), `web/src/api/catalogos.ts` (`listarPuntos`),
   `web/src/paginas/Vender.tsx` (selector Origen = puntos con `permite_ascenso`, Destino = puntos posteriores).
@@ -279,6 +283,10 @@ reserva la registra la terminal de origen, que aparta el asiento desde el orden 
 
 - `core.snapshot_boleto`: `origen` / `destino` desde `punto_ruta.nombre`; sin `referencia`;
   añadir **punto de ascenso** del pasajero (D7).
+- **Re-cablear a `punto_ruta` lo que aún lee `salida_parada.sucursal_id`** (`snapshot_boleto`,
+  funciones de manifiesto `0026`, `src/fleet/abordaje.ts`), y recién entonces
+  `DROP COLUMN salida_parada.sucursal_id` + retirar el compat trigger de `salida_parada` /
+  dejar que `materializar_salidas` pueble solo `punto_id`. (Diferido desde Fase 1 por blast radius.)
 - **Reimpresión** de boleto (`src/printing/templates/boleto.ts`): parámetro `reimpreso`
   que agrega la leyenda tomada de `config_ticket.leyenda_reimpresion` (N-4); mismo contenido
   que el original. La original del wizard va sin leyenda. Acción de reimpresión en Viajes /
