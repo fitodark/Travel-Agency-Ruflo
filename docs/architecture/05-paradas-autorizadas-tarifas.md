@@ -253,24 +253,37 @@ reserva la registra la terminal de origen, que aparta el asiento desde el orden 
   `fleet`, `ventas`, `api/admin`, `caja`.
 - **Bloqueante:** ninguno.
 
-### Fase 2 — Semántica de ocupación del asiento  ·  `0050`
+### Fase 2 — Semántica de ocupación del asiento  ·  `0050`  ✅ ENTREGADA (rama `f-paradas-fase2`)
 
+- **`core.tramo_ocupacion(salida, desde, hasta)`** (nuevo helper): deriva el rango de
+  ocupación del de viaje — `lower = 0` si el punto de origen es `tipo='parada'`;
+  `upper = max(orden)` si el punto de destino es `tipo='parada'` con `permite_descenso`.
 - `ADD COLUMN tramos_ocupacion` en `boleto` / `asiento_ocupacion` / `asiento_lease`;
   backfill `= tramos`; `SET NOT NULL`.
-- Reemplazar el `EXCLUDE USING gist (… tramos WITH &&)` por `tramos_ocupacion WITH &&`
-  en `asiento_ocupacion` y `asiento_lease`.
-- `core.asientos_libres` / `core.asientos_ofrecibles` (`0021`) → `&&` contra
-  `tramos_ocupacion`.
-- `core.adquirir_lease` y `core.registrar_venta` → calcular ambos extremos:
-  `desde_ocupacion = CASE WHEN origina_parada_sin_pos THEN 0 ELSE origen END`,
-  `hasta_ocupacion = CASE WHEN destino_es_descenso THEN n-1 ELSE destino END`.
-- `core.snapshot_boleto` no cambia (sigue leyendo `lower/upper(b.tramos)` = viaje).
-- Revisar que `src/api/rutas/ventas.ts` (GET venta) y `web` (Viajes,
-  `ModalDetalleBoleto`) muestren `tramos` (viaje), no `tramos_ocupacion`.
+- **`trg_aa_tramos_ocupacion_compat`** (BEFORE INSERT en las 3 tablas): `tramos_ocupacion
+  := tramos` cuando el insertador no lo da. Load-bearing para la ventana de despliegue —
+  una terminal en `0049` que vende empuja `boleto`/`asiento_ocupacion` a la nube en `0050`
+  sin la columna (`sync.ingest_fila` toma columnas reales). `registrar_venta` /
+  `adquirir_lease` (`0050`) siempre lo calculan.
+- El `EXCLUDE USING gist (… tramos WITH &&)` pasa a `tramos_ocupacion WITH &&` en
+  `asiento_ocupacion` y `asiento_lease` (constraints renombradas a `*_no_solapa` /
+  `*_vivo_no_solapa`).
+- `core.asientos_libres` (`0021`) → `&&` contra `tramos_ocupacion` del rango que TENDRÍA la
+  venta pedida (`core.tramo_ocupacion`), no el viaje pelado. `asientos_ofrecibles` no cambia
+  (delega en `asientos_libres`).
+- `core.adquirir_lease` (`0049`) y `core.registrar_venta` (`0049`) → re-emitidas + calculan
+  `v_ocup`/`v_tramo_ocup` y lo guardan en `asiento_lease.tramos_ocupacion` /
+  `boleto.tramos_ocupacion` + `asiento_ocupacion.tramos_ocupacion`. El `tramos` (viaje) no
+  cambia; los checks de lease y cupo siguen sobre el viaje.
+- `core.snapshot_boleto` no cambia. **Cero cambios de `src/` o `web/`**: verificado que toda
+  la API y la SPA seleccionan `b.tramos` (viaje) explícito, nunca `SELECT *`.
+- **Dependencia con Fase 4:** el camino de venta completo a una parada de descenso necesita
+  que `materializar_salidas` emita `salida_parada` para las paradas no-terminal (Fase 4).
+  Los tests de Fase 2 (`tests/ventas/tramos-ocupacion.test.ts`) insertan esa fila a mano.
 - **P-3 RESUELTA:** el asiento se aparta desde el origen (orden `0`) cuando la venta la
-  origina una parada de ascenso **sin POS**; una terminal con POS lo aparta desde su
-  propio orden (D3). El tramo `[origen, ascenso)` no queda vendible en el primer caso.
-- **Bloqueante:** ninguno.
+  origina una parada `tipo='parada'`; una terminal lo aparta desde su propio orden (D3).
+- **Bloqueante:** ninguno. Verificado: 0 regresiones (mismas 70 fallas preexistentes),
+  `tests/ventas` + `tests/fleet` verdes, +4 casos nuevos.
 
 ### Fase 3 — Validación de tarifa en la venta  ·  `0051`
 
