@@ -224,6 +224,10 @@ reserva la registra la terminal de origen, que aparta el asiento desde el orden 
   `web/src/paginas/Vender.tsx` (selector Origen = puntos con `permite_ascenso`, Destino = puntos posteriores).
 - **P-1 RESUELTA:** la bandera es `ruta_parada.permite_ascenso` / `permite_descenso` (D2).
   Origen válido = `permite_ascenso`. Añadir fixture con parada de solo ascenso (retorno).
+- **`crearRuta` debe setear `permite_ascenso`/`permite_descenso` explícito** en cada
+  `INSERT INTO core.ruta_parada`: el `DEFAULT false/false` de `0048` viola
+  `ruta_parada_rol_chk` si el insertador da `punto_id` pero omite las banderas y el compat
+  trigger ya no está (retirado en esta fase). (Hallazgo del review de Fase 0, D3.)
 - **Bloqueante:** ninguno.
 
 ### Fase 2 — Semántica de ocupación del asiento  ·  `0050`
@@ -284,6 +288,10 @@ reserva la registra la terminal de origen, que aparta el asiento desde el orden 
   para descensos. El abordaje digital de F7 sigue en uso en la terminal de origen (N-9).
 - `src/admin/puntos.ts` (nuevo) + `src/admin/rutas-puntos.ts` (nuevo) — CRUD
   `core.punto_ruta` vía `escribirConfig` (clase A, ventana nocturna).
+- **`punto_ruta.zona_horaria` es copia point-in-time** de `sucursal.zona_horaria` (backfill
+  de `0048`); `materializar_salidas` ya no lee la tz de la sucursal en vivo. El CRUD de
+  puntos debe re-propagar la tz al punto si un admin la cambia en la sucursal (o dejar la
+  tz solo editable en el punto). (Hallazgo del review de Fase 0, D2.)
 - `crearRuta` (`src/admin/horarios.ts`): contrato
   `{ nombre, paradas: [{ puntoId, permiteAscenso, permiteDescenso }] }`; valida que
   primera y última permitan ascenso **y** descenso (son terminales extremos).
