@@ -15,6 +15,12 @@ import type { Consultable } from '../db/consulta.js';
 export interface OpcionesBusqueda {
   /** Día de viaje, `YYYY-MM-DD`. */
   fecha: string;
+  /**
+   * Punto de origen y de destino. Desde Fase 1 (migración 0049) llevan
+   * `core.punto_ruta.id`, NO `core.sucursal.id`. El origen debe permitir ascenso
+   * en la ruta (`ruta_parada.permite_ascenso`); una parada de solo descenso nunca
+   * origina. Los nombres se conservan por compatibilidad con los llamadores.
+   */
   sucursalOrigenId: string;
   sucursalDestinoId: string;
   /** Nº de personas a viajar: define `seleccionable`. */

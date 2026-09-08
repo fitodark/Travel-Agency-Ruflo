@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { ErrorApi } from '../api/cliente';
-import { listarSucursales } from '../api/catalogos';
+import { listarPuntos } from '../api/catalogos';
 import {
   buscarSalidas, registrarVenta,
   type ResultadoVenta, type SalidaDisponible,
@@ -36,7 +36,7 @@ function Pasos({ actual }: { actual: Paso }) {
 }
 
 export function Vender() {
-  const sucursales = useQuery({ queryKey: ['sucursales'], queryFn: listarSucursales });
+  const puntos = useQuery({ queryKey: ['puntos'], queryFn: listarPuntos });
 
   const [paso, setPaso] = useState<Paso>(1);
   const [fecha, setFecha] = useState(hoy);
@@ -164,8 +164,8 @@ export function Vender() {
                 className="campo mt-1"
               >
                 <option value="">—</option>
-                {sucursales.data?.map((s) => (
-                  <option key={s.id} value={s.id}>{s.nombre}</option>
+                {puntos.data?.filter((p) => p.puedeOriginar).map((p) => (
+                  <option key={p.id} value={p.id}>{p.nombre}</option>
                 ))}
               </select>
             </label>
@@ -178,8 +178,8 @@ export function Vender() {
                 className="campo mt-1"
               >
                 <option value="">—</option>
-                {sucursales.data?.map((s) => (
-                  <option key={s.id} value={s.id}>{s.nombre}</option>
+                {puntos.data?.filter((p) => p.id !== origen).map((p) => (
+                  <option key={p.id} value={p.id}>{p.nombre}</option>
                 ))}
               </select>
             </label>

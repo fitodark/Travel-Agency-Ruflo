@@ -49,6 +49,9 @@ export const ORDEN_TOPOLOGICO: readonly string[] = [
   'core.conductor',
   // Nivel 4
   'core.ruta',
+  // Catálogo de puntos de ruta (0048). FK -> core.sucursal (nivel 1); debe
+  // llegar antes que `core.ruta_parada`, que lo referencia por `punto_id`.
+  'core.punto_ruta',
   'core.ruta_parada',
   'core.horario',
   'core.horario_parada',
