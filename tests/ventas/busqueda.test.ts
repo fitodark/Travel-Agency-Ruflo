@@ -34,8 +34,8 @@ run('búsqueda de salidas (PostgreSQL real)', () => {
     const fx = await seedSalida(db, { paradas: 4 });
     const r = await buscarSalidas(db, {
       fecha: fx.fechaOperacion,
-      sucursalOrigenId: fx.sucursales[0]!,
-      sucursalDestinoId: fx.sucursales[3]!,
+      sucursalOrigenId: fx.puntos[0]!,
+      sucursalDestinoId: fx.puntos[3]!,
       nPersonas: 2,
       sucursalVendedoraId: fx.sucursales[0]!,
       conConexion: true,
@@ -62,8 +62,8 @@ run('búsqueda de salidas (PostgreSQL real)', () => {
     const fx = await seedSalida(db, { paradas: 4 });
     const r = await buscarSalidas(db, {
       fecha: fx.fechaOperacion,
-      sucursalOrigenId: fx.sucursales[0]!,
-      sucursalDestinoId: fx.sucursales[1]!,
+      sucursalOrigenId: fx.puntos[0]!,
+      sucursalDestinoId: fx.puntos[1]!,
       nPersonas: 1,
       sucursalVendedoraId: fx.sucursales[0]!,
       conConexion: true,
@@ -77,8 +77,8 @@ run('búsqueda de salidas (PostgreSQL real)', () => {
     const fx = await seedSalida(db, { paradas: 4 });
     const buscar = () => buscarSalidas(db, {
       fecha: fx.fechaOperacion,
-      sucursalOrigenId: fx.sucursales[0]!,
-      sucursalDestinoId: fx.sucursales[3]!,
+      sucursalOrigenId: fx.puntos[0]!,
+      sucursalDestinoId: fx.puntos[3]!,
       nPersonas: 1,
       sucursalVendedoraId: fx.sucursales[0]!,
       conConexion: true,
@@ -99,8 +99,8 @@ run('búsqueda de salidas (PostgreSQL real)', () => {
 
     const [s] = await buscarSalidas(db, {
       fecha: fx.fechaOperacion,
-      sucursalOrigenId: fx.sucursales[0]!,
-      sucursalDestinoId: fx.sucursales[3]!,
+      sucursalOrigenId: fx.puntos[0]!,
+      sucursalDestinoId: fx.puntos[3]!,
       nPersonas: 1,
       sucursalVendedoraId: fx.sucursales[0]!,
     });
@@ -120,8 +120,8 @@ run('búsqueda de salidas (PostgreSQL real)', () => {
 
     const [s] = await buscarSalidas(db, {
       fecha: fx.fechaOperacion,
-      sucursalOrigenId: fx.sucursales[1]!,
-      sucursalDestinoId: fx.sucursales[3]!,
+      sucursalOrigenId: fx.puntos[1]!,
+      sucursalDestinoId: fx.puntos[3]!,
       nPersonas: 1,
       sucursalVendedoraId: fx.sucursales[1]!,
       conConexion: true,
@@ -138,8 +138,8 @@ run('búsqueda de salidas (PostgreSQL real)', () => {
 
     const [s] = await buscarSalidas(db, {
       fecha: fx.fechaOperacion,
-      sucursalOrigenId: fx.sucursales[0]!,
-      sucursalDestinoId: fx.sucursales[3]!,
+      sucursalOrigenId: fx.puntos[0]!,
+      sucursalDestinoId: fx.puntos[3]!,
       nPersonas: 1,
       sucursalVendedoraId: fx.sucursales[0]!,
       conConexion: true,
@@ -156,8 +156,8 @@ run('búsqueda de salidas (PostgreSQL real)', () => {
     const fx = await seedSalida(db, { paradas: 4 });
     const [s] = await buscarSalidas(db, {
       fecha: fx.fechaOperacion,
-      sucursalOrigenId: fx.sucursales[0]!,
-      sucursalDestinoId: fx.sucursales[3]!,
+      sucursalOrigenId: fx.puntos[0]!,
+      sucursalDestinoId: fx.puntos[3]!,
       nPersonas: 2,
       sucursalVendedoraId: fx.sucursales[0]!,
       conConexion: false,
@@ -172,8 +172,8 @@ run('búsqueda de salidas (PostgreSQL real)', () => {
     const fx = await seedSalida(db, { paradas: 4 });
     const [s] = await buscarSalidas(db, {
       fecha: fx.fechaOperacion,
-      sucursalOrigenId: fx.sucursales[1]!,
-      sucursalDestinoId: fx.sucursales[3]!,
+      sucursalOrigenId: fx.puntos[1]!,
+      sucursalDestinoId: fx.puntos[3]!,
       nPersonas: 2,
       sucursalVendedoraId: fx.sucursales[1]!,
       conConexion: false,
@@ -187,8 +187,8 @@ run('búsqueda de salidas (PostgreSQL real)', () => {
     // La intermedia S3 (orden 2) no puede vender el tramo 0→3.
     const [s] = await buscarSalidas(db, {
       fecha: fx.fechaOperacion,
-      sucursalOrigenId: fx.sucursales[0]!,
-      sucursalDestinoId: fx.sucursales[3]!,
+      sucursalOrigenId: fx.puntos[0]!,
+      sucursalDestinoId: fx.puntos[3]!,
       nPersonas: 1,
       sucursalVendedoraId: fx.sucursales[2]!,
       conConexion: false,
@@ -214,8 +214,8 @@ run('búsqueda de salidas (PostgreSQL real)', () => {
 
     const [s] = await buscarSalidas(db, {
       fecha: fx.fechaOperacion,
-      sucursalOrigenId: fx.sucursales[0]!,
-      sucursalDestinoId: fx.sucursales[3]!,
+      sucursalOrigenId: fx.puntos[0]!,
+      sucursalDestinoId: fx.puntos[3]!,
       nPersonas: 2,
       sucursalVendedoraId: fx.sucursales[0]!,
       conConexion: true,
@@ -232,8 +232,8 @@ run('búsqueda de salidas (PostgreSQL real)', () => {
 
     const r = await buscarSalidas(db, {
       fecha: fx.fechaOperacion,
-      sucursalOrigenId: fx.sucursales[0]!,
-      sucursalDestinoId: fx.sucursales[3]!,
+      sucursalOrigenId: fx.puntos[0]!,
+      sucursalDestinoId: fx.puntos[3]!,
       nPersonas: 1,
       sucursalVendedoraId: fx.sucursales[0]!,
     });
@@ -251,8 +251,8 @@ run('búsqueda de salidas (PostgreSQL real)', () => {
 
     const [s] = await buscarSalidas(db, {
       fecha: fx.fechaOperacion,
-      sucursalOrigenId: fx.sucursales[0]!,
-      sucursalDestinoId: fx.sucursales[3]!,
+      sucursalOrigenId: fx.puntos[0]!,
+      sucursalDestinoId: fx.puntos[3]!,
       nPersonas: 1,
       sucursalVendedoraId: fx.sucursales[0]!,
       conConexion: true,
@@ -271,8 +271,8 @@ run('búsqueda de salidas (PostgreSQL real)', () => {
 
     const sinTarifa = await buscarSalidas(db, {
       fecha: fx.fechaOperacion,
-      sucursalOrigenId: fx.sucursales[0]!,
-      sucursalDestinoId: fx.sucursales[3]!,
+      sucursalOrigenId: fx.puntos[0]!,
+      sucursalDestinoId: fx.puntos[3]!,
       nPersonas: 1,
       sucursalVendedoraId: fx.sucursales[0]!,
     });
@@ -281,8 +281,8 @@ run('búsqueda de salidas (PostgreSQL real)', () => {
     await seedTarifa(db, fx.horarioId, 0, 3, 480);
     const conTarifa = await buscarSalidas(db, {
       fecha: fx.fechaOperacion,
-      sucursalOrigenId: fx.sucursales[0]!,
-      sucursalDestinoId: fx.sucursales[3]!,
+      sucursalOrigenId: fx.puntos[0]!,
+      sucursalDestinoId: fx.puntos[3]!,
       nPersonas: 1,
       sucursalVendedoraId: fx.sucursales[0]!,
     });
@@ -293,8 +293,8 @@ run('búsqueda de salidas (PostgreSQL real)', () => {
     const fx = await seedSalida(db, { paradas: 4 });
     const r = await buscarSalidas(db, {
       fecha: fx.fechaOperacion,
-      sucursalOrigenId: fx.sucursales[3]!,
-      sucursalDestinoId: fx.sucursales[0]!,
+      sucursalOrigenId: fx.puntos[3]!,
+      sucursalDestinoId: fx.puntos[0]!,
       nPersonas: 1,
       sucursalVendedoraId: fx.sucursales[3]!,
     });

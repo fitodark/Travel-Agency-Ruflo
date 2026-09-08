@@ -56,8 +56,9 @@ run('API · /ventas (PostgreSQL real)', () => {
     const { fx, token } = await preparar();
     const r = await app.inject({
       method: 'GET',
-      url: `/ventas/salidas?fecha=${fx.fechaOperacion}&origen=${fx.sucursales[0]}`
-        + `&destino=${fx.sucursales[3]}&personas=2`,
+      // origen/destino = core.punto_ruta.id desde Fase 1 (migración 0049).
+      url: `/ventas/salidas?fecha=${fx.fechaOperacion}&origen=${fx.puntos[0]}`
+        + `&destino=${fx.puntos[3]}&personas=2`,
       headers: bearer(token),
     });
     expect(r.statusCode).toBe(200);
