@@ -339,6 +339,14 @@ reserva la registra la terminal de origen, que aparta el asiento desde el orden 
 - SPA: `web/src/paginas/admin/Puntos.tsx` (nuevo), `Horarios.tsx` (armar ruta con puntos
   + banderas), `Tarifas.tsx` (matriz por par válido y categoría), pantalla / reporte de
   boletos huérfanos (D12).
+- **Limpieza pendiente de Fase 1** (hallazgos del review):
+  - `src/ventas/busqueda.ts` — renombrar `sucursalOrigenId` / `sucursalDestinoId` a
+    `puntoOrigenId` / `puntoDestinoId` (desde `0049` llevan `core.punto_ruta.id`; se dejó el
+    nombre viejo para no tocar el typecheck de tests). (F1-D1)
+  - `web/src/paginas/Vender.tsx` — el selector de destino muestra todo punto ≠ origen,
+    incluidos los inalcanzables; apretar a "puntos posteriores al origen en la ruta". (F1-D3)
+  - `core.asegurar_punto_terminal` copia `sucursal.zona_horaria` al punto en la creación
+    (misma copia point-in-time que F0-D2 / D2 arriba).
 - **Bloqueante:** ninguno.
 
 ### Fase 6 — Tercer método de pago (`corresponsal`), caducidad y cancelación de reservas  ·  `0054`
