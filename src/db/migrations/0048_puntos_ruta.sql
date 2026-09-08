@@ -227,9 +227,9 @@ CREATE OR REPLACE TRIGGER trg_aa_compat_punto
 -- ---------------------------------------------------------------------------
 -- 6. core.materializar_salidas — misma lógica que 0019; SOLO cambia el
 --    `INSERT INTO core.salida_parada`: los joins pasan por
---    `ruta_parada.punto_id -> core.punto_ruta` (LEFT JOIN core.sucursal) y la
---    zona horaria sale de `punto_ruta.zona_horaria`. Se sigue escribiendo
---    `sucursal_id` (aún NOT NULL) en paralelo.
+--    `ruta_parada.punto_id -> core.punto_ruta`; `sucursal_id` y la zona horaria
+--    salen de `punto_ruta` (`pr.sucursal_id`, `pr.zona_horaria`). Se sigue
+--    escribiendo `sucursal_id` (aún NOT NULL) en paralelo.
 --
 --    En Fase 0 solo se materializan paradas con fila en `horario_parada` = todas
 --    terminales, así que `pr.sucursal_id` nunca es NULL aquí.
@@ -325,7 +325,6 @@ BEGIN
       FROM core.horario_parada hp
       JOIN core.ruta_parada rp ON rp.id = hp.ruta_parada_id
       JOIN core.punto_ruta  pr ON pr.id = rp.punto_id
-      LEFT JOIN core.sucursal s ON s.id = pr.sucursal_id
      WHERE hp.horario_id = p_horario_id
      ORDER BY hp.orden;
 

@@ -26,7 +26,8 @@ BEGIN
          s.nombre, 'terminal', s.id, s.zona_horaria
     FROM core.sucursal s
    WHERE NOT EXISTS (
-           SELECT 1 FROM core.punto_ruta p WHERE p.sucursal_id = s.id
+           SELECT 1 FROM core.punto_ruta p
+            WHERE p.sucursal_id = s.id AND p.tipo = 'terminal'
          )
   ON CONFLICT (id) DO NOTHING;
 
