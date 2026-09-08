@@ -173,26 +173,47 @@ reserva la registra la terminal de origen, que aparta el asiento desde el orden 
 > Migraciones a partir de `0048`. Cada `CREATE OR REPLACE` se apila sobre la anterior,
 > como ya hace el repo (`0021` → `0043` con `buscar_salidas`).
 
-### Fase 0 — Catálogo de puntos y re-cableado estructural  ·  `0048`
+### Fase 0 — Catálogo de puntos y re-cableado estructural  ·  `0048`  ✅ ENTREGADA (commit `92b17fe`, rama `f-paradas-fase0`)
 
-- Crear `core.punto_ruta` + wiring de sync.
-- Backfill: un `punto_ruta` tipo `terminal` por cada `core.sucursal` activa.
+- Crear `core.punto_ruta` + wiring de sync (`clases.ts` → `'A'`, `escribir-config.ts`).
+- Backfill: un `punto_ruta` tipo `terminal` por cada `core.sucursal` activa, **id determinista**
+  `md5('core.punto_ruta:'||sucursal_id)::uuid` (converge en los 5 nodos sin replicar, patrón `0039`).
 - `ruta_parada.punto_id` y `salida_parada.punto_id`: `ADD COLUMN` → backfill vía el
-  mapeo sucursal→punto → `SET NOT NULL`. `UNIQUE (ruta_id, punto_id)`.
-  `sucursal_id` queda deprecado; se elimina en `0049`.
+  mapeo sucursal→punto. **`punto_id` se deja NULLABLE en `0048`** (la nube sigue en `0047`
+  y `tests/sync/*` hace `bootstrap()` real contra ella; con `NOT NULL` el ingest revienta).
+  **Trigger de compatibilidad `trg_aa_compat_punto`** (BEFORE INSERT en ambas tablas,
+  `WHEN punto_id IS NULL AND sucursal_id IS NOT NULL`): find-or-create del punto terminal.
+  **Dispara también dentro de `sync.ingest_fila`** porque el gate es la GUC `donaji.replicando`
+  (no `session_replication_role`), así que los nodos que hacen pull desde la nube-`0047`
+  quedan con `punto_id` poblado. `ruta_parada.sucursal_id` → `DROP NOT NULL` y se quita
+  `UNIQUE (ruta_id, sucursal_id)` (para poder sembrar una parada de descenso sin sucursal).
+- `permite_ascenso` / `permite_descenso` en `ruta_parada` (`DEFAULT false`, backfill `true/true`,
+  `CHECK (permite_ascenso OR permite_descenso)`) — estructural; la lógica llega en `0049`.
 - `hora_paso_programada` / `cierre_venta_en` de `salida_parada` → nullables.
-- Re-cablear `core.materializar_salidas` (`0018`/`0019`): join por `punto_ruta`
+- Re-cablear `core.materializar_salidas` (versión vigente en `0019`): join por `punto_ruta`
   con `LEFT JOIN core.sucursal`; zona horaria desde `punto_ruta.zona_horaria`.
 - Código: `clases.ts`, `escribir-config.ts`, `src/admin/horarios.ts`
-  (`listarRutasDetalle`, `listarHorarios`), `src/admin/tarifas.ts` (`listarRutas`).
+  (`listarRutasDetalle`, `listarHorarios`), `src/admin/tarifas.ts` (`listarRutas`),
+  `scripts/qa-comun.ts`, `scripts/limpiar-dev.ts`.
 - Seed nuevo `src/db/seed/0003_puntos.sql` (puntos terminal de las 4 sucursales) para QA.
-- **Es refactor puro:** las ~270 pruebas deben pasar sin cambios. Añadir fixture con
-  una ruta que incluya un `parada_descenso`.
-- **Bloqueante:** ninguno. **Se puede arrancar ya.**
+- Fixture: opción `paradaDescensoEnOrden` en `tests/fleet/fixture.ts` + `tests/fleet/puntos.test.ts`.
+- **Refactor puro, 0 regresiones:** verificado con baseline mismo-DB (código `main` vs rama
+  dan las mismas 70 fallas idénticas — polución preexistente del DB dev, ninguna en lo que
+  `0048` toca). Las FKs nuevas son `DEFERRABLE` (invariante del repo).
+- **Diferido a `0049` / Fase 1** (documentado en la cabecera de `0048`): `SET NOT NULL` de
+  `punto_id`, wiring de `bootstrap.ts` / `ORDEN_TOPOLOGICO`, `DROP COLUMN sucursal_id`,
+  retiro de los triggers de compat — todo en la ventana coordinada donde el usuario migra
+  nube + 4 terminales a mano y (red de seguridad) se backfillea `punto_id` en los nodos.
 
 ### Fase 1 — Bandera ascenso/descenso en búsqueda y venta  ·  `0049`
 
-- `DROP COLUMN ruta_parada.sucursal_id`, `salida_parada.sucursal_id`.
+- **Ventana coordinada 5 nodos** (el usuario migra nube + 4 terminales a mano): antes del
+  `SET NOT NULL`, backfillear `punto_id` en cada nodo (red de seguridad; el compat trigger
+  ya lo puebla vía `donaji.replicando`). Luego `SET NOT NULL` en `ruta_parada.punto_id` /
+  `salida_parada.punto_id`, wiring de `bootstrap.ts` / `ORDEN_TOPOLOGICO`, y retirar
+  `trg_aa_compat_punto` de ambas tablas.
+- `DROP COLUMN ruta_parada.sucursal_id`, `salida_parada.sucursal_id` (tras confirmar que los
+  5 nodos tienen `punto_id` poblado).
 - `core.buscar_salidas` → `p_origen` / `p_destino` pasan a ser **punto ids**; origen
   debe ser `tipo='terminal'`; destino cualquier punto posterior; join a
   `core.punto_ruta` para nombres y escalas.
