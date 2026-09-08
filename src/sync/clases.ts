@@ -77,6 +77,9 @@ export const CLASE_POR_TABLA: Readonly<Record<string, ClaseEntidad>> = {
   'core.conductor': 'A',
   'core.ruta': 'A',
   'core.ruta_parada': 'A',
+  // Añadida por 0048 (Fase 0 de "paradas autorizadas"): catálogo de puntos de
+  // ruta (terminal | parada). La nube es la autoridad; baja replicada.
+  'core.punto_ruta': 'A',
   'core.horario': 'A',
   'core.horario_parada': 'A',
   'core.tarifa': 'A',

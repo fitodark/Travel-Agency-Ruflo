@@ -45,6 +45,19 @@ export interface SeedRutaOpts {
   sinConductor?: boolean;
   /** El conductor usa un tipo_unidad distinto (para probar incompatibilidad, slice 3). */
   claveTipoUnidad?: string;
+  /**
+   * Convierte la parada intermedia de este `orden` en un `core.punto_ruta`
+   * `tipo='parada'` de solo descenso (Fase 0 de "paradas autorizadas"):
+   *   - se crea el punto sin `sucursal_id` (no es una terminal);
+   *   - su `core.ruta_parada` lleva `punto_id` explícito, `sucursal_id` NULL,
+   *     `permite_ascenso=false`, `permite_descenso=true` (el trigger de compat
+   *     no la toca porque `punto_id` ya viene seteado);
+   *   - NO recibe fila en `core.horario_parada` (una parada de descenso viaja
+   *     sin hora de paso), así que `materializar_salidas` no la incluye en
+   *     `salida_parada`.
+   * Debe ser un orden intermedio: 0 < orden < paradas-1.
+   */
+  paradaDescensoEnOrden?: number;
 }
 
 export async function seedRuta(client: Client, opts: SeedRutaOpts = {}): Promise<RutaFixture> {
@@ -76,6 +89,23 @@ export async function seedRuta(client: Client, opts: SeedRutaOpts = {}): Promise
 
   const rutaParadaIds: string[] = [];
   for (let i = 0; i < paradas; i++) {
+    if (i === opts.paradaDescensoEnOrden) {
+      // Parada autorizada de solo descenso: punto sin sucursal, banderas F0.
+      const { rows: pt } = await client.query<{ id: string }>(
+        `INSERT INTO core.punto_ruta (nombre, tipo, referencia, municipio)
+         VALUES ($1, 'parada', 'sobre carretera, a la altura del Home Depot', 'Cuautla')
+         RETURNING id`,
+        [`Parada Cuautla ${suf}`],
+      );
+      const { rows } = await client.query<{ id: string }>(
+        `INSERT INTO core.ruta_parada
+           (ruta_id, punto_id, orden, permite_ascenso, permite_descenso)
+         VALUES ($1, $2, $3, false, true) RETURNING id`,
+        [rutaId, pt[0]!.id, i],
+      );
+      rutaParadaIds.push(rows[0]!.id);
+      continue;
+    }
     const { rows } = await client.query<{ id: string }>(
       `INSERT INTO core.ruta_parada (ruta_id, sucursal_id, orden) VALUES ($1, $2, $3) RETURNING id`,
       [rutaId, sucursales[i], i],
@@ -119,6 +149,7 @@ export async function seedRuta(client: Client, opts: SeedRutaOpts = {}): Promise
       return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
     });
   for (let i = 0; i < paradas; i++) {
+    if (i === opts.paradaDescensoEnOrden) continue;   // parada de descenso: sin hora de paso
     await client.query(
       `INSERT INTO core.horario_parada (horario_id, ruta_parada_id, orden, hora_paso)
        VALUES ($1, $2, $3, $4::time)`,

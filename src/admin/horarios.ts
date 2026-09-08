@@ -49,9 +49,10 @@ export async function listarRutasDetalle(db: Consultable): Promise<RutaDetalle[]
             coalesce((
               SELECT jsonb_agg(jsonb_build_object(
                        'id', rp.id, 'orden', rp.orden,
-                       'sucursalId', rp.sucursal_id, 'sucursal', s.nombre) ORDER BY rp.orden)
+                       'sucursalId', pr.sucursal_id, 'sucursal', s.nombre) ORDER BY rp.orden)
                 FROM core.ruta_parada rp
-                JOIN core.sucursal s ON s.id = rp.sucursal_id
+                JOIN core.punto_ruta pr ON pr.id = rp.punto_id
+                LEFT JOIN core.sucursal s ON s.id = pr.sucursal_id
                WHERE rp.ruta_id = r.id AND rp.activo
             ), '[]'::jsonb) AS paradas
        FROM core.ruta r
@@ -126,7 +127,8 @@ export async function listarHorarios(db: Consultable, rutaId?: string): Promise<
                        'orden', hp.orden, 'horaPaso', hp.hora_paso::text, 'sucursal', s.nombre) ORDER BY hp.orden)
                 FROM core.horario_parada hp
                 JOIN core.ruta_parada rp ON rp.id = hp.ruta_parada_id
-                JOIN core.sucursal s ON s.id = rp.sucursal_id
+                JOIN core.punto_ruta pr ON pr.id = rp.punto_id
+                LEFT JOIN core.sucursal s ON s.id = pr.sucursal_id
                WHERE hp.horario_id = h.id
             ), '[]'::jsonb) AS pasos
        FROM core.horario h
