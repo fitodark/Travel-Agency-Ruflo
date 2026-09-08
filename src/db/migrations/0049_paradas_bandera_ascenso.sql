@@ -157,6 +157,11 @@ LANGUAGE sql STABLE AS $$
     JOIN core.ruta    r ON r.id = h.ruta_id
     -- El origen debe permitir ascenso en ESTA ruta (D2 / P-1): una parada de solo
     -- descenso nunca origina una venta.
+    -- CAMBIO DE COMPORTAMIENTO (F1-D2): antes no había join a `ruta_parada`, así
+    -- que una parada dada de baja (`activo = false`) seguía apareciendo como
+    -- origen mientras existiera su `salida_parada`. Ahora `rpo.activo` la quita de
+    -- la búsqueda para ese origen — intencional y coherente con D5 (baja lógica
+    -- de parada de ruta).
     JOIN core.ruta_parada rpo
       ON rpo.ruta_id = h.ruta_id AND rpo.punto_id = p_origen
      AND rpo.permite_ascenso AND rpo.activo
