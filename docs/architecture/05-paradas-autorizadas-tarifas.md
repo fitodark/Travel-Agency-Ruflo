@@ -222,8 +222,12 @@ reserva la registra la terminal de origen, que aparta el asiento desde el orden 
   `snapshot_boleto`/manifiesto/`api`/`abordaje` se hace **junto en Fase 5** (o `0053b`).
   *(La cabecera de `0048` dice "se elimina en 0049" — quedó desactualizada; la de `0049`
   lo aclara. No se re-edita `0048`, ya mergeado.)*
+- Helper `core.asegurar_punto_terminal(sucursal_id uuid)` — find-or-create del punto
+  terminal por id determinista `md5('core.punto_ruta:'||sucursal_id)`. Es el camino de
+  escritura explícito para `crearRuta` / `seedRuta` (el compat trigger sigue existiendo
+  como red para el ingest, pero el código local ya no depende de él).
 - `crearRuta` (`src/admin/horarios.ts`) y `seedRuta` (`tests/fleet/fixture.ts`) → escriben
-  `punto_id` + banderas explícitas; dejan de depender del compat trigger en el camino local.
+  `punto_id` (vía `asegurar_punto_terminal`) + banderas explícitas.
 - `core.buscar_salidas` (versión vigente en `0043`) → `p_origen` / `p_destino` pasan a ser
   **punto ids**; origen debe tener `ruta_parada.permite_ascenso`; destino cualquier punto
   posterior; join a `core.punto_ruta` para `origen_nombre` / `destino_nombre` / `escalas`.
@@ -236,8 +240,13 @@ reserva la registra la terminal de origen, que aparta el asiento desde el orden 
   Origen válido = `permite_ascenso`. Añadir fixture con parada de solo ascenso (retorno).
 - **`crearRuta` debe setear `permite_ascenso`/`permite_descenso` explícito** en cada
   `INSERT INTO core.ruta_parada`: el `DEFAULT false/false` de `0048` viola
-  `ruta_parada_rol_chk` si el insertador da `punto_id` pero omite las banderas y el compat
-  trigger ya no está (retirado en esta fase). (Hallazgo del review de Fase 0, D3.)
+  `ruta_parada_rol_chk` si el insertador da `punto_id` pero omite las banderas. (El compat
+  trigger solo las rellena cuando `punto_id IS NULL`, así que el camino explícito debe
+  darlas. Hallazgo del review de Fase 0, D3.)
+- **Fixture:** el compat trigger de `ruta_parada` sobrevive, así que `seedRuta` no se rompe;
+  el `tester` solo añade `puntos: string[]` a `RutaFixture` para que los tests de
+  `buscar_salidas` pasen punto ids, + una opción `paradaAscensoEnOrden` (parada de solo
+  ascenso del retorno). La reescritura del `INSERT` de `seedRuta` es deseable, no bloqueante.
 - **Bloqueante:** ninguno.
 
 ### Fase 2 — Semántica de ocupación del asiento  ·  `0050`
