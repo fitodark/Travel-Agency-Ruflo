@@ -207,27 +207,50 @@ reserva la registra la terminal de origen, que aparta el asiento desde el orden 
 
 ### Fase 1 — Bandera ascenso/descenso en búsqueda y venta  ·  `0049`
 
-- **Ventana coordinada 5 nodos** (el usuario migra nube + 4 terminales a mano): antes del
-  `SET NOT NULL`, backfillear `punto_id` en cada nodo (red de seguridad; el compat trigger
-  ya lo puebla vía `donaji.replicando`). Luego `SET NOT NULL` en `ruta_parada.punto_id` /
-  `salida_parada.punto_id`, wiring de `bootstrap.ts` / `ORDEN_TOPOLOGICO`, y retirar
-  `trg_aa_compat_punto` de ambas tablas.
-- `DROP COLUMN ruta_parada.sucursal_id`, `salida_parada.sucursal_id` (tras confirmar que los
-  5 nodos tienen `punto_id` poblado).
-- `core.buscar_salidas` → `p_origen` / `p_destino` pasan a ser **punto ids**; origen
-  debe ser `tipo='terminal'`; destino cualquier punto posterior; join a
-  `core.punto_ruta` para nombres y escalas.
-- `core.registrar_venta` y `core.adquirir_lease` → `RAISE` si el `orden` de origen es
-  un `parada_descenso`.
+- **Ventana coordinada 5 nodos** (el usuario migra nube + 4 terminales a `0048` **antes** de
+  aplicar `0049`): antes del `SET NOT NULL`, backfillear `punto_id` en cada nodo (red de
+  seguridad; el compat trigger ya lo puebla vía `donaji.replicando`). Luego `SET NOT NULL`
+  en `ruta_parada.punto_id` / `salida_parada.punto_id` y wiring de `bootstrap.ts` /
+  `ORDEN_TOPOLOGICO` (`core.punto_ruta` antes de `ruta_parada`/`salida_parada`).
+- **`DROP COLUMN core.ruta_parada.sucursal_id`** + retiro de `trg_ruta_parada_compat_punto`.
+  Verificado seguro por el `architect`: todos los lectores terminal-side de esa columna
+  migraron en Fase 0 (`listarRutasDetalle`/`listarHorarios` en `horarios.ts`, `listarRutas`
+  en `tarifas.ts`), `sync.ingest_fila` (`0031`) tolera la columna ausente en el payload, y
+  ya era nullable desde `0048`.
+- **`salida_parada.sucursal_id` NO se dropea en Fase 1** — lo leen `snapshot_boleto` (`0046`),
+  `datos_manifiesto` / `salidas_del_dia` (`0026`), vistas `api.*` (`0030`) y
+  `src/fleet/abordaje.ts` (blast radius = Fase 5). Solo `DROP NOT NULL` (para las paradas de
+  descenso de Fase 4). Su compat trigger (`trg_salida_parada_compat_punto`) **se queda**;
+  `materializar_salidas` sigue poblando `punto_id` **y** `sucursal_id` en paralelo.
+  El `DROP COLUMN` + retiro de ese trigger + re-cableo de `snapshot_boleto`/manifiesto/
+  `api`/`abordaje` van **juntos en Fase 5** (o un `0053b`).
+  *(La cabecera de `0048` dice "se elimina en 0049" — cierto solo para `ruta_parada`; la de
+  `0049` lo aclara. No se re-edita `0048`, ya mergeado.)*
+- Helper `core.asegurar_punto_terminal(sucursal_id uuid)` — find-or-create del punto
+  terminal por id determinista `md5('core.punto_ruta:'||sucursal_id)`. Reemplaza al compat
+  trigger de `ruta_parada` (que se retira): es el camino de escritura para `crearRuta` /
+  `seedRuta` ahora que `ruta_parada` ya no tiene `sucursal_id`.
+- `crearRuta` (`src/admin/horarios.ts`) y `seedRuta` (`tests/fleet/fixture.ts`) → insertan
+  `ruta_parada` con `punto_id` (vía `asegurar_punto_terminal`) + banderas explícitas.
+- `core.buscar_salidas` (versión vigente en `0043`) → `p_origen` / `p_destino` pasan a ser
+  **punto ids**; origen debe tener `ruta_parada.permite_ascenso`; destino cualquier punto
+  posterior; join a `core.punto_ruta` para `origen_nombre` / `destino_nombre` / `escalas`.
+- `core.registrar_venta` (`0023`) y `core.adquirir_lease` (`0022`) → `RAISE` si el punto de
+  origen de la venta NO tiene `permite_ascenso` (una parada de solo descenso nunca origina).
 - Código: `src/ventas/busqueda.ts`, `src/api/rutas/ventas.ts` (querystring
   `origen`/`destino` = punto ids), `web/src/api/catalogos.ts` (`listarPuntos`),
   `web/src/paginas/Vender.tsx` (selector Origen = puntos con `permite_ascenso`, Destino = puntos posteriores).
 - **P-1 RESUELTA:** la bandera es `ruta_parada.permite_ascenso` / `permite_descenso` (D2).
   Origen válido = `permite_ascenso`. Añadir fixture con parada de solo ascenso (retorno).
-- **`crearRuta` debe setear `permite_ascenso`/`permite_descenso` explícito** en cada
-  `INSERT INTO core.ruta_parada`: el `DEFAULT false/false` de `0048` viola
-  `ruta_parada_rol_chk` si el insertador da `punto_id` pero omite las banderas y el compat
-  trigger ya no está (retirado en esta fase). (Hallazgo del review de Fase 0, D3.)
+- **`crearRuta` / `seedRuta` setean `permite_ascenso`/`permite_descenso` explícito** en cada
+  `INSERT INTO core.ruta_parada` — obligatorio ahora que `ruta_parada` no tiene `sucursal_id`
+  ni compat trigger: el `DEFAULT false/false` de `0048` viola `ruta_parada_rol_chk` sin las
+  banderas. (Hallazgo del review de Fase 0, D3.)
+- **Fixture:** `seedRuta` (`tests/fleet/fixture.ts`) reescribe su `INSERT` de `ruta_parada`
+  para usar `asegurar_punto_terminal` + banderas; `RutaFixture` gana `puntos: string[]`;
+  nueva opción `paradaAscensoEnOrden` (parada de solo ascenso del retorno). Los tests de
+  `buscar_salidas` pasan `fx.puntos[...]` en vez de `fx.sucursales[...]`. Arrastre a arreglar:
+  `fleet`, `ventas`, `api/admin`, `caja`.
 - **Bloqueante:** ninguno.
 
 ### Fase 2 — Semántica de ocupación del asiento  ·  `0050`
@@ -270,15 +293,26 @@ reserva la registra la terminal de origen, que aparta el asiento desde el orden 
   core.horario_parada`. `parada_descenso` → `hora_paso_programada` / `cierre_venta_en`
   en `NULL`.
 - `core.repartir_cupo_offline` (`0019`): `v_n_intermedias` cuenta solo puntos
-  `terminal` con ascenso; las `parada_descenso` no entran al `FOR` de vendedoras ni
-  reciben bloque. El chequeo `v_n_bloques - v_n_intermedias >= 1` usa el conteo
-  corregido.
+  `terminal` con ascenso; las paradas (`tipo='parada'`, ascenso o descenso) no entran al
+  `FOR` de vendedoras ni reciben bloque. El chequeo `v_n_bloques - v_n_intermedias >= 1`
+  usa el conteo corregido.
+- **`core.cupo_offline.sucursal_id` es NOT NULL** (hallazgo de Fase 1): una parada no-terminal
+  (sin `sucursal_id`) que llegue al reparto revienta el `INSERT`. La corrección de arriba
+  (excluir las paradas del reparto) ya lo cubre; alternativa defensiva = `DROP NOT NULL` en
+  esa columna. En Fase 1 el fixture `paradaAscensoEnOrden` se prueba solo a nivel `seedRuta`
+  (sin materializar) por esto.
 - **Bloqueante:** ninguno (depende de Fase 0 y 1).
 
 ### Fase 5 — Impresión, manifiesto y alta de rutas  ·  `0053` + admin + SPA
 
 - `core.snapshot_boleto`: `origen` / `destino` desde `punto_ruta.nombre`; sin `referencia`;
   añadir **punto de ascenso** del pasajero (D7).
+- **Re-cablear a `punto_ruta` todo lo que aún lee `sucursal_id`** de `ruta_parada` /
+  `salida_parada` — `core.snapshot_boleto` (`0046`), `core.datos_manifiesto` /
+  `core.salidas_del_dia` (`0026`), vistas `api.*` (`0030`), `src/fleet/abordaje.ts` — y recién
+  entonces `DROP COLUMN` en **ambas** tablas + retirar **ambos** `trg_aa_compat_punto` +
+  dejar que `materializar_salidas` pueble solo `punto_id`. Puede ir en un `0053b` dedicado.
+  (Diferido completo desde Fase 1 por blast radius.)
 - **Reimpresión** de boleto (`src/printing/templates/boleto.ts`): parámetro `reimpreso`
   que agrega la leyenda tomada de `config_ticket.leyenda_reimpresion` (N-4); mismo contenido
   que el original. La original del wizard va sin leyenda. Acción de reimpresión en Viajes /
@@ -305,6 +339,14 @@ reserva la registra la terminal de origen, que aparta el asiento desde el orden 
 - SPA: `web/src/paginas/admin/Puntos.tsx` (nuevo), `Horarios.tsx` (armar ruta con puntos
   + banderas), `Tarifas.tsx` (matriz por par válido y categoría), pantalla / reporte de
   boletos huérfanos (D12).
+- **Limpieza pendiente de Fase 1** (hallazgos del review):
+  - `src/ventas/busqueda.ts` — renombrar `sucursalOrigenId` / `sucursalDestinoId` a
+    `puntoOrigenId` / `puntoDestinoId` (desde `0049` llevan `core.punto_ruta.id`; se dejó el
+    nombre viejo para no tocar el typecheck de tests). (F1-D1)
+  - `web/src/paginas/Vender.tsx` — el selector de destino muestra todo punto ≠ origen,
+    incluidos los inalcanzables; apretar a "puntos posteriores al origen en la ruta". (F1-D3)
+  - `core.asegurar_punto_terminal` copia `sucursal.zona_horaria` al punto en la creación
+    (misma copia point-in-time que F0-D2 / D2 arriba).
 - **Bloqueante:** ninguno.
 
 ### Fase 6 — Tercer método de pago (`corresponsal`), caducidad y cancelación de reservas  ·  `0054`

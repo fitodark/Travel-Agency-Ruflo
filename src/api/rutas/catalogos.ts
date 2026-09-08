@@ -26,6 +26,23 @@ export async function rutasCatalogos(app: FastifyInstance): Promise<void> {
     return rows;
   });
 
+  // Puntos de ruta (terminal | parada) para poblar los selectores de origen y
+  // destino del flujo de venta (paso 1). `puedeOriginar` = existe al menos una
+  // ruta activa donde este punto permite ascenso.
+  app.get('/puntos', { preHandler: exige() }, async () => {
+    const { rows } = await app.db.query(
+      `SELECT pr.id, pr.nombre, pr.tipo, pr.municipio, pr.referencia,
+              EXISTS (
+                SELECT 1 FROM core.ruta_parada rp
+                 WHERE rp.punto_id = pr.id AND rp.permite_ascenso AND rp.activo
+              ) AS "puedeOriginar"
+         FROM core.punto_ruta pr
+        WHERE pr.activo
+        ORDER BY pr.tipo, pr.nombre`,
+    );
+    return rows;
+  });
+
   // Solo el administrador (03 §1.4). El dashboard en nube es quien da de alta y
   // baja; aquí se listan para inspección desde la terminal.
   app.get('/usuarios', { preHandler: exige({ permiso: 'config.usuarios' }) }, async () => {

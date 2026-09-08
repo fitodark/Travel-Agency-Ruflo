@@ -9,8 +9,18 @@ import type { Client } from 'pg';
 
 export interface RutaFixture {
   agenciaId: string;
-  /** Sucursales en orden de parada: [origen, intermedia, destino]. */
+  /**
+   * Sucursales en orden de parada: [origen, intermedia, destino]. Para una parada
+   * no-terminal (`paradaDescensoEnOrden` / `paradaAscensoEnOrden`) esta entrada
+   * sigue siendo la sucursal que se creó, pero NO cuelga de la ruta.
+   */
   sucursales: string[];
+  /**
+   * `core.punto_ruta.id` por parada, paralelo a los `orden` 0..n-1. Desde Fase 1
+   * (migración 0049) `core.buscar_salidas` recibe puntos, no sucursales: los
+   * tests pasan `fx.puntos[0]` / `fx.puntos.at(-1)` como origen / destino.
+   */
+  puntos: string[];
   rutaId: string;
   conductorId: string;
   conductorNombre: string;
@@ -47,17 +57,29 @@ export interface SeedRutaOpts {
   claveTipoUnidad?: string;
   /**
    * Convierte la parada intermedia de este `orden` en un `core.punto_ruta`
-   * `tipo='parada'` de solo descenso (Fase 0 de "paradas autorizadas"):
-   *   - se crea el punto sin `sucursal_id` (no es una terminal);
-   *   - su `core.ruta_parada` lleva `punto_id` explícito, `sucursal_id` NULL,
-   *     `permite_ascenso=false`, `permite_descenso=true` (el trigger de compat
-   *     no la toca porque `punto_id` ya viene seteado);
+   * `tipo='parada'` de solo descenso:
+   *   - el punto se crea sin `sucursal_id` (no es una terminal);
+   *   - su `core.ruta_parada` lleva `punto_id` explícito, `permite_ascenso=false`,
+   *     `permite_descenso=true`;
    *   - NO recibe fila en `core.horario_parada` (una parada de descenso viaja
    *     sin hora de paso), así que `materializar_salidas` no la incluye en
-   *     `salida_parada`.
+   *     `salida_parada` en Fase 0-1.
    * Debe ser un orden intermedio: 0 < orden < paradas-1.
    */
   paradaDescensoEnOrden?: number;
+  /**
+   * Simétrica de `paradaDescensoEnOrden`: convierte la parada intermedia de este
+   * `orden` en un `core.punto_ruta` `tipo='parada'` de solo ascenso (típica del
+   * retorno): `permite_ascenso=true`, `permite_descenso=false`.
+   *
+   * Igual que la de descenso, NO recibe fila en `core.horario_parada` en Fase 1:
+   * una 'parada' materializada con `sucursal_id=NULL` haría que
+   * `core.repartir_cupo_offline` (0019, intacto hasta Fase 4) reviente contra
+   * `core.cupo_offline.sucursal_id` NOT NULL. La hora de paso propia de la parada
+   * de ascenso + su materialización es mejora de fixture para Fase 4.
+   * Debe ser un orden intermedio: 0 < orden < paradas-1.
+   */
+  paradaAscensoEnOrden?: number;
 }
 
 export async function seedRuta(client: Client, opts: SeedRutaOpts = {}): Promise<RutaFixture> {
@@ -88,29 +110,41 @@ export async function seedRuta(client: Client, opts: SeedRutaOpts = {}): Promise
   const rutaId = r[0]!.id;
 
   const rutaParadaIds: string[] = [];
+  const puntos: string[] = [];
   for (let i = 0; i < paradas; i++) {
-    if (i === opts.paradaDescensoEnOrden) {
-      // Parada autorizada de solo descenso: punto sin sucursal, banderas F0.
+    // Parada no-terminal (solo descenso / solo ascenso): `core.punto_ruta`
+    // `tipo='parada'` sin sucursal, con banderas explícitas.
+    const soloDescenso = i === opts.paradaDescensoEnOrden;
+    const soloAscenso = i === opts.paradaAscensoEnOrden;
+    if (soloDescenso || soloAscenso) {
       const { rows: pt } = await client.query<{ id: string }>(
         `INSERT INTO core.punto_ruta (nombre, tipo, referencia, municipio)
-         VALUES ($1, 'parada', 'sobre carretera, a la altura del Home Depot', 'Cuautla')
-         RETURNING id`,
-        [`Parada Cuautla ${suf}`],
+         VALUES ($1, 'parada', $2, $3) RETURNING id`,
+        soloDescenso
+          ? [`Parada Cuautla ${suf}`, 'sobre carretera, a la altura del Home Depot', 'Cuautla']
+          : [`Parada ascenso ${suf}`, 'parada de ascenso del retorno', 'Izúcar'],
       );
       const { rows } = await client.query<{ id: string }>(
         `INSERT INTO core.ruta_parada
            (ruta_id, punto_id, orden, permite_ascenso, permite_descenso)
-         VALUES ($1, $2, $3, false, true) RETURNING id`,
-        [rutaId, pt[0]!.id, i],
+         VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+        [rutaId, pt[0]!.id, i, soloAscenso, soloDescenso],
       );
       rutaParadaIds.push(rows[0]!.id);
+      puntos.push(pt[0]!.id);
       continue;
     }
-    const { rows } = await client.query<{ id: string }>(
-      `INSERT INTO core.ruta_parada (ruta_id, sucursal_id, orden) VALUES ($1, $2, $3) RETURNING id`,
+    // Terminal: `punto_id` vía el helper de identidad determinista (0049
+    // reemplazó el compat trigger de `ruta_parada`; la columna `sucursal_id` ya
+    // no existe en esa tabla).
+    const { rows } = await client.query<{ id: string; punto_id: string }>(
+      `INSERT INTO core.ruta_parada (ruta_id, punto_id, orden, permite_ascenso, permite_descenso)
+       VALUES ($1, core.asegurar_punto_terminal($2), $3, true, true)
+       RETURNING id, punto_id`,
       [rutaId, sucursales[i], i],
     );
     rutaParadaIds.push(rows[0]!.id);
+    puntos.push(rows[0]!.punto_id);
   }
 
   const { rows: tu } = await client.query<{ id: string }>(
@@ -149,7 +183,9 @@ export async function seedRuta(client: Client, opts: SeedRutaOpts = {}): Promise
       return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
     });
   for (let i = 0; i < paradas; i++) {
-    if (i === opts.paradaDescensoEnOrden) continue;   // parada de descenso: sin hora de paso
+    // Las paradas no-terminal (solo descenso / solo ascenso) viajan sin hora de
+    // paso en Fase 1: materializarlas revienta `repartir_cupo_offline` (Fase 4).
+    if (i === opts.paradaDescensoEnOrden || i === opts.paradaAscensoEnOrden) continue;
     await client.query(
       `INSERT INTO core.horario_parada (horario_id, ruta_parada_id, orden, hora_paso)
        VALUES ($1, $2, $3, $4::time)`,
@@ -157,7 +193,9 @@ export async function seedRuta(client: Client, opts: SeedRutaOpts = {}): Promise
     );
   }
 
-  return { agenciaId, sucursales, rutaId, conductorId, conductorNombre, tipoUnidadId, horarioId };
+  return {
+    agenciaId, sucursales, puntos, rutaId, conductorId, conductorNombre, tipoUnidadId, horarioId,
+  };
 }
 
 /** Un usuario con el rol dado. Para probar el RBAC de `cambiar_conductor`. */

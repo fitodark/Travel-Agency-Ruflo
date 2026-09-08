@@ -22,6 +22,7 @@ export interface SalidaDisponible {
 
 export interface BuscarParams {
   fecha: string;
+  /** `core.punto_ruta.id` (desde Fase 1 / migración 0049), no id de sucursal. */
   origen: string;
   destino: string;
   personas: number;

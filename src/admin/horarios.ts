@@ -70,6 +70,13 @@ export async function crearRuta(
   if (ids.length < 2) throw new Error('una ruta necesita al menos origen y destino');
   if (new Set(ids).size !== ids.length) throw new Error('una sucursal no puede aparecer dos veces en la ruta');
 
+  // Desde 0049 `ruta_parada` apunta a `core.punto_ruta`, no a `core.sucursal`.
+  // `core.asegurar_punto_terminal` resuelve (creando si falta) el punto terminal
+  // de cada sucursal — id determinista `md5('core.punto_ruta:'||sucursal_id)` —
+  // y completa su INSERT por fila antes de devolver el id, así el FK de
+  // `ruta_parada.punto_id` queda satisfecho dentro de la misma sentencia.
+  // Toda parada de una ruta creada así es terminal ⇒ ambas banderas `true`. El
+  // contrato con banderas por parada (paradas de solo descenso/ascenso) es Fase 5.
   const paradas = ids.map((sucursalId, orden) => ({ sucursal_id: sucursalId, orden }));
   const { rows } = await db.query<{ id: string }>(
     `WITH r AS (
@@ -77,8 +84,8 @@ export async function crearRuta(
        VALUES ($1, $2::uuid, $3::uuid)
        RETURNING id
      ), p AS (
-       INSERT INTO core.ruta_parada (ruta_id, sucursal_id, orden)
-       SELECT r.id, x.sucursal_id, x.orden
+       INSERT INTO core.ruta_parada (ruta_id, punto_id, orden, permite_ascenso, permite_descenso)
+       SELECT r.id, core.asegurar_punto_terminal(x.sucursal_id), x.orden, true, true
          FROM r, jsonb_to_recordset($4::jsonb) AS x(sucursal_id uuid, orden int)
        RETURNING 1
      )

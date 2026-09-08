@@ -137,9 +137,9 @@ run('Fase 0 · catálogo de puntos de ruta (PostgreSQL real)', () => {
   });
 
   // -------------------------------------------------------------------------
-  // Trigger de compatibilidad: crear una ruta por sucursal_id sigue funcionando
+  // seedRuta resuelve el punto terminal por sucursal (helper asegurar_punto_terminal)
   // -------------------------------------------------------------------------
-  it('seedRuta (por sucursal_id) deja cada ruta_parada con punto_id terminal y banderas true/true', async () => {
+  it('seedRuta deja cada ruta_parada con punto_id terminal (de su sucursal) y banderas true/true', async () => {
     const fx = await seedRuta(db, { paradas: 3 });
 
     const { rows } = await db.query<{
@@ -148,22 +148,30 @@ run('Fase 0 · catálogo de puntos de ruta (PostgreSQL real)', () => {
       `SELECT count(*) AS n,
               count(*) FILTER (WHERE rp.punto_id IS NOT NULL) AS con_punto,
               count(*) FILTER (WHERE rp.permite_ascenso AND rp.permite_descenso) AS ambas_banderas,
-              count(*) FILTER (WHERE pr.tipo = 'terminal' AND pr.sucursal_id = rp.sucursal_id) AS punto_ok
+              count(*) FILTER (WHERE pr.tipo = 'terminal' AND pr.sucursal_id = ANY($2::uuid[])) AS punto_ok
          FROM core.ruta_parada rp
          JOIN core.punto_ruta pr ON pr.id = rp.punto_id
         WHERE rp.ruta_id = $1`,
-      [fx.rutaId],
+      [fx.rutaId, fx.sucursales],
     );
     expect(Number(rows[0]!.n)).toBe(3);
     expect(Number(rows[0]!.con_punto)).toBe(3);
     expect(Number(rows[0]!.ambas_banderas)).toBe(3);
     expect(Number(rows[0]!.punto_ok)).toBe(3);
+
+    // `fx.puntos` va paralelo a los ordenes y son ids determinista de punto terminal.
+    const { rows: det } = await db.query<{ ok: boolean }>(
+      `SELECT bool_and(pr.id = md5('core.punto_ruta:' || pr.sucursal_id::text)::uuid) AS ok
+         FROM core.punto_ruta pr WHERE pr.id = ANY($1::uuid[])`,
+      [fx.puntos],
+    );
+    expect(det[0]!.ok).toBe(true);
   });
 
   // -------------------------------------------------------------------------
   // Ruta con una parada de solo descenso
   // -------------------------------------------------------------------------
-  it('una ruta con una parada de solo descenso: 2 terminales + 1 parada, banderas y sucursal_id NULL', async () => {
+  it('una ruta con una parada de solo descenso: 2 terminales + 1 parada, banderas false/true', async () => {
     const fx = await seedRuta(db, { paradas: 3, paradaDescensoEnOrden: 1 });
 
     const { rows: puntos } = await db.query<{ tipo: string; n: string }>(
@@ -183,7 +191,7 @@ run('Fase 0 · catálogo de puntos de ruta (PostgreSQL real)', () => {
       permite_ascenso: boolean; permite_descenso: boolean;
       sucursal_id: string | null; tipo: string;
     }>(
-      `SELECT rp.permite_ascenso, rp.permite_descenso, rp.sucursal_id, pr.tipo
+      `SELECT rp.permite_ascenso, rp.permite_descenso, pr.sucursal_id, pr.tipo
          FROM core.ruta_parada rp
          JOIN core.punto_ruta pr ON pr.id = rp.punto_id
         WHERE rp.ruta_id = $1 AND rp.orden = 1`,
@@ -192,7 +200,7 @@ run('Fase 0 · catálogo de puntos de ruta (PostgreSQL real)', () => {
     expect(parada[0]).toMatchObject({
       permite_ascenso: false,
       permite_descenso: true,
-      sucursal_id: null,
+      sucursal_id: null,   // el punto 'parada' no cuelga de una sucursal
       tipo: 'parada',
     });
   });

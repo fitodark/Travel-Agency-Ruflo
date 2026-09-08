@@ -65,6 +65,8 @@ export async function rutasVentas(app: FastifyInstance): Promise<void> {
   app.addHook('preHandler', exige());
 
   // Paso 1-2: búsqueda de salidas con disponibilidad por tramo.
+  // `origen` / `destino` son `core.punto_ruta.id` (desde Fase 1 / migración 0049),
+  // no ids de sucursal. El origen debe permitir ascenso en la ruta.
   app.get(
     '/salidas',
     {
@@ -74,8 +76,8 @@ export async function rutasVentas(app: FastifyInstance): Promise<void> {
           required: ['fecha', 'origen', 'destino'],
           properties: {
             fecha: { type: 'string' },
-            origen: { type: 'string', format: 'uuid' },
-            destino: { type: 'string', format: 'uuid' },
+            origen: { type: 'string', format: 'uuid' },   // core.punto_ruta.id
+            destino: { type: 'string', format: 'uuid' },  // core.punto_ruta.id
             personas: { type: 'integer', minimum: 1, default: 1 },
             conConexion: { type: 'boolean', default: true },
           },

@@ -18,6 +18,11 @@ export interface SalidaFixture {
   horarioId: string;
   /** Sucursales en orden de parada: [origen, ...intermedias, destino]. */
   sucursales: string[];
+  /**
+   * `core.punto_ruta.id` por parada, paralelo a `ordenes`. Desde Fase 1
+   * (migración 0049) `buscarSalidas` recibe puntos como origen / destino.
+   */
+  puntos: string[];
   /** Órdenes de parada, 0..n-1 (paralelo a `sucursales`). */
   ordenes: number[];
   tipoUnidadId: string;
@@ -51,6 +56,7 @@ export async function seedSalida(
     salidaId: rows[0]!.id,
     horarioId: ruta.horarioId,
     sucursales: ruta.sucursales,
+    puntos: ruta.puntos,
     ordenes: ruta.sucursales.map((_, i) => i),
     tipoUnidadId: ruta.tipoUnidadId,
     conductorNombre: ruta.conductorNombre,
