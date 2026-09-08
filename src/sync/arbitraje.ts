@@ -24,7 +24,13 @@ export interface Ocupacion {
   sucursalId: string;
   salidaId: string;
   asientoNum: number;
-  /** Rango de tramos, p. ej. `[0,3)`. */
+  /**
+   * Rango de OCUPACIÓN del asiento (`asiento_ocupacion.tramos_ocupacion`), p. ej.
+   * `[0,3)`. Es el rango que la invariante de exclusión protege, más ancho que el
+   * viaje cuando el destino es una parada de descenso (05 §3). El arbitraje mira
+   * ocupación, no viaje: dos boletos que bloquean el mismo asiento-segmento
+   * chocan aunque sus viajes no se solapen.
+   */
   tramos: string;
   /** Reloj de quien emitió, no de quien recibe. */
   emitidoEn: Date;
@@ -138,7 +144,7 @@ export async function resolverConflictoAsiento(
 
   const { rows } = await db.query<FilaOcupacion>(
     `SELECT o.id, o.boleto_id, o.sucursal_id, o.salida_id, o.asiento_num,
-            o.tramos::text AS tramos, o.emitido_en, o.estado,
+            o.tramos_ocupacion::text AS tramos, o.emitido_en, o.estado,
             (b.impreso_en IS NOT NULL) AS impreso,
             COALESCE(vs.saldo_pendiente <= 0, false) AS pagado,
             COALESCE(vs.pagado > 0 AND vs.saldo_pendiente > 0, false) AS abono_parcial
@@ -166,9 +172,10 @@ export async function resolverConflictoAsiento(
     abonoParcial: r.abono_parcial,
   }));
 
-  // Solo entran al arbitraje las que se solapan entre sí. Si ninguna se solapa
-  // con otra, no hay sobreventa: dos boletos del mismo asiento en tramos
-  // disjuntos son legítimos.
+  // Solo entran al arbitraje las que se solapan entre sí en su rango de
+  // OCUPACIÓN (lo que protege el EXCLUDE). Si ninguna se solapa con otra, no hay
+  // sobreventa: dos boletos del mismo asiento en tramos de ocupación disjuntos
+  // son legítimos (alguien baja, otro sube al mismo asiento).
   const enConflicto = ocupaciones.filter((o) =>
     ocupaciones.some((otra) => otra.id !== o.id && tramosSolapan(o.tramos, otra.tramos)),
   );

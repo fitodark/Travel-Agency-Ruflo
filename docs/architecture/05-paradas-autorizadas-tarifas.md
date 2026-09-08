@@ -312,8 +312,17 @@ reserva la registra la terminal de origen, que aparta el asiento desde el orden 
 - **`core.cupo_offline.sucursal_id` es NOT NULL** (hallazgo de Fase 1): una parada no-terminal
   (sin `sucursal_id`) que llegue al reparto revienta el `INSERT`. La corrección de arriba
   (excluir las paradas del reparto) ya lo cubre; alternativa defensiva = `DROP NOT NULL` en
-  esa columna. En Fase 1 el fixture `paradaAscensoEnOrden` se prueba solo a nivel `seedRuta`
-  (sin materializar) por esto.
+  esa columna. En Fase 1/2 los fixtures de parada no-terminal se prueban sin materializar por esto.
+- **Re-verificar `core.tramo_ocupacion`** (Fase 2): cuando `materializar_salidas` emita
+  `salida_parada` para paradas no-terminal, sus dos ramas no-triviales (`lower=0`,
+  `upper=n-1`) se vuelven alcanzables por venta real — confirmar que `max(orden)` = fin de
+  ruta real y que el `p_hasta` no-materializado deja de ser un caso. (F2-Q1.)
+- **`src/sync/arbitraje.ts` ya arbitra sobre `tramos_ocupacion`** (fix F2-D1, PR follow-up
+  de Fase 2). No hace falta tocarlo aquí, pero los tests de arbitraje de Fase 4 deben cubrir
+  el caso cross-node donde dos ocupaciones solapan en ocupación pero no en viaje.
+- **Retiro del compat trigger `trg_aa_tramos_ocupacion_compat`** (F2-D3): candidato a
+  limpieza en esta migración o una posterior, espejo de cómo `0049` retiró
+  `trg_aa_compat_punto`. No urge (es no-op tras la ventana).
 - **Bloqueante:** ninguno (depende de Fase 0 y 1).
 
 ### Fase 5 — Impresión, manifiesto y alta de rutas  ·  `0053` + admin + SPA

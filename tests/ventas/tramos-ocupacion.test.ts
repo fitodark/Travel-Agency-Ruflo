@@ -83,6 +83,32 @@ run('tramos_ocupacion — ocupación del asiento (PostgreSQL real)', () => {
     expect(await rango(`SELECT core.tramo_ocupacion($1, 0, 1)::text AS r`, [fx.salidaId])).toBe('[0,1)');
   });
 
+  /** Convierte el `orden` en una parada de solo ascenso (retorno) y le da su fila. */
+  const paradaAscenso = async (fx: Awaited<ReturnType<typeof seedSalida>>, orden: number): Promise<void> => {
+    await db.query(
+      `UPDATE core.punto_ruta SET tipo='parada', sucursal_id=NULL
+         WHERE id = (SELECT punto_id FROM core.salida_parada WHERE salida_id=$1 AND orden=$2)`,
+      [fx.salidaId, orden],
+    );
+    await db.query(
+      `UPDATE core.ruta_parada rp SET permite_ascenso=true, permite_descenso=false
+         FROM core.salida sa JOIN core.horario h ON h.id=sa.horario_id
+        WHERE sa.id=$1 AND rp.ruta_id=h.ruta_id
+          AND rp.punto_id=(SELECT punto_id FROM core.salida_parada WHERE salida_id=$1 AND orden=$2)`,
+      [fx.salidaId, orden],
+    );
+  };
+
+  it('tramo_ocupacion: origen = parada de ascenso sin POS ⇒ el rango empieza en 0 (P-3 / D3)', async () => {
+    const fx = await seedSalida(db, { paradas: 4, diasAdelante: 20 });
+    await paradaAscenso(fx, 1);
+    // origen orden 1 = parada de ascenso ⇒ lower = 0; destino orden 3 = terminal
+    expect(await rango(`SELECT core.tramo_ocupacion($1, 1, 3)::text AS r`, [fx.salidaId])).toBe('[0,3)');
+    // origen terminal (orden 0) no se toca
+    expect(await rango(`SELECT core.tramo_ocupacion($1, 0, 3)::text AS r`, [fx.salidaId])).toBe('[0,3)');
+    expect(await rango(`SELECT core.tramo_ocupacion($1, 2, 3)::text AS r`, [fx.salidaId])).toBe('[2,3)');
+  });
+
   it('venta a una parada de descenso: el asiento se ocupa hasta el fin de la ruta y no se revende aguas abajo', async () => {
     const fx = await seedSalida(db, { paradas: 4, diasAdelante: 20 });
     await paradaDescenso(fx, 2);
