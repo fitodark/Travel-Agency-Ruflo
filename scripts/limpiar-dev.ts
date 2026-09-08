@@ -56,6 +56,11 @@ const POC: Array<[string, string]> = [
   ['ruta_parada', `DELETE FROM core.ruta_parada WHERE ruta_id IN (SELECT id FROM core.ruta WHERE id::text LIKE $1)`],
   ['tarifa', `DELETE FROM core.tarifa WHERE ruta_id IN (SELECT id FROM core.ruta WHERE id::text LIKE $1)`],
   ['ruta', `DELETE FROM core.ruta WHERE id::text LIKE $1`],
+  // Puntos de ruta (0048). Terminal: id = md5('core.punto_ruta:'||sucursal_id),
+  // así que se borran por su `sucursal_id` prefijado; 'parada' (id uuid_v7) por
+  // el suyo. Va tras ruta_parada / salida_parada (FK -> punto_id) y antes de
+  // core.sucursal (FK -> sucursal_id).
+  ['punto_ruta', `DELETE FROM core.punto_ruta WHERE sucursal_id::text LIKE $1 OR id::text LIKE $1`],
   ['usuario_sucursal', `DELETE FROM core.usuario_sucursal WHERE usuario_id::text LIKE $1 OR sucursal_id::text LIKE $1`],
   ['credencial', `DELETE FROM auth_local.credencial WHERE usuario_id::text LIKE $1`],
   ['sesion', `DELETE FROM auth_local.sesion WHERE usuario_id::text LIKE $1`],

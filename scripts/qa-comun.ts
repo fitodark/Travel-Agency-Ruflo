@@ -40,6 +40,10 @@ export const TABLAS_A_BARRER: readonly string[] = [
   'core.tarifa',
   'core.ruta_parada',
   'core.ruta',
+  // Catálogo de puntos de ruta (0048). Va DESPUÉS de ruta_parada / salida_parada:
+  // ambas lo referencian por `punto_id`. Los puntos terminal de las sucursales
+  // reales los recrea el trigger de compat al re-sembrar rutas (o el seed 0003).
+  'core.punto_ruta',
   'core.unidad',
   'core.conductor',
   'core.cliente',
@@ -54,6 +58,7 @@ export const TABLAS_A_BARRER: readonly string[] = [
 export const TABLAS_LOG_A_LIMPIAR: readonly string[] = [
   'core.ruta',
   'core.ruta_parada',
+  'core.punto_ruta',
   'core.horario',
   'core.horario_parada',
   'core.tarifa',

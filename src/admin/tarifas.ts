@@ -44,7 +44,8 @@ export async function listarRutas(db: Consultable): Promise<Record<string, unkno
             (SELECT jsonb_agg(jsonb_build_object('orden', rp.orden, 'sucursal', s.nombre)
                               ORDER BY rp.orden)
                FROM core.ruta_parada rp
-               JOIN core.sucursal s ON s.id = rp.sucursal_id
+               JOIN core.punto_ruta pr ON pr.id = rp.punto_id
+               LEFT JOIN core.sucursal s ON s.id = pr.sucursal_id
               WHERE rp.ruta_id = r.id) AS paradas
        FROM core.ruta r
       WHERE r.activo

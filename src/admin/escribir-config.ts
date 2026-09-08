@@ -43,6 +43,7 @@ export const TABLAS_ADMINISTRABLES: readonly string[] = [
   'core.rol_permiso',
   'core.ruta',
   'core.ruta_parada',
+  'core.punto_ruta',
   'core.horario',
   'core.horario_parada',
   'core.unidad',
