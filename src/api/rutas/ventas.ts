@@ -53,6 +53,7 @@ const ventaSchema = {
           asientoNum: { type: 'integer', minimum: 1 },
           nombre: { type: 'string', minLength: 1, maxLength: 200 },
           importe: { type: 'number', minimum: 0 },
+          categoria: { type: 'string', enum: ['general', 'inapam', 'menor'] },
           leaseId: { type: 'string', format: 'uuid' },
         },
       },
@@ -153,7 +154,10 @@ export async function rutasVentas(app: FastifyInstance): Promise<void> {
         salidaId: string; origenOrden: number; destinoOrden: number;
         contactoTelefono: string; esReservacion?: boolean; clienteId?: string;
         conConexion?: boolean;
-        pasajeros: Array<{ asientoNum: number; nombre: string; importe: number; leaseId?: string }>;
+        pasajeros: Array<{
+          asientoNum: number; nombre: string; importe: number;
+          categoria?: 'general' | 'inapam' | 'menor'; leaseId?: string;
+        }>;
         pago?: {
           metodo: 'efectivo' | 'transferencia'; monto: number;
           esAbono?: boolean; referencia?: string; corteCajaId?: string;
