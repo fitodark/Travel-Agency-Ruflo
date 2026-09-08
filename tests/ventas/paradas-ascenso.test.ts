@@ -62,7 +62,7 @@ run('Fase 1 · bandera de ascenso (PostgreSQL real)', () => {
   // -------------------------------------------------------------------------
   // Fixture: parada de solo ascenso (retorno) — a nivel ruta
   // -------------------------------------------------------------------------
-  it('`paradaAscensoEnOrden` crea un punto tipo=parada, banderas true/false, CON fila en horario_parada', async () => {
+  it('`paradaAscensoEnOrden` crea un punto tipo=parada, banderas true/false, SIN fila en horario_parada', async () => {
     const fx = await seedRuta(db, { paradas: 4, paradaAscensoEnOrden: 1 });
 
     const { rows: rp } = await db.query<{
@@ -79,7 +79,8 @@ run('Fase 1 · bandera de ascenso (PostgreSQL real)', () => {
       tipo: 'parada', permite_ascenso: true, permite_descenso: false, sucursal_id: null,
     });
 
-    // A diferencia de la de solo descenso, la de ascenso SÍ lleva hora de paso (D6).
+    // En Fase 1 no lleva hora de paso: materializarla reventaría repartir_cupo_offline
+    // (cupo_offline.sucursal_id NOT NULL). La hora propia es mejora de Fase 4.
     const { rows: hp } = await db.query<{ n: string }>(
       `SELECT count(*) AS n
          FROM core.horario_parada hp
@@ -87,7 +88,7 @@ run('Fase 1 · bandera de ascenso (PostgreSQL real)', () => {
         WHERE hp.horario_id = $1 AND rp.orden = 1`,
       [fx.horarioId],
     );
-    expect(Number(hp[0]!.n)).toBe(1);
+    expect(Number(hp[0]!.n)).toBe(0);
   });
 
   // -------------------------------------------------------------------------

@@ -70,9 +70,13 @@ export interface SeedRutaOpts {
   /**
    * Simétrica de `paradaDescensoEnOrden`: convierte la parada intermedia de este
    * `orden` en un `core.punto_ruta` `tipo='parada'` de solo ascenso (típica del
-   * retorno): `permite_ascenso=true`, `permite_descenso=false`. A diferencia de
-   * la de descenso, SÍ recibe fila en `core.horario_parada` (D6: una parada de
-   * ascenso tiene hora de paso; vende contra el cupo del origen).
+   * retorno): `permite_ascenso=true`, `permite_descenso=false`.
+   *
+   * Igual que la de descenso, NO recibe fila en `core.horario_parada` en Fase 1:
+   * una 'parada' materializada con `sucursal_id=NULL` haría que
+   * `core.repartir_cupo_offline` (0019, intacto hasta Fase 4) reviente contra
+   * `core.cupo_offline.sucursal_id` NOT NULL. La hora de paso propia de la parada
+   * de ascenso + su materialización es mejora de fixture para Fase 4.
    * Debe ser un orden intermedio: 0 < orden < paradas-1.
    */
   paradaAscensoEnOrden?: number;
@@ -179,7 +183,9 @@ export async function seedRuta(client: Client, opts: SeedRutaOpts = {}): Promise
       return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
     });
   for (let i = 0; i < paradas; i++) {
-    if (i === opts.paradaDescensoEnOrden) continue;   // parada de descenso: sin hora de paso
+    // Las paradas no-terminal (solo descenso / solo ascenso) viajan sin hora de
+    // paso en Fase 1: materializarlas revienta `repartir_cupo_offline` (Fase 4).
+    if (i === opts.paradaDescensoEnOrden || i === opts.paradaAscensoEnOrden) continue;
     await client.query(
       `INSERT INTO core.horario_parada (horario_id, ruta_parada_id, orden, hora_paso)
        VALUES ($1, $2, $3, $4::time)`,
