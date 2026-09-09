@@ -2701,14 +2701,38 @@ vive en la nota de memoria `donaji-rutas-paradas-tarifas`; resumen:
   (revert + `DELETE FROM schema_migration WHERE version LIKE '0057%'`). En una BD
   limpia aplica sin problema.
 
-- **Orden de merge Fase 6:** 5e → 6a (`f-paradas-fase6a`) → 6b → 6c.
-- **Pendiente de Fase 6:** 6b — caducidad de reservas (D9, liberación perezosa 1 h
-  antes de la salida; no depende de nada nuevo). 6c — cancelación / reembolso
-  (D9 + D10), **bloqueada** por las respuestas del cliente a N-13 (rol que
-  autoriza; reembolso de un `corresponsal`) y N-14 (traspaso de saldo vs
-  reembolso + cobro al reemitir un huérfano).
+### Fase 6b — caducidad de reservas sin pagar (`0058`)
+
+- **Rama `f-paradas-fase6b`** (apilada sobre `f-paradas-fase6a`), migr. `0058`.
+  Pusheada a `origin`, PR a mano en
+  `github.com/fitodark/Travel-Agency-Ruflo/pull/new/f-paradas-fase6b`.
+- **D9:** una reserva **sin ningún pago** (`es_reservacion`, `pagado = 0`) caduca
+  1 h antes de `salida_parada` orden 0 (`hora_paso_programada - 1h <= ahora`).
+  Liberación **perezosa**, sin job:
+  - `core.reservas_caducas(salida, ahora)` (STABLE) lista las ocupaciones a liberar;
+  - `core.liberar_reservas_caducas(salida, ahora)` (VOLATILE) las materializa —
+    `asiento_ocupacion.estado='liberado'`, `boleto.estado='cancelado'`,
+    `venta.estado='cancelada'` (si no le quedan boletos vivos); guarda contra
+    `sync.replicando()`;
+  - `core.asientos_libres` deja de contar la ocupación caduca (lado LECTURA — la
+    disponibilidad refleja la caducidad sin escribir);
+  - `core.adquirir_lease` y `core.registrar_venta` llaman a
+    `liberar_reservas_caducas` antes de tocar el asiento (lado ESCRITURA — así el
+    `EXCLUDE` no bloquea la venta del asiento liberado).
+- Determinista del reloj (como la expiración de leases): todos los nodos calculan
+  lo mismo ⇒ **sin ventana coordinada**.
+- Una reserva con **abono parcial NO se auto-libera** — el reembolso del abono es 6c.
+- **Verificación:** typecheck verde; `tests/ventas` + `tests/sync/arbitraje` +
+  `tests/fleet/cupo` verdes; `tests/ventas/caducidad-reservas.test.ts` (+3);
+  `npm test` 496 pass / 70 fail (los mismos preexistentes, 0 regresiones).
+
+- **Orden de merge Fase 6:** 5e → 6a → 6b (`f-paradas-fase6b`) → 6c.
+- **Pendiente de Fase 6:** solo **6c** — cancelación / reembolso (D9 + D10),
+  **bloqueada** por las respuestas del cliente a N-13 (rol que autoriza;
+  reembolso de un `corresponsal`) y N-14 (traspaso de saldo vs reembolso + cobro
+  al reemitir un huérfano).
 - **Deploy acumulado:** nube + local en `0052`; faltan las 4 terminales, y
-  `0053` … `0057` sin aplicar en ningún nodo.
+  `0053` … `0058` sin aplicar en ningún nodo.
 - Memoria actualizada: `donaji-rutas-paradas-tarifas`, `MEMORY.md`.
 
 ---
