@@ -23,11 +23,13 @@ const pagoSchema = {
   type: 'object',
   required: ['metodo', 'monto'],
   properties: {
-    metodo: { type: 'string', enum: ['efectivo', 'transferencia'] },
+    metodo: { type: 'string', enum: ['efectivo', 'transferencia', 'corresponsal'] },
     monto: { type: 'number', exclusiveMinimum: 0 },
     esAbono: { type: 'boolean' },
     referencia: { type: 'string', maxLength: 120 },
     corteCajaId: { type: 'string', format: 'uuid' },
+    /** Solo `corresponsal`: la sucursal `sin_sistema` donde se cobró (D8). */
+    sucursalCobroId: { type: 'string', format: 'uuid' },
   },
 } as const;
 
@@ -159,8 +161,8 @@ export async function rutasVentas(app: FastifyInstance): Promise<void> {
           categoria?: 'general' | 'inapam' | 'menor'; leaseId?: string;
         }>;
         pago?: {
-          metodo: 'efectivo' | 'transferencia'; monto: number;
-          esAbono?: boolean; referencia?: string; corteCajaId?: string;
+          metodo: 'efectivo' | 'transferencia' | 'corresponsal'; monto: number;
+          esAbono?: boolean; referencia?: string; corteCajaId?: string; sucursalCobroId?: string;
         };
       };
 

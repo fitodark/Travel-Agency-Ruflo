@@ -24,12 +24,17 @@ export interface Pasajero {
 }
 
 export interface PagoInput {
-  metodo: 'efectivo' | 'transferencia';
+  metodo: 'efectivo' | 'transferencia' | 'corresponsal';
   monto: number;
   esAbono?: boolean;
   referencia?: string;
   /** Corte al que suma. Si se omite, se usa el corte abierto de la sucursal. */
   corteCajaId?: string;
+  /**
+   * Solo `corresponsal` (D8): la sucursal `sin_sistema` donde el pasajero pagó.
+   * El pago se agrupa en el corte del origen pero no entra al efectivo.
+   */
+  sucursalCobroId?: string;
 }
 
 export interface RegistrarVentaArgs {
@@ -87,6 +92,7 @@ function pagoAJson(p: PagoInput): Record<string, unknown> {
     es_abono: p.esAbono ?? false,
     ...(p.referencia ? { referencia: p.referencia } : {}),
     ...(p.corteCajaId ? { corte_caja_id: p.corteCajaId } : {}),
+    ...(p.sucursalCobroId ? { sucursal_cobro_id: p.sucursalCobroId } : {}),
   };
 }
 

@@ -83,6 +83,47 @@ export async function saldoCorte(db: Consultable, corteId: string): Promise<Sald
   };
 }
 
+export interface CobradoEnCorresponsal {
+  conteo: number;
+  suma: number;
+  detalle: {
+    pagoId: string;
+    folio: string | null;
+    pasajero: string | null;
+    sucursalCobro: string;
+    monto: number;
+    pagadoEn: string;
+  }[];
+}
+
+/**
+ * Apartado "cobrado en corresponsal" del corte (D8): pagos `corresponsal`
+ * agrupados en este corte, que NO entran al efectivo. Se listan aparte con la
+ * sucursal `sin_sistema` donde se cobró.
+ */
+export async function cobradoEnCorresponsal(
+  db: Consultable, corteId: string,
+): Promise<CobradoEnCorresponsal> {
+  const { rows } = await db.query<{
+    pago_id: string; folio: string | null; pasajero: string | null;
+    sucursal_cobro: string; monto: string; pagado_en: Date;
+  }>(
+    `SELECT pago_id, folio, pasajero, sucursal_cobro, monto, pagado_en
+       FROM core.pagos_corresponsal($1::uuid)`,
+    [corteId],
+  );
+  const detalle = rows.map((r) => ({
+    pagoId: r.pago_id, folio: r.folio, pasajero: r.pasajero,
+    sucursalCobro: r.sucursal_cobro, monto: Number(r.monto),
+    pagadoEn: r.pagado_en.toISOString(),
+  }));
+  return {
+    conteo: detalle.length,
+    suma: detalle.reduce((s, d) => s + d.monto, 0),
+    detalle,
+  };
+}
+
 /** El corte abierto de una sucursal, o `null`. */
 export async function corteAbiertoDe(
   db: Consultable, sucursalId: string,
