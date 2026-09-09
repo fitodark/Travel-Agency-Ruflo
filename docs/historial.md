@@ -2449,6 +2449,79 @@ origen (que puede ser mayor que la del destino final).
 
 ---
 
+## Sesiones 59–63 — 2026-09-07…09 · Paradas autorizadas, Fases 0–4
+
+P-1…P-9 y N-1…N-12 respondidas por el cliente el 7 sep; el plan
+`docs/architecture/05-paradas-autorizadas-tarifas.md` las incorpora (§2 D1–D13,
+§4 Fases 0–6, migr. `0048`–`0054`). El detalle sesión por sesión de estas fases
+vive en la nota de memoria `donaji-rutas-paradas-tarifas`; resumen:
+
+- **Fase 0 (`0048`) — PR #61, mergeada.** Catálogo `core.punto_ruta` (clase A,
+  `terminal` | `parada`), `punto_id` en `ruta_parada` / `salida_parada`,
+  `permite_ascenso` / `permite_descenso`, triggers de compat, `materializar_salidas`
+  re-cableado. Nube + local en `0048`.
+- **Fase 1 (`0049`) — PR #62, mergeada.** `buscar_salidas` / `registrar_venta` /
+  `adquirir_lease` con punto ids + guard `permite_ascenso`; `DROP COLUMN
+  ruta_parada.sucursal_id`; `SET NOT NULL` de `punto_id`; helper
+  `asegurar_punto_terminal`; wiring `bootstrap.ts` / `Vender.tsx`. Aplicada a nube.
+- **Fase 2 (`0050`) — PR #63 + follow-up PR #64, mergeadas.** `tramos_ocupacion`
+  (rango de viaje vs. rango de ocupación) en `boleto` / `asiento_ocupacion` /
+  `asiento_lease`; helper `core.tramo_ocupacion`; swap del `EXCLUDE`; trigger de
+  compat. Follow-up: fix F2-D1 (`arbitraje.ts` arbitraba sobre el viaje, no la
+  ocupación).
+- **Fase 3 (`0051`) — PR #65 + notas PR #66, mergeadas.** `categoria_pasajero`
+  (`general` | `inapam` | `menor`), tarifa estricta en la venta
+  (`validar_tarifa_estricta`, default `true`), descuento solo terminal-extremo →
+  terminal-extremo, `buscar_salidas` += `tarifas jsonb`, selector en `Vender.tsx`.
+  Los descuentos INAPAM/menor **no operan** hasta Fase 5 (F3-D3).
+- **Fase 4 (`0052`) — PR #67, mergeada.** `materializar_salidas` escribe
+  `salida_parada` por cada `ruta_parada` (paradas no-terminal sin hora);
+  `repartir_cupo_offline` reparte solo entre terminales con ascenso. Notas de
+  review en `docs/fase4-review-notes`: F4-D1 (manifiesto roto para paradas de
+  descenso → must-fix Fase 5), F4-D2, F4-D3.
+- **Deploy:** nube + local en `0052` (9 sep). Faltan las 4 terminales.
+
+---
+
+## Sesión 64 — 2026-09-09 · Paradas autorizadas, Fase 5a (impresión y manifiesto)
+
+- **Validación de estado.** Se confirmó contra `git log` y el plan que el equipo
+  está dentro de la **Fase 5** (partida en sub-PRs 5a–5e por tamaño). Fases 0–4
+  mergeadas a `main` (`6bc068f`).
+- **Fase 5a implementada** — rama `f-paradas-fase5a`, commit `09fd347`, migr.
+  `0053` (373 líneas). Alcance = solo el must-fix (D11 lista única se separa a
+  5a-2):
+  - Re-cable de `core.snapshot_boleto` / `core.datos_manifiesto` /
+    `core.salidas_del_dia` / `core.generar_manifiestos` / `src/fleet/abordaje.ts`
+    (`buscarBoletoPorFolio`, `detalleBoleto`) de `core.sucursal` a
+    `core.punto_ruta`. **Cierra F4-D1** (las paradas de ascenso/descenso
+    desaparecían del manifiesto y `detalleBoleto` devolvía `null`). Se mantiene la
+    forma actual del manifiesto (agrupado por ascenso) + `estatus_pago` por
+    pasajero (N-8) + paradas de descenso sin hora.
+  - **D7:** el boleto lleva el punto de ascenso explícito, sin `referencia`.
+  - **N-4 (reimpresión):** `config_ticket.leyenda_reimpresion`,
+    `core.reimprimir_boleto` (encola con el snapshot original, incrementa
+    `reimpresiones`, nota de auditoría, `RAISE` si hay saldo o está cancelado),
+    `POST /viajes/boleto/:id/reimprimir` (permiso `ticket.reimprimir`), leyenda al
+    pie en `boleto.ts` / `spooler.ts` / `config.ts`, botón "Reimprimir boleto" en
+    `<ModalDetalleBoleto>`.
+  - **No** dropea `salida_parada.sucursal_id` — solo deja de leerlo (el DROP +
+    retiro de triggers + vistas `api.*` van en 5b).
+- **Verificación:** typecheck `src` + `web` verde, `web` build verde, `0053`
+  aplica, smoke funcional OK, `npm test` 472 pass / 70 fail (los mismos
+  preexistentes, 0 regresiones).
+- **Rama pusheada a `origin`.** No hay `gh` CLI en el entorno; el PR se abre a
+  mano en `github.com/fitodark/Travel-Agency-Ruflo/pull/new/f-paradas-fase5a`
+  (título y cuerpo redactados en la sesión). Sin review, sin merge, sin deploy.
+- **Pendiente de Fase 5:** 5a-2 (manifiesto lista única D11), 5b (`DROP COLUMN` +
+  vistas `api.*` + F3-D2 + F4-D2), 5c (admin: CRUD `punto_ruta`, `crearRuta` /
+  `crearHorario` con banderas, reemplazo de rutas D5, reporte de huérfanos), 5d
+  (`crearTarifa` con categoría + `Tarifas.tsx` → descuentos INAPAM/menor
+  operativos + F4-D3), 5e (SPA `Puntos.tsx` / `Horarios.tsx`).
+- Memoria actualizada: `donaji-rutas-paradas-tarifas`, `MEMORY.md`.
+
+---
+
 Los cinco criterios de aceptación verdes contra Supabase real
 (`tests/sync/f1-criterios.test.ts`). Contrato de pruebas del motor cerrado
 (`salud.ts` Ses. 4, arbitraje/reasignación en F4, checksum dirigido de
