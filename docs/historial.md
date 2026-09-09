@@ -2638,11 +2638,37 @@ vive en la nota de memoria `donaji-rutas-paradas-tarifas`; resumen:
   `config.test.ts` 3, `arbitraje.test.ts` 1); `npm test` 489 pass / 70 fail (los
   mismos preexistentes, 0 regresiones).
 
+### Fase 5e — SPA de puntos, rutas con banderas y reemplazo (solo frontend)
+
+- **Rama `f-paradas-fase5e`** (apilada sobre `f-paradas-fase5d`), **sin backend**.
+  Pusheada a `origin`, PR a mano en
+  `github.com/fitodark/Travel-Agency-Ruflo/pull/new/f-paradas-fase5e`. **Cierra
+  la Fase 5.**
+- `web/src/paginas/admin/Puntos.tsx` (nuevo) + pestaña `Puntos` + ruta
+  `/admin/puntos`: alta / edición / baja de paradas de descenso (nombre,
+  municipio, referencia, zona horaria) + lista de terminales. Una parada en una
+  ruta activa no se puede dar de baja.
+- `Horarios.tsx` — `NuevaRuta` reescrito: cada fila es una terminal (sucursal) o
+  una parada de descenso, con casillas ascenso / descenso; los extremos quedan
+  forzados a terminal + ambas banderas. Resuelve las terminales a `puntoId` con
+  `crearPunto` idempotente y llama a `crearRuta({ paradas })`.
+- El formulario de horario solo pide hora de paso para las paradas con ascenso;
+  lista las de solo descenso como "sin hora". (Antes mandaba un paso por cada
+  parada y el backend de 5c lo rechazaba.)
+- La lista de rutas marca `(baja)` las paradas no-terminal y `hasta <fecha>` la
+  vigencia; botón "reemplazar" en las rutas activas sin sucesora.
+- `<ReemplazarRuta>` (modal, D5): parte de las paradas de la ruta vieja, pide
+  nombre + primer día operativo (futuro), y al terminar muestra la tabla de
+  boletos huérfanos (folio, pasajero, contacto, fecha, tramo, pago) para la
+  reubicación manual.
+- **Verificación:** typecheck src + web verde; web build verde; `npm test`
+  489 pass / 70 fail (backend intacto — 0 regresiones).
+
 - **Orden de merge:** 5a-2 (`f-paradas-fase5-2`) → 5b (`f-paradas-fase5b`) →
-  5c (`f-paradas-fase5c`) → 5d (`f-paradas-fase5d`).
-- **Pendiente de Fase 5:** solo **5e** — SPA `Puntos.tsx` (nuevo), `Horarios.tsx`
-  (armar ruta con puntos + banderas), pantalla de boletos huérfanos. Los clientes
-  API ya están en `web/src/api/admin.ts`. Con 5e mergeado, **Fase 5 cierra**.
+  5c (`f-paradas-fase5c`) → 5d (`f-paradas-fase5d`) → 5e (`f-paradas-fase5e`).
+- **FASE 5 CERRADA** con 5e. Sigue la **Fase 6** (`0057`): tercer método de pago
+  `corresponsal`, caducidad y cancelación / reembolso de reservas; residuales
+  del cliente N-13..N-15 por resolver.
 - **Deploy acumulado:** nube + local en `0052`; faltan las 4 terminales, y
   `0053` + `0054` + `0055` + `0056` sin aplicar en ningún nodo.
 - Memoria actualizada: `donaji-rutas-paradas-tarifas`, `MEMORY.md`.
