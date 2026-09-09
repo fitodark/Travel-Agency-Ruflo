@@ -2483,7 +2483,7 @@ vive en la nota de memoria `donaji-rutas-paradas-tarifas`; resumen:
 
 ---
 
-## Sesión 64 — 2026-09-09 · Paradas autorizadas, Fase 5a (impresión y manifiesto)
+## Sesión 64 — 2026-09-09 · Paradas autorizadas, Fase 5a + 5a-2 (impresión y manifiesto)
 
 - **Validación de estado.** Se confirmó contra `git log` y el plan que el equipo
   está dentro de la **Fase 5** (partida en sub-PRs 5a–5e por tamaño). Fases 0–4
@@ -2510,14 +2510,44 @@ vive en la nota de memoria `donaji-rutas-paradas-tarifas`; resumen:
 - **Verificación:** typecheck `src` + `web` verde, `web` build verde, `0053`
   aplica, smoke funcional OK, `npm test` 472 pass / 70 fail (los mismos
   preexistentes, 0 regresiones).
-- **Rama pusheada a `origin`.** No hay `gh` CLI en el entorno; el PR se abre a
-  mano en `github.com/fitodark/Travel-Agency-Ruflo/pull/new/f-paradas-fase5a`
-  (título y cuerpo redactados en la sesión). Sin review, sin merge, sin deploy.
-- **Pendiente de Fase 5:** 5a-2 (manifiesto lista única D11), 5b (`DROP COLUMN` +
-  vistas `api.*` + F3-D2 + F4-D2), 5c (admin: CRUD `punto_ruta`, `crearRuta` /
-  `crearHorario` con banderas, reemplazo de rutas D5, reporte de huérfanos), 5d
-  (`crearTarifa` con categoría + `Tarifas.tsx` → descuentos INAPAM/menor
-  operativos + F4-D3), 5e (SPA `Puntos.tsx` / `Horarios.tsx`).
+- **Rama pusheada y mergeada** como **PR #68** (`c3b19f7`); sin `gh` CLI en el
+  entorno, el PR se abrió a mano con título y cuerpo redactados en la sesión.
+  `0053` sin aplicar en ningún nodo todavía.
+
+### Fase 5a-2 — manifiesto "lista única por pasajero" (D11)
+
+- **Rama `f-paradas-fase5-2`, commit `afa885d`, migr. `0054`.**
+  Pusheada a `origin`, PR a mano en
+  `github.com/fitodark/Travel-Agency-Ruflo/pull/new/f-paradas-fase5-2`. Sin
+  review, sin merge, sin deploy.
+- `core.datos_manifiesto` deja de agrupar por parada de ascenso (`ascensos[]`) y
+  emite una sola lista plana `pasajeros[]`: `folio`, `asiento`, `nombre`,
+  `sube_en` (+`orden`), `baja_en` (+`orden`), `estatus_pago`, `conflicto`;
+  ordenada por punto de ascenso y luego asiento. Se van `ocupacion_por_tramo` y
+  el `importe`/`saldo` por pasajero (N-8). Las dos copias (conductor / terminal)
+  quedan con **contenido idéntico** — `p_copia` solo rotula encabezado y firma.
+  `core.generar_manifiestos` cuenta `jsonb_array_length(datos->'pasajeros')`.
+- `renderManifiesto` reescrito a la lista plana (marca `** PAGO PENDIENTE **`,
+  cuenta pendientes y conflictos en el pie). **De paso corrige un desalineo que
+  dejó 5a:** la plantilla leía `paradas[].sucursal` pero `0053` ya emitía
+  `paradas[].punto` — el encabezado salía `Ruta: undefined -> undefined`.
+- No toca `salidas_del_dia`, `snapshot_boleto`, `reimprimir_boleto` (`0053`) ni
+  el abordaje digital de F7 (`marcar_abordaje`), que D11 mantiene en la terminal
+  de origen. `src/fleet/manifiesto.ts` y `poc-manifiesto.ts` sin cambio.
+- **`0054` es solo `CREATE OR REPLACE`, sin DDL** → aplicable en caliente sobre
+  nodos en `0053`. **La Fase 6 corre de `0054` a `0055`.**
+- **Verificación:** typecheck verde; `tests/printing` + `tests/fleet` 129/129
+  (`tests/{printing,fleet}/manifiesto.test.ts` reescritos, 25/25); `npm test`
+  472 pass / 70 fail (los mismos preexistentes, 0 regresiones).
+
+- **Pendiente de Fase 5:** 5b (`DROP COLUMN salida_parada.sucursal_id` + retiro de
+  triggers de compat + vistas `api.*` + F3-D2 + F4-D2), 5c (admin: CRUD
+  `punto_ruta`, `crearRuta` / `crearHorario` con banderas, reemplazo de rutas D5,
+  reporte de huérfanos), 5d (`crearTarifa` con categoría + `Tarifas.tsx` →
+  descuentos INAPAM/menor operativos + F4-D3), 5e (SPA `Puntos.tsx` /
+  `Horarios.tsx`).
+- **Deploy acumulado:** nube + local en `0052`; faltan las 4 terminales, y
+  `0053` + `0054` sin aplicar en ningún nodo.
 - Memoria actualizada: `donaji-rutas-paradas-tarifas`, `MEMORY.md`.
 
 ---
