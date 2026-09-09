@@ -310,10 +310,11 @@ reserva la registra la terminal de origen, que aparta el asiento desde el orden 
 - **F3-D2 — ✅ RESUELTO en 5c (`0056`):** el guard de descuento de `registrar_venta` pasa de
   "por `orden` contra `v_n_paradas`" a "origen y destino son `tipo='terminal'` y los extremos
   de la ruta (`ruta_parada.orden` 0 y máx)".
-- **F3-D3 (secuencia) — CONFIRMADO:** los descuentos INAPAM/menor **esperan a Fase 5** (que
-  trae el alta de tarifas por categoría en `Tarifas.tsx` + `crearTarifa` con el arg). Entre
-  Fase 3 y 5, `registrar_venta` con `categoria='inapam'` da `RAISE` y la SPA oculta el selector.
-  Fase 3 entrega solo la validación estricta (el pedido central de D4) + el esquema.
+- **F3-D3 — ✅ RESUELTO en 5d:** `crearTarifa` gana `categoria` (`general`|`inapam`|`menor`),
+  valida terminal↔terminal para el descuento (D4) y solo cierra la anterior de la misma
+  categoría; `Tarifas.tsx` tiene el selector + columna; `Vender.tsx` ya mostraba el selector
+  de categoría solo cuando el tramo tiene tarifa de descuento (`salida.tarifas`). Los
+  descuentos INAPAM/menor quedan **operativos**.
 - **P-2 RESUELTA:** montos fijos, sin cortesías ni importe 0, sin tope hoy (campo listo).
 - **Bloqueante:** ninguno.
 
@@ -338,9 +339,9 @@ reserva la registra la terminal de origen, que aparta el asiento desde el orden 
   la ruta. Test `tramos-ocupacion.test.ts` migrado del insert-a-mano a `seedSalida({paradaDescensoEnOrden})`.
 - **F3-D2 — ✅ RESUELTO en 5c (`0056`):** el guard de descuento de `registrar_venta` se
   reescribió por `tipo='terminal'` + extremo de ruta, junto con `crearRuta`.
-- **`src/sync/arbitraje.ts` ya arbitra sobre `tramos_ocupacion`** (fix F2-D1, PR #64). El
-  caso de test cross-node (dos ocupaciones que solapan en ocupación pero no en viaje) sigue
-  pendiente — **F4-D3**, agregarlo en Fase 5 ahora que las ventas a parada de descenso son reales.
+- **F4-D3 — ✅ RESUELTO en 5d:** `tests/sync/arbitraje.test.ts` gana el caso cross-node —
+  dos ocupaciones que solapan en `tramos_ocupacion` (`[0,3)` y `[1,3)`) pero cuyos viajes
+  (`[0,1)` y `[1,3)`) son disjuntos: `resolverConflictoAsiento` sí dispara y elige ganador.
 - **Review de Fase 4 — a resolver en Fase 5:**
   - **F4-D1 (must-fix) — ✅ RESUELTO:** `snapshot_boleto` / `datos_manifiesto` /
     `salidas_del_dia` / `generar_manifiestos` / `abordaje.ts` → `core.punto_ruta` en 5a
@@ -414,9 +415,15 @@ reserva la registra la terminal de origen, que aparta el asiento desde el orden 
   de `0048`); NO se re-propaga en vivo si el admin cambia la tz de la sucursal — la tz
   operativa se edita en el punto (`editarPunto`). (Hallazgo del review de Fase 0, D2.)
 - Reubicación de huérfano = **cancelar + reemitir** (folio nuevo) en la ruta nueva (D12, N-11).
-- SPA (**5e**): `web/src/paginas/admin/Puntos.tsx` (nuevo), `Horarios.tsx` (armar ruta con
-  puntos + banderas), `Tarifas.tsx` (matriz por par válido y categoría — **5d**), pantalla /
-  reporte de boletos huérfanos (D12). Los clientes API ya están en `web/src/api/admin.ts`.
+- **✅ 5d (rama `f-paradas-fase5d`, sin migración):** `src/admin/tarifas.ts` `crearTarifa` +=
+  `categoria`, valida terminal↔terminal para el descuento (D4), cierra solo la anterior de la
+  misma categoría; `listarTarifas`/`listarRutas` re-cableadas a `punto_ruta.nombre`. Ruta
+  `/admin/tarifas` schema += `categoria` enum. Web: `Tarifas.tsx` con selector de categoría +
+  columna + guard de descuento válido; `web/src/api/admin.ts` tipos. `tests/admin/config.test.ts`
+  +3, `tests/sync/arbitraje.test.ts` +1 (F4-D3). **F3-D3 y F4-D3 CERRADOS.**
+- SPA pendiente (**5e**): `web/src/paginas/admin/Puntos.tsx` (nuevo), `Horarios.tsx` (armar
+  ruta con puntos + banderas), pantalla / reporte de boletos huérfanos (D12). Los clientes
+  API ya están en `web/src/api/admin.ts`.
 - **Limpieza pendiente de Fase 1** (hallazgos del review):
   - `src/ventas/busqueda.ts` — renombrar `sucursalOrigenId` / `sucursalDestinoId` a
     `puntoOrigenId` / `puntoDestinoId` (desde `0049` llevan `core.punto_ruta.id`; se dejó el
@@ -462,7 +469,7 @@ reserva la registra la terminal de origen, que aparta el asiento desde el orden 
 | #C | 2 (`0050`) | — | P-3 resuelta; backfill, probar en staging |
 | #D | 3 (`0051`) | — | estricta + categoría de pasajero |
 | #E | 4 (`0052`) | — | — |
-| #F | 5 (`0053` + admin + SPA) | — | 5a `0053` (impresión/manifiesto→punto, reimpresión) ✅ · 5a-2 `0054` (manifiesto lista única) ✅ · 5b `0055` (`DROP COLUMN salida_parada.sucursal_id` + `api.*`) ✅ · 5c `0056` (CRUD puntos, `crearRuta`/`crearHorario` con banderas, reemplazo D5 + huérfanos, F3-D2, F4-D2) ✅ · 5d tarifas por categoría (`Tarifas.tsx` + `crearTarifa`) · 5e SPA (`Puntos.tsx`, `Horarios.tsx`) |
+| #F | 5 (`0053` + admin + SPA) | — | 5a `0053` (impresión/manifiesto→punto, reimpresión) ✅ · 5a-2 `0054` (manifiesto lista única) ✅ · 5b `0055` (`DROP COLUMN salida_parada.sucursal_id` + `api.*`) ✅ · 5c `0056` (CRUD puntos, `crearRuta`/`crearHorario` con banderas, reemplazo D5 + huérfanos, F3-D2, F4-D2) ✅ · 5d tarifas por categoría (`crearTarifa` + `Tarifas.tsx`, F3-D3, F4-D3) ✅ · 5e SPA (`Puntos.tsx`, `Horarios.tsx`, huérfanos) |
 | #G | 6 (`0057`) | — | `corresponsal` + caducidad + cancelación; ver N-13..N-15 |
 
 Cada PR: `npm run build && npm test` verde antes de merge. Los tests de sync no deben

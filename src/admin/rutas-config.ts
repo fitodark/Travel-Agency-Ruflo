@@ -151,6 +151,7 @@ export function rutasConfig(app: FastifyInstance, { db, ahora }: OpcionesRutas):
 
   app.post<{ Body: {
     rutaId: string; paradaOrigenOrden: number; paradaDestinoOrden: number; importe: number;
+    categoria?: 'general' | 'inapam' | 'menor';
     modo?: 'ventana' | 'programado'; fechaProgramada?: string;
   } }>(
     '/tarifas',
@@ -164,6 +165,7 @@ export function rutasConfig(app: FastifyInstance, { db, ahora }: OpcionesRutas):
             paradaOrigenOrden: { type: 'integer', minimum: 0 },
             paradaDestinoOrden: { type: 'integer', minimum: 1 },
             importe: { type: 'number', minimum: 0 },
+            categoria: { type: 'string', enum: ['general', 'inapam', 'menor'] },
             ...modoTarifa,
           },
         },

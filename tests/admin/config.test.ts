@@ -133,4 +133,45 @@ run('consola · impresora / ticket / tarifas (PostgreSQL real)', () => {
     expect(new Date(rows[0]!.eu!).getTime()).toBe(new Date(baja.effectiveUntil).getTime());
     expect((await listarTarifas(db, fx.rutaId)).length).toBeGreaterThanOrEqual(1);
   });
+
+  // ---- tarifas por categoría (Fase 5d) --------------------------------
+  it('crearTarifa `inapam` terminal↔terminal: guarda la categoría y no cierra la `general`', async () => {
+    const fx = await seedRuta(db, { paradas: 3 });
+    const gen = await crearTarifa(db, {
+      rutaId: fx.rutaId, paradaOrigenOrden: 0, paradaDestinoOrden: 2, importe: 450,
+    }, { ahora });
+    const desc = await crearTarifa(db, {
+      rutaId: fx.rutaId, paradaOrigenOrden: 0, paradaDestinoOrden: 2, importe: 300, categoria: 'inapam',
+    }, { ahora });
+
+    expect(desc.cerroAnterior).toBeNull(); // no toca la general
+    const { rows } = await db.query<{ categoria_pasajero: string; importe: string; eu: Date | null }>(
+      `SELECT categoria_pasajero, importe, effective_until AS eu FROM core.tarifa
+        WHERE id = ANY($1::uuid[]) ORDER BY categoria_pasajero`, [[gen.id, desc.id]],
+    );
+    expect(rows.map((r) => r.categoria_pasajero)).toEqual(['general', 'inapam']);
+    expect(rows.every((r) => r.eu === null)).toBe(true);
+
+    // Otra `inapam` del mismo tramo sí cierra la anterior `inapam`.
+    const desc2 = await crearTarifa(db, {
+      rutaId: fx.rutaId, paradaOrigenOrden: 0, paradaDestinoOrden: 2, importe: 280, categoria: 'inapam',
+    }, { ahora });
+    expect(desc2.cerroAnterior).toBe(desc.id);
+  });
+
+  it('crearTarifa rechaza un descuento en un tramo que no es terminal↔terminal', async () => {
+    const fx = await seedRuta(db, { paradas: 3 });
+    await expect(crearTarifa(db, {
+      rutaId: fx.rutaId, paradaOrigenOrden: 0, paradaDestinoOrden: 1, importe: 200, categoria: 'menor',
+    }, { ahora })).rejects.toThrow(/terminal de origen a la de destino/i);
+  });
+
+  it('listarTarifas trae la categoría', async () => {
+    const fx = await seedRuta(db, { paradas: 2 });
+    await crearTarifa(db, {
+      rutaId: fx.rutaId, paradaOrigenOrden: 0, paradaDestinoOrden: 1, importe: 300, categoria: 'inapam',
+    }, { ahora });
+    const t = (await listarTarifas(db, fx.rutaId)) as { categoria_pasajero: string }[];
+    expect(t.some((x) => x.categoria_pasajero === 'inapam')).toBe(true);
+  });
 }, 30_000);
