@@ -171,11 +171,53 @@ export const bajaTarifa = (id: string, modo: { modo?: 'ventana' | 'programado'; 
 
 // ---- rutas y horarios ---------------------------------------------
 
+export interface ParadaRuta {
+  id: string;
+  orden: number;
+  puntoId: string;
+  tipo: 'terminal' | 'parada';
+  /** Nombre del punto (= nombre de la sucursal para las terminales). */
+  sucursal: string;
+  sucursalId: string | null;
+  permiteAscenso: boolean;
+  permiteDescenso: boolean;
+}
+
 export interface RutaDetalle {
   id: string;
   nombre: string;
   activo: boolean;
-  paradas: { id: string; orden: number; sucursalId: string; sucursal: string }[];
+  vigenteHasta: string | null;
+  reemplazaA: string | null;
+  paradas: ParadaRuta[];
+}
+
+export interface PuntoRuta {
+  id: string;
+  nombre: string;
+  tipo: 'terminal' | 'parada';
+  referencia: string | null;
+  municipio: string | null;
+  zonaHoraria: string;
+  sucursalId: string | null;
+  sucursal: string | null;
+  activo: boolean;
+  enUso: boolean;
+}
+
+export interface BoletoHuerfano {
+  boletoId: string;
+  folio: string;
+  pasajero: string;
+  contacto: string;
+  salidaId: string;
+  fechaOperacion: string;
+  horaSalida: string | null;
+  asiento: number;
+  origen: string;
+  destino: string;
+  importe: number;
+  estatusPago: 'pagado' | 'pendiente';
 }
 
 export interface HorarioDetalle {
@@ -200,8 +242,36 @@ export const listarUnidades = (): Promise<{ id: string; nombre: string }[]> => a
 export const listarHorarios = (rutaId?: string): Promise<HorarioDetalle[]> =>
   api(`/admin/horarios${rutaId ? `?rutaId=${rutaId}` : ''}`);
 
-export const crearRuta = (d: { nombre: string; sucursalIds: string[] }): Promise<{ id: string }> =>
+export interface ParadaNueva { puntoId: string; permiteAscenso: boolean; permiteDescenso: boolean }
+
+export const crearRuta = (
+  d: { nombre: string; sucursalIds: string[] } | { nombre: string; paradas: ParadaNueva[] },
+): Promise<{ id: string }> =>
   api('/admin/rutas-detalle', { method: 'POST', body: JSON.stringify(d) });
+
+export const listarPuntos = (): Promise<PuntoRuta[]> => api('/admin/puntos');
+
+export const crearPunto = (d: {
+  tipo: 'terminal' | 'parada'; nombre?: string; zonaHoraria?: string;
+  referencia?: string; municipio?: string; sucursalId?: string;
+}): Promise<{ id: string }> =>
+  api('/admin/puntos', { method: 'POST', body: JSON.stringify(d) });
+
+export const editarPunto = (id: string, d: Partial<{
+  nombre: string; referencia: string | null; municipio: string | null; zonaHoraria: string;
+}>): Promise<unknown> =>
+  api(`/admin/puntos/${id}`, { method: 'PATCH', body: JSON.stringify(d) });
+
+export const bajaPunto = (id: string): Promise<unknown> =>
+  api(`/admin/puntos/${id}/baja`, { method: 'POST', body: '{}' });
+
+export const boletosHuerfanos = (rutaId: string, desde: string): Promise<BoletoHuerfano[]> =>
+  api(`/admin/rutas-detalle/${rutaId}/huerfanos?desde=${encodeURIComponent(desde)}`);
+
+export const reemplazarRuta = (rutaId: string, d: {
+  nombre: string; vigenteDesde: string; paradas: ParadaNueva[];
+}): Promise<{ id: string; rutaViejaVigenteHasta: string; huerfanos: BoletoHuerfano[] }> =>
+  api(`/admin/rutas-detalle/${rutaId}/reemplazar`, { method: 'POST', body: JSON.stringify(d) });
 
 export const bajaRuta = (id: string): Promise<unknown> =>
   api(`/admin/rutas-detalle/${id}/baja`, { method: 'POST', body: '{}' });

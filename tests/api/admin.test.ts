@@ -271,6 +271,64 @@ run('API · /admin (PostgreSQL real)', () => {
     expect(r.statusCode).toBe(400);
   });
 
+  it('CRUD de puntos y alta de ruta con banderas por parada (Fase 5c)', async () => {
+    const admin = await seedAuth(db, { rol: 'administrador', sucursales: 2 });
+    const tok = await tokenDe(db, admin.email, admin.sucursalAId, ahora);
+
+    // Una parada de solo descenso.
+    const parada = await app.inject({
+      method: 'POST', url: '/admin/puntos', headers: bearer(tok),
+      payload: { tipo: 'parada', nombre: `Cuautla ${Date.now()}`, zonaHoraria: 'America/Mexico_City' },
+    });
+    expect(parada.statusCode, parada.body).toBe(201);
+    const paradaId = parada.json().id as string;
+
+    // Los puntos terminales de las dos sucursales.
+    const t0 = await app.inject({
+      method: 'POST', url: '/admin/puntos', headers: bearer(tok),
+      payload: { tipo: 'terminal', sucursalId: admin.sucursalAId },
+    });
+    const t1 = await app.inject({
+      method: 'POST', url: '/admin/puntos', headers: bearer(tok),
+      payload: { tipo: 'terminal', sucursalId: admin.sucursalBId },
+    });
+
+    const ruta = await app.inject({
+      method: 'POST', url: '/admin/rutas-detalle', headers: bearer(tok),
+      payload: {
+        nombre: `Ruta 5c ${Date.now()}`,
+        paradas: [
+          { puntoId: t0.json().id, permiteAscenso: true, permiteDescenso: true },
+          { puntoId: paradaId, permiteAscenso: false, permiteDescenso: true },
+          { puntoId: t1.json().id, permiteAscenso: true, permiteDescenso: true },
+        ],
+      },
+    });
+    expect(ruta.statusCode, ruta.body).toBe(201);
+
+    const detalle = (await app.inject({ method: 'GET', url: '/admin/rutas-detalle', headers: bearer(tok) })
+      .then((r) => r.json())) as { id: string; paradas: { orden: number; permiteAscenso: boolean }[] }[];
+    const r = detalle.find((x) => x.id === ruta.json().id)!;
+    expect(r.paradas.map((p) => p.permiteAscenso)).toEqual([true, false, true]);
+
+    // La parada está en uso ⇒ 409 al darla de baja.
+    const baja = await app.inject({ method: 'POST', url: `/admin/puntos/${paradaId}/baja`, headers: bearer(tok) });
+    expect(baja.statusCode).toBe(409);
+
+    // Un extremo no-terminal ⇒ 400.
+    const mala = await app.inject({
+      method: 'POST', url: '/admin/rutas-detalle', headers: bearer(tok),
+      payload: {
+        nombre: 'mala',
+        paradas: [
+          { puntoId: paradaId, permiteAscenso: true, permiteDescenso: true },
+          { puntoId: t1.json().id, permiteAscenso: true, permiteDescenso: true },
+        ],
+      },
+    });
+    expect(mala.statusCode).toBe(400);
+  });
+
   it('POST /admin/ticket publica el pie del boleto, incluido el secreto HMAC del QR', async () => {
     const admin = await seedAuth(db, { rol: 'administrador' });
     const tok = await tokenDe(db, admin.email, admin.sucursalAId, ahora);

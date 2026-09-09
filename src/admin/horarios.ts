@@ -32,27 +32,38 @@ import { materializarHorario } from '../fleet/materializar.js';
 export interface ParadaRuta {
   id: string;
   orden: number;
-  sucursalId: string;
+  puntoId: string;
+  tipo: 'terminal' | 'parada';
+  /** Nombre del punto (= nombre de la sucursal para las terminales). */
   sucursal: string;
+  /** `null` para una parada no-terminal. */
+  sucursalId: string | null;
+  permiteAscenso: boolean;
+  permiteDescenso: boolean;
 }
 
 export interface RutaDetalle {
   id: string;
   nombre: string;
   activo: boolean;
+  vigenteHasta: string | null;
+  reemplazaA: string | null;
   paradas: ParadaRuta[];
 }
 
 export async function listarRutasDetalle(db: Consultable): Promise<RutaDetalle[]> {
   const { rows } = await db.query<RutaDetalle>(
     `SELECT r.id, r.nombre, r.activo,
+            r.vigente_hasta::text AS "vigenteHasta", r.reemplaza_a AS "reemplazaA",
             coalesce((
               SELECT jsonb_agg(jsonb_build_object(
                        'id', rp.id, 'orden', rp.orden,
-                       'sucursalId', pr.sucursal_id, 'sucursal', s.nombre) ORDER BY rp.orden)
+                       'puntoId', pr.id, 'tipo', pr.tipo,
+                       'sucursal', pr.nombre, 'sucursalId', pr.sucursal_id,
+                       'permiteAscenso', rp.permite_ascenso,
+                       'permiteDescenso', rp.permite_descenso) ORDER BY rp.orden)
                 FROM core.ruta_parada rp
                 JOIN core.punto_ruta pr ON pr.id = rp.punto_id
-                LEFT JOIN core.sucursal s ON s.id = pr.sucursal_id
                WHERE rp.ruta_id = r.id AND rp.activo
             ), '[]'::jsonb) AS paradas
        FROM core.ruta r
@@ -61,23 +72,43 @@ export async function listarRutasDetalle(db: Consultable): Promise<RutaDetalle[]
   return rows;
 }
 
-/** Crea una ruta con sus paradas ordenadas (origen … intermedias … destino). */
-export async function crearRuta(
-  db: Consultable,
-  args: { nombre: string; sucursalIds: string[] },
-): Promise<{ id: string }> {
-  const ids = args.sucursalIds;
-  if (ids.length < 2) throw new Error('una ruta necesita al menos origen y destino');
-  if (new Set(ids).size !== ids.length) throw new Error('una sucursal no puede aparecer dos veces en la ruta');
+export interface ParadaNueva {
+  puntoId: string;
+  permiteAscenso: boolean;
+  permiteDescenso: boolean;
+}
 
-  // Desde 0049 `ruta_parada` apunta a `core.punto_ruta`, no a `core.sucursal`.
-  // `core.asegurar_punto_terminal` resuelve (creando si falta) el punto terminal
-  // de cada sucursal — id determinista `md5('core.punto_ruta:'||sucursal_id)` —
-  // y completa su INSERT por fila antes de devolver el id, así el FK de
-  // `ruta_parada.punto_id` queda satisfecho dentro de la misma sentencia.
-  // Toda parada de una ruta creada así es terminal ⇒ ambas banderas `true`. El
-  // contrato con banderas por parada (paradas de solo descenso/ascenso) es Fase 5.
-  const paradas = ids.map((sucursalId, orden) => ({ sucursal_id: sucursalId, orden }));
+export type ArgsCrearRuta =
+  | { nombre: string; sucursalIds: string[] }
+  | { nombre: string; paradas: ParadaNueva[] };
+
+/**
+ * Crea una ruta con sus paradas ordenadas (origen … intermedias … destino).
+ *
+ * Dos formas de contrato:
+ *   - `{ sucursalIds }` — atajo: toda parada es una terminal con ambas banderas.
+ *     Sigue vivo para la SPA actual y los flujos que solo encadenan sucursales.
+ *   - `{ paradas: [{ puntoId, permiteAscenso, permiteDescenso }] }` — Fase 5:
+ *     banderas por parada (paradas de solo descenso / solo ascenso). Los extremos
+ *     deben ser terminales que permitan ascenso **y** descenso (D2).
+ *
+ * F4-D2: el `orden` de las paradas es el índice del arreglo — contiguo `0..n-1`
+ * por construcción; `materializar_salidas` y el reparto de cupo dependen de ello.
+ */
+export async function crearRuta(db: Consultable, args: ArgsCrearRuta): Promise<{ id: string }> {
+  const paradas = 'sucursalIds' in args
+    ? await normalizarDesdeSucursales(db, args.sucursalIds)
+    : await normalizarDesdeParadas(db, args.paradas);
+
+  if (paradas.length < 2) throw new Error('una ruta necesita al menos origen y destino');
+  if (new Set(paradas.map((p) => p.puntoId)).size !== paradas.length) {
+    throw new Error('un punto no puede aparecer dos veces en la ruta');
+  }
+
+  const filas = paradas.map((p, orden) => ({
+    punto_id: p.puntoId, orden,
+    permite_ascenso: p.permiteAscenso, permite_descenso: p.permiteDescenso,
+  }));
   const { rows } = await db.query<{ id: string }>(
     `WITH r AS (
        INSERT INTO core.ruta (nombre, sucursal_origen_id, sucursal_destino_id)
@@ -85,14 +116,66 @@ export async function crearRuta(
        RETURNING id
      ), p AS (
        INSERT INTO core.ruta_parada (ruta_id, punto_id, orden, permite_ascenso, permite_descenso)
-       SELECT r.id, core.asegurar_punto_terminal(x.sucursal_id), x.orden, true, true
-         FROM r, jsonb_to_recordset($4::jsonb) AS x(sucursal_id uuid, orden int)
+       SELECT r.id, x.punto_id, x.orden, x.permite_ascenso, x.permite_descenso
+         FROM r, jsonb_to_recordset($4::jsonb)
+                AS x(punto_id uuid, orden int, permite_ascenso boolean, permite_descenso boolean)
        RETURNING 1
      )
      SELECT id FROM r`,
-    [args.nombre, ids[0], ids[ids.length - 1], JSON.stringify(paradas)],
+    [args.nombre, paradas[0]!.sucursalId, paradas[paradas.length - 1]!.sucursalId, JSON.stringify(filas)],
   );
   return { id: rows[0]!.id };
+}
+
+interface ParadaResuelta extends ParadaNueva { sucursalId: string | null }
+
+/** `{ sucursalIds }` → puntos terminal (id determinista), ambas banderas. */
+async function normalizarDesdeSucursales(
+  db: Consultable, sucursalIds: string[],
+): Promise<ParadaResuelta[]> {
+  if (new Set(sucursalIds).size !== sucursalIds.length) {
+    throw new Error('una sucursal no puede aparecer dos veces en la ruta');
+  }
+  const out: ParadaResuelta[] = [];
+  for (const sucursalId of sucursalIds) {
+    const { rows } = await db.query<{ id: string }>(
+      `SELECT core.asegurar_punto_terminal($1::uuid) AS id`, [sucursalId],
+    );
+    out.push({ puntoId: rows[0]!.id, sucursalId, permiteAscenso: true, permiteDescenso: true });
+  }
+  return out;
+}
+
+/** `{ paradas }` → valida tipo/banderas contra `core.punto_ruta`. */
+async function normalizarDesdeParadas(
+  db: Consultable, paradas: ParadaNueva[],
+): Promise<ParadaResuelta[]> {
+  if (paradas.length < 2) throw new Error('una ruta necesita al menos origen y destino');
+  const { rows } = await db.query<{ id: string; tipo: string; sucursal_id: string | null; activo: boolean }>(
+    `SELECT id, tipo, sucursal_id, activo FROM core.punto_ruta
+      WHERE id = ANY($1::uuid[])`,
+    [paradas.map((p) => p.puntoId)],
+  );
+  const porId = new Map(rows.map((r) => [r.id, r]));
+  const resueltas = paradas.map((p, i) => {
+    const info = porId.get(p.puntoId);
+    if (!info) throw new Error(`el punto ${p.puntoId} no existe`);
+    if (!info.activo) throw new Error(`el punto ${p.puntoId} está dado de baja`);
+    if (!p.permiteAscenso && !p.permiteDescenso) {
+      throw new Error('una parada debe permitir al menos ascenso o descenso');
+    }
+    const esExtremo = i === 0 || i === paradas.length - 1;
+    if (esExtremo) {
+      if (info.tipo !== 'terminal') {
+        throw new Error('el origen y el destino de una ruta deben ser terminales (una sucursal), no paradas');
+      }
+      if (!p.permiteAscenso || !p.permiteDescenso) {
+        throw new Error('el origen y el destino deben permitir ascenso y descenso');
+      }
+    }
+    return { ...p, sucursalId: info.sucursal_id };
+  });
+  return resueltas;
 }
 
 export async function editarRuta(
@@ -196,6 +279,25 @@ export async function crearHorario(db: Consultable, h: NuevoHorario): Promise<Re
     throw new Error('días de la semana inválidos (1 = lunes … 7 = domingo)');
   }
   if (h.pasos.length === 0) throw new Error('el horario necesita al menos la hora de salida de la parada de origen');
+
+  // Una hora de paso solo tiene sentido donde alguien asciende: las paradas de
+  // solo descenso viajan sin hora (D6). Se valida contra las banderas de la
+  // `ruta_parada` para no meter una fila de `horario_parada` que
+  // `materializar_salidas` luego tendría que ignorar.
+  const paradaIds = h.pasos.map((p) => p.rutaParadaId);
+  const { rows: rp } = await db.query<{ id: string; permite_ascenso: boolean }>(
+    `SELECT id, permite_ascenso FROM core.ruta_parada
+      WHERE ruta_id = $1::uuid AND id = ANY($2::uuid[])`,
+    [h.rutaId, paradaIds],
+  );
+  const porId = new Map(rp.map((r) => [r.id, r]));
+  for (const p of h.pasos) {
+    const info = porId.get(p.rutaParadaId);
+    if (!info) throw new Error(`la parada ${p.rutaParadaId} no pertenece a la ruta`);
+    if (!info.permite_ascenso) {
+      throw new Error('una parada de solo descenso no lleva hora de paso: quítala de los pasos del horario');
+    }
+  }
 
   const { rows } = await db.query<{ id: string }>(
     `WITH nuevo AS (
