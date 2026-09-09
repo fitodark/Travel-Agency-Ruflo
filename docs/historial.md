@@ -2569,13 +2569,54 @@ vive en la nota de memoria `donaji-rutas-paradas-tarifas`; resumen:
   el bootstrap de terminal nueva); `npm test` 475 pass / 70 fail (los mismos
   preexistentes, 0 regresiones).
 
-- **Orden de merge:** 5a-2 (`f-paradas-fase5-2`) primero, luego 5b.
-- **Pendiente de Fase 5:** 5c (admin: CRUD `punto_ruta`, `crearRuta` /
-  `crearHorario` con banderas + F3-D2 + F4-D2, reemplazo de rutas D5, reporte de
-  huérfanos), 5d (`crearTarifa` con categoría + `Tarifas.tsx` → descuentos
-  INAPAM/menor operativos + F4-D3), 5e (SPA `Puntos.tsx` / `Horarios.tsx`).
+### Fase 5c — alta de rutas con banderas, CRUD de puntos, reemplazo D5 (`0056`)
+
+- **Rama `f-paradas-fase5c`** (apilada sobre `f-paradas-fase5b`), migr. `0056`.
+  Pusheada a `origin`, PR a mano en
+  `github.com/fitodark/Travel-Agency-Ruflo/pull/new/f-paradas-fase5c`. Sin
+  review, sin merge, sin deploy. Es la capa de administración **server-side**;
+  la UI es 5e.
+- **CRUD de puntos — `src/admin/puntos.ts` (nuevo):** `crearPunto`
+  (`tipo='parada'` exige nombre + zona horaria, sin sucursal; `tipo='terminal'`
+  es idempotente vía `core.asegurar_punto_terminal`), `editarPunto` (la tz
+  operativa vive en el punto, no se re-propaga desde la sucursal — D2),
+  `darDeBajaPunto` (rechaza si el punto está en una `ruta_parada` activa),
+  `listarPuntos` con `enUso`. Rutas `/admin/puntos` GET/POST/PATCH/POST-baja.
+- **Alta de rutas — `src/admin/horarios.ts`:** `crearRuta` gana el contrato
+  `{ nombre, paradas: [{ puntoId, permiteAscenso, permiteDescenso }] }` **junto
+  al `{ sucursalIds }` actual** (no rompe la SPA ni los tests). Valida extremos
+  `tipo='terminal'` + ascenso **y** descenso; sin punto repetido; `orden` =
+  índice del arreglo → contiguo `0..n-1` (**F4-D2**, por construcción).
+  `crearHorario` rechaza un `paso` sobre una `ruta_parada` sin `permite_ascenso`.
+  `listarRutasDetalle` expone `tipo` / banderas por parada y
+  `vigenteHasta` / `reemplazaA` por ruta.
+- **Reemplazo por vigencia — `src/admin/rutas-reemplazo.ts` (nuevo, D5):**
+  `reemplazarRuta` cierra la vieja (`ruta.vigente_hasta` + `horario.vigente_hasta`
+  = `vigenteDesde - 1`), rechaza fecha no futura y traslape (horario de la vieja
+  que arranca ≥ `vigenteDesde`), crea la nueva con `reemplaza_a`, devuelve el
+  listado de huérfanos. `core.boletos_huerfanos(ruta, desde)` (SQL, D12) +
+  `GET .../:id/huerfanos` + `POST .../:id/reemplazar`.
+- **Migración `0056`:** `core.ruta` += `vigente_hasta` / `reemplaza_a`;
+  `core.boletos_huerfanos(uuid, date)`; **F3-D2** — el guard de descuento de
+  `core.registrar_venta` pasa de "por `orden` contra `v_n_paradas`" a "origen y
+  destino son `tipo='terminal'` y los extremos de la ruta". Equivalente hoy;
+  explícito. `ADD COLUMN` nullable + `CREATE OR REPLACE` ⇒ **sin ventana
+  coordinada**.
+- **F3-D2 y F4-D2 CERRADOS.** Web: clientes API en `web/src/api/admin.ts`
+  (`listarPuntos`, `crearPunto`, `editarPunto`, `bajaPunto`, `boletosHuerfanos`,
+  `reemplazarRuta`; `crearRuta` acepta ambos contratos). Fase 6 corre a `0057`.
+- **Verificación:** typecheck src + web verde; web build verde;
+  `tests/admin` + `tests/api/admin` + `tests/ventas` verdes (+10 casos:
+  `tests/admin/rutas-paradas.test.ts` 9, `tests/api/admin.test.ts` +1);
+  `npm test` 485 pass / 70 fail (los mismos preexistentes, 0 regresiones).
+
+- **Orden de merge:** 5a-2 (`f-paradas-fase5-2`) → 5b (`f-paradas-fase5b`) →
+  5c (`f-paradas-fase5c`).
+- **Pendiente de Fase 5:** 5d (`crearTarifa` con categoría + `Tarifas.tsx` →
+  descuentos INAPAM/menor operativos + F4-D3), 5e (SPA `Puntos.tsx` /
+  `Horarios.tsx` armar ruta con puntos + banderas + pantalla de huérfanos).
 - **Deploy acumulado:** nube + local en `0052`; faltan las 4 terminales, y
-  `0053` + `0054` + `0055` sin aplicar en ningún nodo.
+  `0053` + `0054` + `0055` + `0056` sin aplicar en ningún nodo.
 - Memoria actualizada: `donaji-rutas-paradas-tarifas`, `MEMORY.md`.
 
 ---
