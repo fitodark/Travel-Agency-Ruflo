@@ -142,10 +142,12 @@ export const guardarTicket = (
 
 // ---- tarifas -------------------------------------------------------
 
+export type CategoriaPasajero = 'general' | 'inapam' | 'menor';
+
 export interface RutaAdmin {
   id: string;
   nombre: string;
-  paradas: { orden: number; sucursal: string }[];
+  paradas: { orden: number; sucursal: string; tipo?: 'terminal' | 'parada' }[];
 }
 
 export interface TarifaAdmin {
@@ -153,6 +155,7 @@ export interface TarifaAdmin {
   ruta_nombre: string;
   parada_origen_orden: number;
   parada_destino_orden: number;
+  categoria_pasajero: CategoriaPasajero;
   importe: string;
   effective_from: string | null;
   effective_until: string | null;
@@ -163,7 +166,10 @@ export const listarRutas = (): Promise<RutaAdmin[]> => api('/admin/rutas');
 export const listarTarifas = (): Promise<TarifaAdmin[]> => api('/admin/tarifas');
 
 export const crearTarifa = (
-  d: { rutaId: string; paradaOrigenOrden: number; paradaDestinoOrden: number; importe: number } & { modo?: 'ventana' | 'programado'; fechaProgramada?: string },
+  d: {
+    rutaId: string; paradaOrigenOrden: number; paradaDestinoOrden: number; importe: number;
+    categoria?: CategoriaPasajero;
+  } & { modo?: 'ventana' | 'programado'; fechaProgramada?: string },
 ): Promise<unknown> => api('/admin/tarifas', { method: 'POST', body: JSON.stringify(d) });
 
 export const bajaTarifa = (id: string, modo: { modo?: 'ventana' | 'programado'; fechaProgramada?: string }): Promise<unknown> =>

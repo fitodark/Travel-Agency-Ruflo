@@ -14,11 +14,15 @@
 import type { Consultable } from '../db/consulta.js';
 import { escribirConfig, proximaVentana, ZONA_DEFECTO } from './escribir-config.js';
 
+export type CategoriaPasajero = 'general' | 'inapam' | 'menor';
+
 export interface DatosTarifa {
   rutaId: string;
   paradaOrigenOrden: number;
   paradaDestinoOrden: number;
   importe: number;
+  /** Default `general`. `inapam` / `menor` solo terminal-extremo → terminal-extremo (D4). */
+  categoria?: CategoriaPasajero;
 }
 
 interface OpcionesTarifa {
@@ -41,12 +45,12 @@ async function cuandoEntra(db: Consultable, opts: OpcionesTarifa): Promise<Date>
 export async function listarRutas(db: Consultable): Promise<Record<string, unknown>[]> {
   const { rows } = await db.query(
     `SELECT r.id, r.nombre,
-            (SELECT jsonb_agg(jsonb_build_object('orden', rp.orden, 'sucursal', s.nombre)
+            (SELECT jsonb_agg(jsonb_build_object(
+                      'orden', rp.orden, 'sucursal', pr.nombre, 'tipo', pr.tipo)
                               ORDER BY rp.orden)
                FROM core.ruta_parada rp
                JOIN core.punto_ruta pr ON pr.id = rp.punto_id
-               LEFT JOIN core.sucursal s ON s.id = pr.sucursal_id
-              WHERE rp.ruta_id = r.id) AS paradas
+              WHERE rp.ruta_id = r.id AND rp.activo) AS paradas
        FROM core.ruta r
       WHERE r.activo
       ORDER BY r.nombre`,
@@ -60,11 +64,13 @@ export async function listarTarifas(
 ): Promise<Record<string, unknown>[]> {
   const { rows } = await db.query(
     `SELECT t.id, t.ruta_id, r.nombre AS ruta_nombre, t.parada_origen_orden,
-            t.parada_destino_orden, t.importe, t.activo, t.effective_from, t.effective_until
+            t.parada_destino_orden, t.categoria_pasajero, t.importe, t.activo,
+            t.effective_from, t.effective_until
        FROM core.tarifa t
        JOIN core.ruta r ON r.id = t.ruta_id
       WHERE ($1::uuid IS NULL OR t.ruta_id = $1)
-      ORDER BY r.nombre, t.parada_origen_orden, t.parada_destino_orden, t.effective_from DESC`,
+      ORDER BY r.nombre, t.parada_origen_orden, t.parada_destino_orden,
+               t.categoria_pasajero, t.effective_from DESC`,
     [rutaId ?? null],
   );
   return rows;
@@ -87,18 +93,38 @@ export async function crearTarifa(
   }
   if (datos.importe < 0) throw new Error('el importe no puede ser negativo');
 
+  const categoria: CategoriaPasajero = datos.categoria ?? 'general';
+  if (!['general', 'inapam', 'menor'].includes(categoria)) {
+    throw new Error(`categoría de pasajero inválida: ${categoria}`);
+  }
+
+  // D4: una tarifa de descuento (inapam/menor) solo vale de la terminal extrema
+  // de origen a la de destino de la ruta — nunca en una parada intermedia. Se
+  // valida contra `ruta_parada.orden` (contiguo 0..n-1 desde 5c).
+  if (categoria !== 'general') {
+    const { rows: ext } = await db.query<{ max_orden: number }>(
+      `SELECT max(orden)::int AS max_orden FROM core.ruta_parada
+        WHERE ruta_id = $1::uuid AND activo`,
+      [datos.rutaId],
+    );
+    const maxOrden = ext[0]?.max_orden;
+    if (maxOrden == null) throw new Error('la ruta no tiene paradas');
+    if (datos.paradaOrigenOrden !== 0 || datos.paradaDestinoOrden !== maxOrden) {
+      throw new Error('una tarifa de descuento solo aplica de la terminal de origen a la de destino (tramo completo)');
+    }
+  }
+
   const cuando = await cuandoEntra(db, opts);
 
-  // `crearTarifa` solo maneja la tarifa `general` hoy; el contrato con categoría
-  // (inapam/menor) es Fase 5. El filtro evita que un cambio de tarifa general
-  // cierre también las de descuento del mismo tramo (0051).
+  // El precio nuevo cierra solo el anterior de LA MISMA categoría del mismo tramo
+  // (0051): un cambio de tarifa general no debe tocar las de descuento.
   const { rows: previa } = await db.query<{ id: string }>(
     `SELECT id FROM core.tarifa
       WHERE ruta_id = $1 AND parada_origen_orden = $2 AND parada_destino_orden = $3
-        AND categoria_pasajero = 'general'
+        AND categoria_pasajero = $4
         AND activo AND effective_until IS NULL
       ORDER BY effective_from DESC LIMIT 1`,
-    [datos.rutaId, datos.paradaOrigenOrden, datos.paradaDestinoOrden],
+    [datos.rutaId, datos.paradaOrigenOrden, datos.paradaDestinoOrden, categoria],
   );
 
   let cerroAnterior: string | null = null;
@@ -120,6 +146,7 @@ export async function crearTarifa(
       ruta_id: datos.rutaId,
       parada_origen_orden: datos.paradaOrigenOrden,
       parada_destino_orden: datos.paradaDestinoOrden,
+      categoria_pasajero: categoria,
       importe: datos.importe,
     },
     modo: 'programado',

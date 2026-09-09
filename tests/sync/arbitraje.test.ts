@@ -38,6 +38,8 @@ run('arbitraje de sobreventa (PostgreSQL real)', () => {
     emitidoEn: string;
     pagar?: boolean;
     impreso?: boolean;
+    /** Rango de OCUPACIÓN si difiere del viaje `[desde,hasta)` (parada de descenso, D3). */
+    ocupHasta?: number;
   }
 
   const ocupar = async (a: OcuparArgs): Promise<{ boletoId: string; ocupacionId: string }> => {
@@ -45,6 +47,12 @@ run('arbitraje de sobreventa (PostgreSQL real)', () => {
       salidaId: a.salidaId, sucursalId: a.sucursalId, usuarioId: a.usuarioId,
       asiento: a.asiento, desde: a.desde, hasta: a.hasta,
     });
+    const ocup = `[${a.desde},${a.ocupHasta ?? a.hasta})`;
+    if (a.ocupHasta !== undefined) {
+      await db.query(
+        `UPDATE core.boleto SET tramos_ocupacion = $2::int4range WHERE id = $1`, [boletoId, ocup],
+      );
+    }
     if (a.pagar) {
       await db.query(
         `INSERT INTO core.pago (id, venta_id, sucursal_cobro_id, corte_caja_id, usuario_id,
@@ -58,11 +66,11 @@ run('arbitraje de sobreventa (PostgreSQL real)', () => {
       await db.query(`UPDATE core.boleto SET impreso_en = now() WHERE id = $1`, [boletoId]);
     }
     const { rows } = await db.query<{ id: string }>(
-      `INSERT INTO core.asiento_ocupacion (id, salida_id, asiento_num, tramos, boleto_id,
+      `INSERT INTO core.asiento_ocupacion (id, salida_id, asiento_num, tramos, tramos_ocupacion, boleto_id,
                                            estado, sucursal_id, emitido_en, prioridad)
-       VALUES (core.uuid_v7(), $1, $2, $3::int4range, $4, $5, $6, $7::timestamptz, 0)
+       VALUES (core.uuid_v7(), $1, $2, $3::int4range, $8::int4range, $4, $5, $6, $7::timestamptz, 0)
        RETURNING id`,
-      [a.salidaId, a.asiento, `[${a.desde},${a.hasta})`, boletoId, a.estado, a.sucursalId, a.emitidoEn],
+      [a.salidaId, a.asiento, `[${a.desde},${a.hasta})`, boletoId, a.estado, a.sucursalId, a.emitidoEn, ocup],
     );
     return { boletoId, ocupacionId: rows[0]!.id };
   };
@@ -165,6 +173,29 @@ run('arbitraje de sobreventa (PostgreSQL real)', () => {
     });
 
     expect(await resolverConflictoAsiento(db, fx.salidaId, 7)).toBeNull();
+  });
+
+  it('F4-D3 · cross-node: solapan en OCUPACIÓN pero no en viaje ⇒ sí es sobreventa', async () => {
+    const { fx, usuarioId, corteId } = await prep();
+    // Nodo A: viaje [0,1) a una parada de descenso ⇒ ocupa hasta el fin de ruta [0,3).
+    // Reservación sin pagar, emitida antes.
+    const a = await ocupar({
+      salidaId: fx.salidaId, sucursalId: fx.sucursales[0]!, usuarioId, corteId,
+      asiento: 9, desde: 0, hasta: 1, ocupHasta: 3, estado: 'firme',
+      emitidoEn: '2026-09-01T10:00:00Z',
+    });
+    // Nodo B: viaje [1,3), ocupación [1,3). Disjunto del viaje de A, pero el asiento
+    // sigue ocupado por A en ese tramo. Pagada, llegó marcada conflicto.
+    const b = await ocupar({
+      salidaId: fx.salidaId, sucursalId: fx.sucursales[1]!, usuarioId, corteId,
+      asiento: 9, desde: 1, hasta: 3, estado: 'conflicto',
+      emitidoEn: '2026-09-01T10:05:00Z', pagar: true,
+    });
+
+    const r = await resolverConflictoAsiento(db, fx.salidaId, 9);
+    expect(r, 'el arbitraje debe disparar aunque los viajes no se solapen').not.toBeNull();
+    expect(r!.ganador).toBe(b.ocupacionId);   // pagada gana a reservación sin pagar
+    expect(r!.perdedores).toEqual([a.ocupacionId]);
   });
 
   it('un asiento con una sola ocupación no tiene nada que arbitrar', async () => {
