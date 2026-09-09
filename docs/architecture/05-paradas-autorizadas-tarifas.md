@@ -454,9 +454,19 @@ reserva la registra la terminal de origen, que aparta el asiento desde el orden 
   - `pagoSchema` / `PagoInput` += `metodo:'corresponsal'` + `sucursalCobroId`; `Vender.tsx`
     gana la opción + selector de sucursal de cobro (solo si hay sucursales `sin_sistema`).
   - `tests/ventas/pago-corresponsal.test.ts` (+4). Deploy sin ventana coordinada.
-- **6b (pendiente) — Caducidad (D9):** liberación perezosa de reservas con `saldo_pendiente > 0` cuyo
-  `salida.hora_salida - 1h < now()` — en `buscar_salidas`, `adquirir_lease`,
-  `registrar_venta`, `materializar_salidas` / job de cupo.
+- **✅ 6b — Caducidad (D9) (`0058`, rama `f-paradas-fase6b`):** una reserva **sin ningún pago**
+  (`es_reservacion`, `pagado = 0`) caduca 1 h antes de `salida_parada` orden 0
+  (`hora_paso_programada - 1h <= ahora`). **Liberación perezosa** (sin job):
+  - `core.reservas_caducas(salida, ahora)` (STABLE) lista las ocupaciones a liberar;
+  - `core.liberar_reservas_caducas(salida, ahora)` (VOLATILE) las materializa —
+    `asiento_ocupacion.estado='liberado'`, `boleto.estado='cancelado'`,
+    `venta.estado='cancelada'` (si no le quedan boletos vivos); guarda contra `sync.replicando()`;
+  - `core.asientos_libres` deja de contar la ocupación caduca (lado LECTURA, sin escribir);
+  - `core.adquirir_lease` y `core.registrar_venta` llaman a `liberar_reservas_caducas` antes de
+    tocar el asiento (lado ESCRITURA).
+  - Determinista del reloj ⇒ sin ventana coordinada (como la expiración de leases).
+  - **Reserva con abono parcial: NO se auto-libera** — el reembolso del abono es 6c.
+  - `tests/ventas/caducidad-reservas.test.ts` (+3).
 - **6c (pendiente — BLOQUEADA por N-13/N-14) — Cancelación / reembolso (D9):** acción hasta 1 h
   antes de la salida; si la reserva estaba pagada ⇒ `core.movimiento_caja` tipo `reembolso`
   (egreso, `origen_tipo='devolucion'`) en el corte activo; siempre libera el asiento. + **D10**
@@ -474,7 +484,7 @@ reserva la registra la terminal de origen, que aparta el asiento desde el orden 
 | #D | 3 (`0051`) | — | estricta + categoría de pasajero |
 | #E | 4 (`0052`) | — | — |
 | #F | 5 (`0053` + admin + SPA) | — | 5a `0053` (impresión/manifiesto→punto, reimpresión) ✅ · 5a-2 `0054` (manifiesto lista única) ✅ · 5b `0055` (`DROP COLUMN salida_parada.sucursal_id` + `api.*`) ✅ · 5c `0056` (CRUD puntos, `crearRuta`/`crearHorario` con banderas, reemplazo D5 + huérfanos, F3-D2, F4-D2) ✅ · 5d tarifas por categoría (`crearTarifa` + `Tarifas.tsx`, F3-D3, F4-D3) ✅ · 5e SPA (`Puntos.tsx`, `Horarios.tsx`, huérfanos) |
-| #G | 6 (`0057`+) | — | 6a `0057` (`corresponsal` + D8) ✅ · 6b caducidad D9 · 6c cancelación/reembolso D9 + D10 (bloqueada por N-13/N-14) |
+| #G | 6 (`0057`+) | — | 6a `0057` (`corresponsal` + D8) ✅ · 6b `0058` (caducidad D9) ✅ · 6c cancelación/reembolso D9 + D10 (bloqueada por N-13/N-14) |
 
 Cada PR: `npm run build && npm test` verde antes de merge. Los tests de sync no deben
 `TRUNCATE sync.*` (deadlock con `hlc_estado`). Migraciones a nube + 4 terminales en la
