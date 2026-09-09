@@ -339,15 +339,22 @@ reserva la registra la terminal de origen, que aparta el asiento desde el orden 
 - **F3-D2 → Fase 5:** el guard de descuento de `registrar_venta` es por `orden` (`destino =
   n-1`), correcto mientras las rutas terminen en terminal (D5). Se reescribe por `tipo` en
   Fase 5, junto con la validación de alta de ruta (`crearRuta`).
-- **`src/sync/arbitraje.ts` ya arbitra sobre `tramos_ocupacion`** (fix F2-D1, PR follow-up
-  de Fase 2). No hace falta tocarlo aquí, pero los tests de arbitraje de Fase 4 deben cubrir
-  el caso cross-node donde dos ocupaciones solapan en ocupación pero no en viaje.
-- **`src/sync/arbitraje.ts` ya arbitra sobre `tramos_ocupacion`** (fix F2-D1, PR follow-up
-  de Fase 2). No hace falta tocarlo aquí, pero los tests de arbitraje de Fase 4 deben cubrir
-  el caso cross-node donde dos ocupaciones solapan en ocupación pero no en viaje.
-- **Retiro del compat trigger `trg_aa_tramos_ocupacion_compat`** (F2-D3): candidato a
-  limpieza en esta migración o una posterior, espejo de cómo `0049` retiró
-  `trg_aa_compat_punto`. No urge (es no-op tras la ventana).
+- **`src/sync/arbitraje.ts` ya arbitra sobre `tramos_ocupacion`** (fix F2-D1, PR #64). El
+  caso de test cross-node (dos ocupaciones que solapan en ocupación pero no en viaje) sigue
+  pendiente — **F4-D3**, agregarlo en Fase 5 ahora que las ventas a parada de descenso son reales.
+- **Review de Fase 4 — a resolver en Fase 5:**
+  - **F4-D1 (must-fix):** `datos_manifiesto` / `salidas_del_dia` (`0026`) hacen `JOIN
+    core.sucursal ON sp.sucursal_id` (INNER) → se rompen para un boleto a parada de descenso
+    (`sp.sucursal_id = NULL`): la parada se cae de la lista y el "baja en" queda NULL. El
+    rework de manifiesto de Fase 5 (D11) debe re-cablearlos a `core.punto_ruta.nombre`, junto
+    con `snapshot_boleto` / `api.*` / `abordaje.ts` / `DROP COLUMN salida_parada.sucursal_id`.
+  - **F4-D2 (invariante):** `ruta_parada.orden` contiguo `0..n-1` es ahora load-bearing para
+    `materializar_salidas` (`orden = rp.orden` + `WHERE rp.activo`), además de
+    `registrar_venta` / `tramo_ocupacion` / `repartir_cupo_offline` / `datos_manifiesto`.
+    `crearRuta` de Fase 5 debe assertarla; documentarla en el plan.
+  - **F2-D3:** retirar `trg_aa_tramos_ocupacion_compat` (BEFORE INSERT en `boleto` /
+    `asiento_ocupacion` / `asiento_lease`) — es no-op tras la ventana de deploy `0050+`.
+    Va con la limpieza de `salida_parada.sucursal_id` / manifiesto.
 - **Bloqueante:** ninguno (depende de Fase 0 y 1).
 
 ### Fase 5 — Impresión, manifiesto y alta de rutas  ·  `0053` + admin + SPA
