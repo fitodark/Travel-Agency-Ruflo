@@ -307,9 +307,9 @@ reserva la registra la terminal de origen, que aparta el asiento desde el orden 
   producción tenga fila `core.tarifa` vigente `general`.** *Auditado 2026-09-08: `HJP - CDMX`
   6/6 tramos cubiertos — OK.* Si en el futuro hay hueco: sembrar el param en `'false'`, llenar
   tarifas, flipear a `'true'`.
-- **F3-D2 (Fase 4):** el guard de descuento es por `orden` (`destino = n-1`), no por
-  `punto_ruta.tipo`. Correcto mientras las rutas siempre empiecen/terminen en terminal (D5).
-  Reescribir contra `tipo='terminal'` + extremo de ruta en Fase 4/5 (hermano de F2-D1).
+- **F3-D2 — ✅ RESUELTO en 5c (`0056`):** el guard de descuento de `registrar_venta` pasa de
+  "por `orden` contra `v_n_paradas`" a "origen y destino son `tipo='terminal'` y los extremos
+  de la ruta (`ruta_parada.orden` 0 y máx)".
 - **F3-D3 (secuencia) — CONFIRMADO:** los descuentos INAPAM/menor **esperan a Fase 5** (que
   trae el alta de tarifas por categoría en `Tarifas.tsx` + `crearTarifa` con el arg). Entre
   Fase 3 y 5, `registrar_venta` con `categoria='inapam'` da `RAISE` y la SPA oculta el selector.
@@ -336,9 +336,8 @@ reserva la registra la terminal de origen, que aparta el asiento desde el orden 
   por venta real. `max(orden)` en el helper = última `salida_parada` = terminal destino (D5),
   así que el rango de ocupación de un boleto a una parada de descenso llega al fin real de
   la ruta. Test `tramos-ocupacion.test.ts` migrado del insert-a-mano a `seedSalida({paradaDescensoEnOrden})`.
-- **F3-D2 → Fase 5:** el guard de descuento de `registrar_venta` es por `orden` (`destino =
-  n-1`), correcto mientras las rutas terminen en terminal (D5). Se reescribe por `tipo` en
-  Fase 5, junto con la validación de alta de ruta (`crearRuta`).
+- **F3-D2 — ✅ RESUELTO en 5c (`0056`):** el guard de descuento de `registrar_venta` se
+  reescribió por `tipo='terminal'` + extremo de ruta, junto con `crearRuta`.
 - **`src/sync/arbitraje.ts` ya arbitra sobre `tramos_ocupacion`** (fix F2-D1, PR #64). El
   caso de test cross-node (dos ocupaciones que solapan en ocupación pero no en viaje) sigue
   pendiente — **F4-D3**, agregarlo en Fase 5 ahora que las ventas a parada de descenso son reales.
@@ -347,10 +346,10 @@ reserva la registra la terminal de origen, que aparta el asiento desde el orden 
     `salidas_del_dia` / `generar_manifiestos` / `abordaje.ts` → `core.punto_ruta` en 5a
     (`0053`); `datos_manifiesto` rehecha en 5a-2 (`0054`); `api.v1_*` + `DROP COLUMN
     salida_parada.sucursal_id` en 5b (`0055`).
-  - **F4-D2 (invariante):** `ruta_parada.orden` contiguo `0..n-1` es ahora load-bearing para
-    `materializar_salidas` (`orden = rp.orden` + `WHERE rp.activo`), además de
-    `registrar_venta` / `tramo_ocupacion` / `repartir_cupo_offline` / `datos_manifiesto`.
-    `crearRuta` de Fase 5 debe assertarla; documentarla en el plan.
+  - **F4-D2 (invariante) — ✅ RESUELTO en 5c:** `ruta_parada.orden` contiguo `0..n-1` (load-bearing
+    para `materializar_salidas` / `registrar_venta` / `tramo_ocupacion` / `repartir_cupo_offline`
+    / `datos_manifiesto`). `crearRuta` lo garantiza por construcción — `orden` = índice del
+    arreglo de paradas; no hay camino de escritura que inserte un `orden` con hueco.
   - **F2-D3:** retirar `trg_aa_tramos_ocupacion_compat` (BEFORE INSERT en `boleto` /
     `asiento_ocupacion` / `asiento_lease`) — es no-op tras la ventana de deploy `0050+`.
     Va con la limpieza de `salida_parada.sucursal_id` / manifiesto.
@@ -390,25 +389,34 @@ reserva la registra la terminal de origen, que aparta el asiento desde el orden 
   cuenta `jsonb_array_length(datos->'pasajeros')`. `renderManifiesto` reescrito (de paso corrige
   el `paradas[].sucursal`→`.punto` que 0053 dejó desalineado). Deploy: solo `CREATE OR REPLACE`,
   sin DDL, aplicable en caliente sobre nodos en 0053.
-- `src/admin/puntos.ts` (nuevo) + `src/admin/rutas-puntos.ts` (nuevo) — CRUD
-  `core.punto_ruta` vía `escribirConfig` (clase A, ventana nocturna).
+- **✅ ENTREGADO como sub-PR 5c (`0056`, rama `f-paradas-fase5c`):**
+  - `src/admin/puntos.ts` (nuevo) — CRUD `core.punto_ruta`: `crearPunto` (`parada` exige
+    nombre + zona horaria; `terminal` es idempotente vía `asegurar_punto_terminal`),
+    `editarPunto`, `darDeBajaPunto` (rechaza si el punto está en una ruta activa),
+    `listarPuntos` (con `enUso`). Rutas `/admin/puntos` (GET/POST/PATCH/POST-baja).
+  - `crearRuta` gana el contrato `{ nombre, paradas: [{ puntoId, permiteAscenso,
+    permiteDescenso }] }` **junto al `{ sucursalIds }` actual** (no rompe la SPA ni los
+    tests). Valida: extremos `tipo='terminal'` + ascenso **y** descenso; sin punto repetido;
+    `orden` = índice del arreglo (contiguo 0..n-1, **F4-D2**).
+  - `crearHorario`: rechaza un `paso` sobre una `ruta_parada` sin `permite_ascenso` (una
+    parada de solo descenso viaja sin hora).
+  - `src/admin/rutas-reemplazo.ts` (nuevo): `reemplazarRuta` (D5) — cierra la vieja por
+    vigencia (`ruta.vigente_hasta` + `horario.vigente_hasta` = `vigenteDesde - 1`), rechaza
+    fecha no futura y traslape (horario de la vieja que arranca ≥ `vigenteDesde`), crea la
+    nueva con `reemplaza_a`, devuelve el listado de huérfanos. `boletos_huerfanos(ruta, desde)`
+    (SQL, D12) + `GET /admin/rutas-detalle/:id/huerfanos` + `POST .../:id/reemplazar`.
+  - `0056`: `core.ruta` += `vigente_hasta` / `reemplaza_a`; `core.boletos_huerfanos`;
+    **F3-D2** — el guard de descuento de `registrar_venta` pasa a "`tipo='terminal'` + extremo
+    de ruta" (antes por `orden` contra `v_n_paradas`). Deploy sin ventana coordinada.
+  - `listarRutasDetalle` ahora expone `tipo` / `permiteAscenso` / `permiteDescenso` por
+    parada y `vigenteHasta` / `reemplazaA` por ruta.
 - **`punto_ruta.zona_horaria` es copia point-in-time** de `sucursal.zona_horaria` (backfill
-  de `0048`); `materializar_salidas` ya no lee la tz de la sucursal en vivo. El CRUD de
-  puntos debe re-propagar la tz al punto si un admin la cambia en la sucursal (o dejar la
-  tz solo editable en el punto). (Hallazgo del review de Fase 0, D2.)
-- `crearRuta` (`src/admin/horarios.ts`): contrato
-  `{ nombre, paradas: [{ puntoId, permiteAscenso, permiteDescenso }] }`; valida que
-  primera y última permitan ascenso **y** descenso (son terminales extremos).
-- `crearHorario`: `pasos` solo para puntos con `permite_ascenso`.
-- `POST /admin/rutas-detalle/:id/reemplazar` (nuevo, orquestador de D5): alta de la ruta
-  nueva con `reemplaza_a`, fija `horario.vigente_desde` de la nueva y `horario.vigente_hasta`
-  / `core.ruta.vigente_hasta` de la vieja, **rechaza traslape** de fechas. **No** bloquea
-  aunque haya boletos vendidos después del corte; genera el **listado de boletos huérfanos**
-  (D12) para revisión manual.
+  de `0048`); NO se re-propaga en vivo si el admin cambia la tz de la sucursal — la tz
+  operativa se edita en el punto (`editarPunto`). (Hallazgo del review de Fase 0, D2.)
 - Reubicación de huérfano = **cancelar + reemitir** (folio nuevo) en la ruta nueva (D12, N-11).
-- SPA: `web/src/paginas/admin/Puntos.tsx` (nuevo), `Horarios.tsx` (armar ruta con puntos
-  + banderas), `Tarifas.tsx` (matriz por par válido y categoría), pantalla / reporte de
-  boletos huérfanos (D12).
+- SPA (**5e**): `web/src/paginas/admin/Puntos.tsx` (nuevo), `Horarios.tsx` (armar ruta con
+  puntos + banderas), `Tarifas.tsx` (matriz por par válido y categoría — **5d**), pantalla /
+  reporte de boletos huérfanos (D12). Los clientes API ya están en `web/src/api/admin.ts`.
 - **Limpieza pendiente de Fase 1** (hallazgos del review):
   - `src/ventas/busqueda.ts` — renombrar `sucursalOrigenId` / `sucursalDestinoId` a
     `puntoOrigenId` / `puntoDestinoId` (desde `0049` llevan `core.punto_ruta.id`; se dejó el
@@ -419,10 +427,10 @@ reserva la registra la terminal de origen, que aparta el asiento desde el orden 
     (misma copia point-in-time que F0-D2 / D2 arriba).
 - **Bloqueante:** ninguno.
 
-### Fase 6 — Tercer método de pago (`corresponsal`), caducidad y cancelación de reservas  ·  `0056`
+### Fase 6 — Tercer método de pago (`corresponsal`), caducidad y cancelación de reservas  ·  `0057`
 
-> Migración corrida: `0054` la tomó 5a-2 (manifiesto lista única), `0055` la tomó 5b
-> (`DROP COLUMN salida_parada.sucursal_id`).
+> Migración corrida: `0054` = 5a-2 (manifiesto lista única), `0055` = 5b
+> (`DROP COLUMN salida_parada.sucursal_id`), `0056` = 5c (alta de rutas + F3-D2).
 
 - `core.pago`: `metodo` CHECK gana `'corresponsal'` (`corte_caja_id` **sigue NOT NULL**).
   `core.sucursal` → `ADD COLUMN sin_sistema`. (`config_ticket.leyenda_reimpresion` ya la agregó
@@ -454,8 +462,8 @@ reserva la registra la terminal de origen, que aparta el asiento desde el orden 
 | #C | 2 (`0050`) | — | P-3 resuelta; backfill, probar en staging |
 | #D | 3 (`0051`) | — | estricta + categoría de pasajero |
 | #E | 4 (`0052`) | — | — |
-| #F | 5 (`0053` + admin + SPA) | — | 5a `0053` (impresión/manifiesto→punto, reimpresión) ✅ · 5a-2 `0054` (manifiesto lista única) ✅ · 5b `0055` (`DROP COLUMN salida_parada.sucursal_id` + `api.*`) ✅ · 5c admin/rutas/huérfanos (+ F3-D2, F4-D2) · 5d tarifas por categoría · 5e SPA |
-| #G | 6 (`0056`) | — | `corresponsal` + caducidad + cancelación; ver N-13..N-15 |
+| #F | 5 (`0053` + admin + SPA) | — | 5a `0053` (impresión/manifiesto→punto, reimpresión) ✅ · 5a-2 `0054` (manifiesto lista única) ✅ · 5b `0055` (`DROP COLUMN salida_parada.sucursal_id` + `api.*`) ✅ · 5c `0056` (CRUD puntos, `crearRuta`/`crearHorario` con banderas, reemplazo D5 + huérfanos, F3-D2, F4-D2) ✅ · 5d tarifas por categoría (`Tarifas.tsx` + `crearTarifa`) · 5e SPA (`Puntos.tsx`, `Horarios.tsx`) |
+| #G | 6 (`0057`) | — | `corresponsal` + caducidad + cancelación; ver N-13..N-15 |
 
 Cada PR: `npm run build && npm test` verde antes de merge. Los tests de sync no deben
 `TRUNCATE sync.*` (deadlock con `hlc_estado`). Migraciones a nube + 4 terminales en la
