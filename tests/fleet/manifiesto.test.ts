@@ -2,7 +2,7 @@
  * Viajes efectuados: listado del día y manifiestos (contra PostgreSQL real).
  *
  * Blueprint v0.2 · docs/architecture/03-auth-impresion-config.md §2.5
- *                  docs/architecture/04-riesgos-roadmap.md §3 (F7, slice 1)
+ *                  docs/architecture/05-paradas-autorizadas-tarifas.md §2 (D11)
  */
 
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -12,16 +12,25 @@ import { resolveConnection } from '../../src/db/connection.js';
 import {
   datosManifiesto, generarManifiestos, salidasDelDia,
 } from '../../src/fleet/manifiesto.js';
-import { crearUsuario, seedSalida, sembrarOcupacion } from '../ventas/fixture.js';
+import { crearUsuario, seedCorte, seedSalida, sembrarOcupacion } from '../ventas/fixture.js';
 
 const local = process.env['LOCAL_DATABASE_URL'];
 const run = local ? describe : describe.skip;
 
-interface Asenso {
-  parada_orden: number;
-  sucursal: string;
-  pasajeros: Array<Record<string, unknown>>;
+interface Pasajero {
+  folio: string;
+  asiento: number;
+  nombre: string;
+  sube_en: string;
+  sube_en_orden: number;
+  baja_en: string;
+  baja_en_orden: number;
+  estatus_pago: 'pagado' | 'pendiente';
+  conflicto: boolean;
+  [k: string]: unknown;
 }
+
+const pasajerosDe = (m: Record<string, unknown>): Pasajero[] => m['pasajeros'] as Pasajero[];
 
 run('viajes efectuados · manifiestos (PostgreSQL real)', () => {
   let db: Client;
@@ -68,39 +77,67 @@ run('viajes efectuados · manifiestos (PostgreSQL real)', () => {
     expect(ajena.find((s) => s.salidaId === fx.salidaId)).toBeUndefined();
   });
 
-  it('el manifiesto de terminal agrupa por parada de ascenso, con importe y saldo', async () => {
+  it('el manifiesto es una lista única por pasajero (sube / baja / estatus), sin importe', async () => {
     const { fx, usuarioId } = await prep();
-    await vende(fx, usuarioId, 2, 0, 3);
     await vende(fx, usuarioId, 3, 0, 3);
+    await vende(fx, usuarioId, 2, 0, 3);
     await vende(fx, usuarioId, 8, 1, 3);
 
     const m = await datosManifiesto(db, fx.salidaId, 'terminal');
-    const ascensos = m['ascensos'] as Asenso[];
-    // Paradas 0, 1 y 2 son de ascenso; la 3 es el destino y no aparece.
-    expect(ascensos.map((a) => a.parada_orden)).toEqual([0, 1, 2]);
-    expect(ascensos[0]!.pasajeros).toHaveLength(2);
-    expect(ascensos[1]!.pasajeros).toHaveLength(1);
-    expect(ascensos[2]!.pasajeros, 'una parada sin nadie se lista vacía').toHaveLength(0);
+    const pax = pasajerosDe(m);
 
-    const p = ascensos[0]!.pasajeros[0]!;
-    expect(p).toMatchObject({ asiento: 2, nombre: 'Pasajero', importe: 450, saldo_pendiente: 450 });
-    expect(typeof p['folio']).toBe('string');
-    expect(m['ocupacion_por_tramo']).toBeDefined();
+    // Ordenado por punto de ascenso y luego asiento: 2@0, 3@0, 8@1.
+    expect(pax.map((p) => p.asiento)).toEqual([2, 3, 8]);
+    expect(pax.map((p) => p.sube_en_orden)).toEqual([0, 0, 1]);
+    expect(pax.every((p) => p.baja_en_orden === 3)).toBe(true);
+
+    const p0 = pax[0]!;
+    const paradas = m['paradas'] as Array<{ orden: number; punto: string }>;
+    const nombreDe = (orden: number) => paradas.find((x) => x.orden === orden)!.punto;
+    expect(p0.sube_en).toBe(nombreDe(0));
+    expect(p0.baja_en).toBe(nombreDe(3));
+    expect(p0.sube_en).not.toBe(p0.baja_en);
+    expect(p0.estatus_pago).toBe('pendiente'); // el fixture no paga
+    expect(p0).not.toHaveProperty('importe');
+    expect(p0).not.toHaveProperty('saldo_pendiente');
+
+    // Ya no hay agrupación por ascenso ni ocupación por tramo en el jsonb.
+    expect(m).not.toHaveProperty('ascensos');
+    expect(m).not.toHaveProperty('ocupacion_por_tramo');
   });
 
-  it('la copia del conductor no lleva importes ni saldo ni ocupación por tramo', async () => {
+  it('las dos copias (conductor / terminal) llevan el mismo cuerpo de pasajeros', async () => {
     const { fx, usuarioId } = await prep();
     await vende(fx, usuarioId, 2, 0, 3);
+    await vende(fx, usuarioId, 8, 1, 3);
 
-    const m = await datosManifiesto(db, fx.salidaId, 'conductor');
-    const p = (m['ascensos'] as Asenso[])[0]!.pasajeros[0]!;
-    expect(p['importe']).toBeUndefined();
-    expect(p['saldo_pendiente']).toBeUndefined();
-    expect(m['ocupacion_por_tramo']).toBeUndefined();
-    expect(m['copia']).toBe('conductor');
+    const t = await datosManifiesto(db, fx.salidaId, 'terminal');
+    const c = await datosManifiesto(db, fx.salidaId, 'conductor');
+    expect(pasajerosDe(c)).toEqual(pasajerosDe(t));
+    expect(c['copia']).toBe('conductor');
+    expect(t['copia']).toBe('terminal');
+    for (const m of [t, c]) {
+      expect(pasajerosDe(m).every((p) => !('importe' in p))).toBe(true);
+      expect(m).not.toHaveProperty('ocupacion_por_tramo');
+    }
   });
 
-  it('los boletos en conflicto van marcados en el manifiesto de terminal', async () => {
+  it('marca el estatus de pago de cada pasajero', async () => {
+    const { fx, usuarioId } = await prep();
+    const corteId = await seedCorte(db, fx.sucursales[0]!, usuarioId);
+    await sembrarOcupacion(db, {
+      salidaId: fx.salidaId, sucursalId: fx.sucursales[0]!, usuarioId, corteId,
+      asiento: 2, desde: 0, hasta: 3, estado: 'firme', pagar: true,
+    });
+    await vende(fx, usuarioId, 3, 0, 3); // sin pagar
+
+    const m = await datosManifiesto(db, fx.salidaId, 'terminal');
+    const porAsiento = new Map(pasajerosDe(m).map((x) => [x.asiento, x]));
+    expect(porAsiento.get(2)!.estatus_pago).toBe('pagado');
+    expect(porAsiento.get(3)!.estatus_pago).toBe('pendiente');
+  });
+
+  it('los boletos en conflicto van marcados', async () => {
     const { fx, usuarioId } = await prep();
     const ok = await vende(fx, usuarioId, 2, 0, 3);
     const conf = await vende(fx, usuarioId, 3, 0, 3);
@@ -109,10 +146,9 @@ run('viajes efectuados · manifiestos (PostgreSQL real)', () => {
     );
 
     const m = await datosManifiesto(db, fx.salidaId, 'terminal');
-    const pax = (m['ascensos'] as Asenso[])[0]!.pasajeros;
-    const porAsiento = new Map(pax.map((x) => [x['asiento'], x]));
-    expect(porAsiento.get(2)!['conflicto']).toBe(false);
-    expect(porAsiento.get(3)!['conflicto']).toBe(true);
+    const porAsiento = new Map(pasajerosDe(m).map((x) => [x.asiento, x]));
+    expect(porAsiento.get(2)!.conflicto).toBe(false);
+    expect(porAsiento.get(3)!.conflicto).toBe(true);
     expect(ok.boletoId).toBeDefined();
   });
 
