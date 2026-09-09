@@ -343,11 +343,10 @@ reserva la registra la terminal de origen, que aparta el asiento desde el orden 
   caso de test cross-node (dos ocupaciones que solapan en ocupación pero no en viaje) sigue
   pendiente — **F4-D3**, agregarlo en Fase 5 ahora que las ventas a parada de descenso son reales.
 - **Review de Fase 4 — a resolver en Fase 5:**
-  - **F4-D1 (must-fix):** `datos_manifiesto` / `salidas_del_dia` (`0026`) hacen `JOIN
-    core.sucursal ON sp.sucursal_id` (INNER) → se rompen para un boleto a parada de descenso
-    (`sp.sucursal_id = NULL`): la parada se cae de la lista y el "baja en" queda NULL. El
-    rework de manifiesto de Fase 5 (D11) debe re-cablearlos a `core.punto_ruta.nombre`, junto
-    con `snapshot_boleto` / `api.*` / `abordaje.ts` / `DROP COLUMN salida_parada.sucursal_id`.
+  - **F4-D1 (must-fix) — ✅ RESUELTO:** `snapshot_boleto` / `datos_manifiesto` /
+    `salidas_del_dia` / `generar_manifiestos` / `abordaje.ts` → `core.punto_ruta` en 5a
+    (`0053`); `datos_manifiesto` rehecha en 5a-2 (`0054`); `api.v1_*` + `DROP COLUMN
+    salida_parada.sucursal_id` en 5b (`0055`).
   - **F4-D2 (invariante):** `ruta_parada.orden` contiguo `0..n-1` es ahora load-bearing para
     `materializar_salidas` (`orden = rp.orden` + `WHERE rp.activo`), además de
     `registrar_venta` / `tramo_ocupacion` / `repartir_cupo_offline` / `datos_manifiesto`.
@@ -365,8 +364,17 @@ reserva la registra la terminal de origen, que aparta el asiento desde el orden 
   `salida_parada` — `core.snapshot_boleto` (`0046`), `core.datos_manifiesto` /
   `core.salidas_del_dia` (`0026`), vistas `api.*` (`0030`), `src/fleet/abordaje.ts` — y recién
   entonces `DROP COLUMN` en **ambas** tablas + retirar **ambos** `trg_aa_compat_punto` +
-  dejar que `materializar_salidas` pueble solo `punto_id`. Puede ir en un `0053b` dedicado.
-  (Diferido completo desde Fase 1 por blast radius.)
+  dejar que `materializar_salidas` pueble solo `punto_id`.
+  **✅ 5a (`0053`)** hizo `snapshot_boleto` / `datos_manifiesto` / `salidas_del_dia` /
+  `generar_manifiestos` / `abordaje.ts`. **✅ 5a-2 (`0054`)** rehízo `datos_manifiesto`.
+  **✅ 5b (`0055`, rama `f-paradas-fase5b`)** cerró el eje `salida_parada`: re-emite
+  `materializar_salidas` (deja de escribir `sucursal_id`) y `repartir_cupo_offline` (lee la
+  sucursal de la terminal vía `punto_ruta`), recrea `api.v1_boleto` / `api.v1_salida` /
+  `api.v1_venta` con el nombre de origen/destino desde `punto_ruta`, retira
+  `trg_aa_compat_punto` + `core.trg_salida_parada_compat_punto()` y hace
+  `ALTER TABLE core.salida_parada DROP COLUMN sucursal_id`. **Precondición de deploy:** los 5
+  nodos en `0054` antes de aplicar `0055` a la nube. **Fuera de 5b:** el retiro de
+  `trg_aa_tramos_ocupacion_compat` (F2-D3, precondición propia: los 5 nodos ≥ `0050`).
 - **Reimpresión** de boleto (`src/printing/templates/boleto.ts`): parámetro `reimpreso`
   que agrega la leyenda tomada de `config_ticket.leyenda_reimpresion` (N-4); mismo contenido
   que el original. La original del wizard va sin leyenda. Acción de reimpresión en Viajes /
@@ -411,9 +419,10 @@ reserva la registra la terminal de origen, que aparta el asiento desde el orden 
     (misma copia point-in-time que F0-D2 / D2 arriba).
 - **Bloqueante:** ninguno.
 
-### Fase 6 — Tercer método de pago (`corresponsal`), caducidad y cancelación de reservas  ·  `0055`
+### Fase 6 — Tercer método de pago (`corresponsal`), caducidad y cancelación de reservas  ·  `0056`
 
-> Migración corrida de `0054` → `0055`: la `0054` la tomó el sub-PR 5a-2 (manifiesto lista única).
+> Migración corrida: `0054` la tomó 5a-2 (manifiesto lista única), `0055` la tomó 5b
+> (`DROP COLUMN salida_parada.sucursal_id`).
 
 - `core.pago`: `metodo` CHECK gana `'corresponsal'` (`corte_caja_id` **sigue NOT NULL**).
   `core.sucursal` → `ADD COLUMN sin_sistema`. (`config_ticket.leyenda_reimpresion` ya la agregó
@@ -445,8 +454,8 @@ reserva la registra la terminal de origen, que aparta el asiento desde el orden 
 | #C | 2 (`0050`) | — | P-3 resuelta; backfill, probar en staging |
 | #D | 3 (`0051`) | — | estricta + categoría de pasajero |
 | #E | 4 (`0052`) | — | — |
-| #F | 5 (`0053` + admin + SPA) | — | 5a `0053` (impresión/manifiesto→punto, reimpresión) ✅ · 5a-2 `0054` (manifiesto lista única) ✅ · 5b `DROP COLUMN`+`api.*` · 5c admin/rutas/huérfanos · 5d tarifas por categoría · 5e SPA |
-| #G | 6 (`0055`) | — | `corresponsal` + caducidad + cancelación; ver N-13..N-15 |
+| #F | 5 (`0053` + admin + SPA) | — | 5a `0053` (impresión/manifiesto→punto, reimpresión) ✅ · 5a-2 `0054` (manifiesto lista única) ✅ · 5b `0055` (`DROP COLUMN salida_parada.sucursal_id` + `api.*`) ✅ · 5c admin/rutas/huérfanos (+ F3-D2, F4-D2) · 5d tarifas por categoría · 5e SPA |
+| #G | 6 (`0056`) | — | `corresponsal` + caducidad + cancelación; ver N-13..N-15 |
 
 Cada PR: `npm run build && npm test` verde antes de merge. Los tests de sync no deben
 `TRUNCATE sync.*` (deadlock con `hlc_estado`). Migraciones a nube + 4 terminales en la
