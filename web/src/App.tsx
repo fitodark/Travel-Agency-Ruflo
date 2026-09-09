@@ -19,6 +19,7 @@ import { AdminImpresoras } from './paginas/admin/Impresoras';
 import { AdminTicket } from './paginas/admin/Ticket';
 import { AdminTarifas } from './paginas/admin/Tarifas';
 import { AdminHorarios } from './paginas/admin/Horarios';
+import { AdminPuntos } from './paginas/admin/Puntos';
 import { AdminUnidades } from './paginas/admin/Unidades';
 import { AdminConductores } from './paginas/admin/Conductores';
 
@@ -69,6 +70,7 @@ export function App() {
           <Route path="sucursales" element={<AdminSucursales />} />
           <Route path="usuarios" element={<AdminUsuarios />} />
           <Route path="rutas" element={<AdminHorarios />} />
+          <Route path="puntos" element={<AdminPuntos />} />
           <Route path="unidades" element={<AdminUnidades />} />
           <Route path="conductores" element={<AdminConductores />} />
           <Route path="impresoras" element={<AdminImpresoras />} />

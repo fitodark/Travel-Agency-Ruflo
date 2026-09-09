@@ -6,6 +6,7 @@ import { Aviso } from '../../componentes/ui';
 const SUB: { a: string; t: string }[] = [
   { a: '/admin/sucursales', t: 'Sucursales' },
   { a: '/admin/usuarios', t: 'Usuarios' },
+  { a: '/admin/puntos', t: 'Puntos' },
   { a: '/admin/rutas', t: 'Rutas y horarios' },
   { a: '/admin/unidades', t: 'Unidades' },
   { a: '/admin/conductores', t: 'Conductores' },

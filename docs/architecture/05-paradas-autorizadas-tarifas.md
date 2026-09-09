@@ -356,7 +356,7 @@ reserva la registra la terminal de origen, que aparta el asiento desde el orden 
     Va con la limpieza de `salida_parada.sucursal_id` / manifiesto.
 - **Bloqueante:** ninguno (depende de Fase 0 y 1).
 
-### Fase 5 — Impresión, manifiesto y alta de rutas  ·  `0053` + admin + SPA
+### Fase 5 — Impresión, manifiesto y alta de rutas  ·  `0053`–`0056` + admin + SPA  ·  ✅ CERRADA (5a–5e)
 
 - `core.snapshot_boleto`: `origen` / `destino` desde `punto_ruta.nombre`; sin `referencia`;
   añadir **punto de ascenso** del pasajero (D7).
@@ -421,9 +421,14 @@ reserva la registra la terminal de origen, que aparta el asiento desde el orden 
   `/admin/tarifas` schema += `categoria` enum. Web: `Tarifas.tsx` con selector de categoría +
   columna + guard de descuento válido; `web/src/api/admin.ts` tipos. `tests/admin/config.test.ts`
   +3, `tests/sync/arbitraje.test.ts` +1 (F4-D3). **F3-D3 y F4-D3 CERRADOS.**
-- SPA pendiente (**5e**): `web/src/paginas/admin/Puntos.tsx` (nuevo), `Horarios.tsx` (armar
-  ruta con puntos + banderas), pantalla / reporte de boletos huérfanos (D12). Los clientes
-  API ya están en `web/src/api/admin.ts`.
+- **✅ 5e (rama `f-paradas-fase5e`, solo frontend):** `web/src/paginas/admin/Puntos.tsx` (nuevo,
+  pestaña `Puntos` + ruta `/admin/puntos`): alta/edición/baja de paradas, lista de terminales.
+  `Horarios.tsx` — `NuevaRuta` reescrito: filas terminal/parada con banderas ascenso/descenso,
+  resuelve terminales a `puntoId` con `crearPunto` idempotente; el form de horario solo pide
+  hora para paradas con ascenso; la lista de rutas marca `(baja)` las paradas no-terminal y
+  `hasta <fecha>` la vigencia. `<ReemplazarRuta>` (modal, D5): arma la ruta nueva partiendo de
+  las paradas de la vieja, fecha futura, y muestra la tabla de boletos huérfanos que devuelve
+  el endpoint. typecheck + build verdes; backend intacto (0 regresiones).
 - **Limpieza pendiente de Fase 1** (hallazgos del review):
   - `src/ventas/busqueda.ts` — renombrar `sucursalOrigenId` / `sucursalDestinoId` a
     `puntoOrigenId` / `puntoDestinoId` (desde `0049` llevan `core.punto_ruta.id`; se dejó el
@@ -469,7 +474,7 @@ reserva la registra la terminal de origen, que aparta el asiento desde el orden 
 | #C | 2 (`0050`) | — | P-3 resuelta; backfill, probar en staging |
 | #D | 3 (`0051`) | — | estricta + categoría de pasajero |
 | #E | 4 (`0052`) | — | — |
-| #F | 5 (`0053` + admin + SPA) | — | 5a `0053` (impresión/manifiesto→punto, reimpresión) ✅ · 5a-2 `0054` (manifiesto lista única) ✅ · 5b `0055` (`DROP COLUMN salida_parada.sucursal_id` + `api.*`) ✅ · 5c `0056` (CRUD puntos, `crearRuta`/`crearHorario` con banderas, reemplazo D5 + huérfanos, F3-D2, F4-D2) ✅ · 5d tarifas por categoría (`crearTarifa` + `Tarifas.tsx`, F3-D3, F4-D3) ✅ · 5e SPA (`Puntos.tsx`, `Horarios.tsx`, huérfanos) |
+| #F | 5 (`0053` + admin + SPA) | — | 5a `0053` (impresión/manifiesto→punto, reimpresión) ✅ · 5a-2 `0054` (manifiesto lista única) ✅ · 5b `0055` (`DROP COLUMN salida_parada.sucursal_id` + `api.*`) ✅ · 5c `0056` (CRUD puntos, `crearRuta`/`crearHorario` con banderas, reemplazo D5 + huérfanos, F3-D2, F4-D2) ✅ · 5d tarifas por categoría (`crearTarifa` + `Tarifas.tsx`, F3-D3, F4-D3) ✅ · 5e SPA (`Puntos.tsx`, `Horarios.tsx` con puntos+banderas, modal de reemplazo + huérfanos) ✅ |
 | #G | 6 (`0057`) | — | `corresponsal` + caducidad + cancelación; ver N-13..N-15 |
 
 Cada PR: `npm run build && npm test` verde antes de merge. Los tests de sync no deben
