@@ -374,6 +374,14 @@ reserva la registra la terminal de origen, que aparta el asiento desde el orden 
 - Manifiestos (`0026` `datos_manifiesto` / `salidas_del_dia`): **lista única** por pasajero:
   **nombre, asiento, *sube en*, *baja en*, estatus de pago**. Sin importe (N-8), sin hora
   para descensos. El abordaje digital de F7 sigue en uso en la terminal de origen (N-9).
+  **✅ ENTREGADO como sub-PR 5a-2 (`0054`, rama `f-paradas-fase5-2`):** `core.datos_manifiesto`
+  emite `pasajeros[]` plano (`folio, asiento, nombre, sube_en(+orden), baja_en(+orden),
+  estatus_pago, conflicto`) ordenado por punto de ascenso y luego asiento; se van `ascensos[]`,
+  `ocupacion_por_tramo` e `importe`/`saldo` por pasajero. Las dos copias (conductor/terminal)
+  quedan con contenido idéntico (difieren solo en encabezado + firma). `core.generar_manifiestos`
+  cuenta `jsonb_array_length(datos->'pasajeros')`. `renderManifiesto` reescrito (de paso corrige
+  el `paradas[].sucursal`→`.punto` que 0053 dejó desalineado). Deploy: solo `CREATE OR REPLACE`,
+  sin DDL, aplicable en caliente sobre nodos en 0053.
 - `src/admin/puntos.ts` (nuevo) + `src/admin/rutas-puntos.ts` (nuevo) — CRUD
   `core.punto_ruta` vía `escribirConfig` (clase A, ventana nocturna).
 - **`punto_ruta.zona_horaria` es copia point-in-time** de `sucursal.zona_horaria` (backfill
@@ -403,10 +411,13 @@ reserva la registra la terminal de origen, que aparta el asiento desde el orden 
     (misma copia point-in-time que F0-D2 / D2 arriba).
 - **Bloqueante:** ninguno.
 
-### Fase 6 — Tercer método de pago (`corresponsal`), caducidad y cancelación de reservas  ·  `0054`
+### Fase 6 — Tercer método de pago (`corresponsal`), caducidad y cancelación de reservas  ·  `0055`
+
+> Migración corrida de `0054` → `0055`: la `0054` la tomó el sub-PR 5a-2 (manifiesto lista única).
 
 - `core.pago`: `metodo` CHECK gana `'corresponsal'` (`corte_caja_id` **sigue NOT NULL**).
-  `core.sucursal` → `ADD COLUMN sin_sistema`. `config_ticket` → `ADD leyenda_reimpresion`.
+  `core.sucursal` → `ADD COLUMN sin_sistema`. (`config_ticket.leyenda_reimpresion` ya la agregó
+  la `0053`.)
 - `core.registrar_venta` / registro de pago: `metodo='corresponsal'` ⇒ `sucursal_cobro_id`
   = sucursal `sin_sistema` (o parada de ascenso sin POS), `corte_caja_id` = corte abierto
   del vendedor de origen, `verificado=true`, `saldo_pendiente=0`. El trigger `pago→ingreso`
@@ -434,8 +445,8 @@ reserva la registra la terminal de origen, que aparta el asiento desde el orden 
 | #C | 2 (`0050`) | — | P-3 resuelta; backfill, probar en staging |
 | #D | 3 (`0051`) | — | estricta + categoría de pasajero |
 | #E | 4 (`0052`) | — | — |
-| #F | 5 (`0053` + admin + SPA) | — | reimpresión, huérfanos, manifiesto |
-| #G | 6 (`0054`) | — | `corresponsal` + caducidad + cancelación; ver N-13..N-15 |
+| #F | 5 (`0053` + admin + SPA) | — | 5a `0053` (impresión/manifiesto→punto, reimpresión) ✅ · 5a-2 `0054` (manifiesto lista única) ✅ · 5b `DROP COLUMN`+`api.*` · 5c admin/rutas/huérfanos · 5d tarifas por categoría · 5e SPA |
+| #G | 6 (`0055`) | — | `corresponsal` + caducidad + cancelación; ver N-13..N-15 |
 
 Cada PR: `npm run build && npm test` verde antes de merge. Los tests de sync no deben
 `TRUNCATE sync.*` (deadlock con `hlc_estado`). Migraciones a nube + 4 terminales en la

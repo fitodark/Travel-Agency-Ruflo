@@ -2,11 +2,14 @@
  * Plantilla del manifiesto de abordaje (F5).
  *
  * Blueprint v0.2 · docs/architecture/03-auth-impresion-config.md §2.5
+ *                  docs/architecture/05-paradas-autorizadas-tarifas.md §2 (D11)
  *
- * DOS copias del mismo viaje, agrupadas por parada de ascenso:
- *   - `conductor` — lista para palomear al subir la gente, SIN importes ni saldo.
- *   - `terminal`  — la de origen: importes, saldo pendiente, boletos en conflicto
- *     marcados y ocupación por tramo.
+ * "Lista única por pasajero" (D11): un solo renglón por boleto con nombre,
+ * asiento, "sube en", "baja en" y estatus de pago. SIN importe ni saldo (N-8),
+ * sin hora para los descensos, sin ocupación por tramo. Las dos copias
+ * (`conductor` / `terminal`) llevan el MISMO contenido; `copia` solo cambia el
+ * encabezado y la línea de firma. El checador de cada terminal de ascenso
+ * palomea a mano la casilla de sus pasajeros sobre el impreso.
  *
  * Recibe el jsonb CONGELADO que produce `core.datos_manifiesto` (ver
  * `src/fleet/manifiesto.ts`). No hace E/S ni conoce el transporte: eso permite
@@ -22,42 +25,32 @@ export type CopiaManifiesto = 'conductor' | 'terminal';
 
 export interface ManifiestoParada {
   orden: number;
-  sucursal: string;
-  /** `hora_paso_programada` tal como quedó en el jsonb (ISO con zona). */
-  hora_paso: string;
+  /** Nombre del `core.punto_ruta` (terminal o parada). */
+  punto: string;
+  /** `'terminal'` | `'parada'`. */
+  tipo: string;
+  /** `hora_paso_programada` tal como quedó en el jsonb (ISO con zona); NULL en las paradas de solo descenso. */
+  hora_paso: string | null;
 }
 
 export interface ManifiestoPasajero {
   folio: string;
   asiento: number;
   nombre: string;
-  /** Orden de la parada donde baja. */
-  destino_orden: number;
-  destino: string;
+  /** Punto de ascenso (`lower(tramos)`). */
+  sube_en: string;
+  sube_en_orden: number;
+  /** Parada / terminal de descenso (`upper(tramos)`). */
+  baja_en: string;
+  baja_en_orden: number;
+  estatus_pago: 'pagado' | 'pendiente';
   conflicto: boolean;
-  /** Solo en la copia `terminal`. */
-  importe?: number;
-  /** Solo en la copia `terminal`, y solo si hay saldo. */
-  saldo_pendiente?: number;
-}
-
-export interface ManifiestoAscenso {
-  parada_orden: number;
-  sucursal: string;
-  pasajeros: ManifiestoPasajero[];
-}
-
-export interface ManifiestoOcupacionTramo {
-  /** `[0,1)`, `[1,2)`, … */
-  tramo: string;
-  vendidos: number;
 }
 
 /**
  * La forma del jsonb de `core.datos_manifiesto`. Las claves van en `snake_case`
  * a propósito: es el blob congelado, se pasa tal cual sale de la base sin mapear.
- * `jsonb_strip_nulls` en la función SQL quita `conductor`/`unidad` si son nulos y
- * `ocupacion_por_tramo` en la copia del conductor.
+ * `jsonb_strip_nulls` en la función SQL quita `conductor`/`unidad` si son nulos.
  */
 export interface DatosManifiesto {
   salida_id: string;
@@ -71,8 +64,8 @@ export interface DatosManifiesto {
   /** Momento del snapshot (ISO con zona). Las ventas posteriores no salen aquí. */
   generado_en: string;
   paradas: ManifiestoParada[];
-  ascensos: ManifiestoAscenso[];
-  ocupacion_por_tramo?: ManifiestoOcupacionTramo[];
+  /** Lista única, ordenada por punto de ascenso y luego asiento. */
+  pasajeros: ManifiestoPasajero[];
 }
 
 export interface ConfigManifiesto {
@@ -80,15 +73,13 @@ export interface ConfigManifiesto {
   codePage?: CodePageName;
 }
 
-const money = (n: number): string =>
-  n.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-
 /**
  * `HH:mm` de un timestamp ISO, sin aritmética de zona: se imprime tal como quedó
  * congelado. P12 (zona horaria de las 4 sucursales) sigue abierta; cuando se
  * cierre, la conversión se hace al generar el jsonb, no aquí.
  */
-const hhmm = (iso: string): string => {
+const hhmm = (iso: string | null | undefined): string => {
+  if (!iso) return '--:--';
   const m = /T(\d{2}:\d{2})/.exec(iso);
   return m ? m[1]! : iso;
 };
@@ -110,9 +101,9 @@ export function renderManifiesto(m: DatosManifiesto, cfg: ConfigManifiesto = {})
     ...(cfg.codePage !== undefined ? { codePage: cfg.codePage } : {}),
   });
   const esTerminal = m.copia === 'terminal';
-  const anchoDestino = Math.min(18, Math.floor(doc.cols / 2));
+  const anchoDestino = Math.min(16, Math.floor(doc.cols / 2));
 
-  // ---- Encabezado ---------------------------------------------------------
+  // ---- Encabezado --------------------------------------------------------
   const origen = m.paradas[0];
   const destino = m.paradas[m.paradas.length - 1];
 
@@ -122,7 +113,7 @@ export function renderManifiesto(m: DatosManifiesto, cfg: ConfigManifiesto = {})
   doc.bold(false).align('left').divider();
 
   if (origen && destino) {
-    doc.line(etiqueta('Ruta:', `${origen.sucursal} -> ${destino.sucursal}`));
+    doc.line(etiqueta('Ruta:', `${origen.punto} -> ${destino.punto}`));
     doc.line(etiqueta('Salida:', hhmm(origen.hora_paso)));
   }
   doc.line(etiqueta('Fecha op.:', m.fecha_operacion));
@@ -135,55 +126,42 @@ export function renderManifiesto(m: DatosManifiesto, cfg: ConfigManifiesto = {})
   }
   doc.divider();
 
-  // ---- Cuerpo: pasajeros por parada de ascenso ---------------------------
+  // ---- Cuerpo: lista única por pasajero --------------------------------
   let total = 0;
   let conflictos = 0;
+  let pendientes = 0;
 
-  for (const asc of m.ascensos) {
-    doc.bold(true).line(`ASCENSO ${asc.parada_orden} - ${asc.sucursal}`).bold(false);
-
-    if (asc.pasajeros.length === 0) {
-      doc.line('    (sin pasajeros en esta parada)');
-      doc.feed(1);
-      continue;
-    }
-
-    for (const p of asc.pasajeros) {
-      total += 1;
-      const asiento = String(p.asiento).padStart(2, '0');
-      const dest = p.destino.length > anchoDestino ? p.destino.slice(0, anchoDestino) : p.destino;
-      // twoCol trunca la ETIQUETA (marca + asiento + nombre) y conserva el
-      // VALOR: el destino nunca se pierde, el nombre se recorta si no cabe.
-      doc.twoCol(`[ ] ${asiento}  ${p.nombre}`, dest);
-
-      if (esTerminal) {
-        const partes = [`$${money(p.importe ?? 0)}`];
-        if (p.saldo_pendiente && p.saldo_pendiente > 0) {
-          partes.push(`SALDO $${money(p.saldo_pendiente)}`);
-        }
-        doc.line(`       ${partes.join('   ')}`);
-      }
-
-      if (p.conflicto) {
-        conflictos += 1;
-        doc.bold(true).line('    !! CONFLICTO DE SOBREVENTA - VERIFICAR').bold(false);
-      }
-    }
-    doc.feed(1);
+  if (m.pasajeros.length === 0) {
+    doc.line('(sin pasajeros en esta salida)');
   }
 
-  // ---- Pie: totales, ocupación, firma -----------------------------------
+  for (const p of m.pasajeros) {
+    total += 1;
+    const asiento = String(p.asiento).padStart(2, '0');
+    const baja = p.baja_en.length > anchoDestino ? p.baja_en.slice(0, anchoDestino) : p.baja_en;
+    // twoCol trunca la ETIQUETA (casilla + asiento + nombre) y conserva el
+    // VALOR: el punto de descenso nunca se pierde, el nombre se recorta.
+    doc.twoCol(`[ ] ${asiento} ${p.nombre}`, baja);
+    doc.line(`       sube: ${p.sube_en}`);
+
+    if (p.estatus_pago === 'pendiente') {
+      pendientes += 1;
+      doc.bold(true).line('       ** PAGO PENDIENTE **').bold(false);
+    }
+    if (p.conflicto) {
+      conflictos += 1;
+      doc.bold(true).line('    !! CONFLICTO DE SOBREVENTA - VERIFICAR').bold(false);
+    }
+  }
+
+  // ---- Pie: totales, firma ---------------------------------------------
   doc.divider();
   doc.bold(true).line(`TOTAL PASAJEROS: ${total}`).bold(false);
+  if (pendientes > 0) {
+    doc.bold(true).line(`PENDIENTES DE PAGO: ${pendientes}`).bold(false);
+  }
   if (conflictos > 0) {
     doc.bold(true).line(`BOLETOS EN CONFLICTO: ${conflictos}`).bold(false);
-  }
-
-  if (esTerminal && m.ocupacion_por_tramo && m.ocupacion_por_tramo.length > 0) {
-    doc.feed(1).line('OCUPACION POR TRAMO');
-    for (const t of m.ocupacion_por_tramo) {
-      doc.line(`  ${t.tramo}  ${t.vendidos}`);
-    }
   }
 
   doc.feed(2);
