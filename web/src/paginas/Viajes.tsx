@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ErrorApi } from '../api/cliente';
 import {
   buscarBoletoPorFolio, checklist, detalleBoleto, finalizarViaje, generarManifiestos,
-  marcarEnRuta, registrarAbordaje, salidasDelDia,
+  marcarEnRuta, registrarAbordaje, reimprimirBoleto, salidasDelDia,
   type BoletoPorFolio, type ManifiestosEncolados, type SalidaDelDia,
 } from '../api/viajes';
 import { Modal } from '../componentes/ui';
@@ -366,6 +366,10 @@ function ModalDetalleBoleto({
     queryFn: () => detalleBoleto(boletoId),
   });
 
+  const reimprimir = useMutation({
+    mutationFn: () => reimprimirBoleto(boletoId),
+  });
+
   return (
     <Modal titulo="Detalle del boleto" onCerrar={onCerrar}>
       {detalle.isPending && <p className="text-sm text-slate-400">Cargando…</p>}
@@ -438,6 +442,29 @@ function ModalDetalleBoleto({
               ? ` · impreso ${fechaHora(detalle.data.impresoEn)}`
               : ' · sin imprimir'}
           </p>
+
+          <div className="border-t pt-3">
+            <button
+              type="button"
+              onClick={() => reimprimir.mutate()}
+              disabled={reimprimir.isPending || reimprimir.isSuccess}
+              className="btn"
+            >
+              {reimprimir.isPending ? 'Reimprimiendo…' : 'Reimprimir boleto'}
+            </button>
+            {reimprimir.isSuccess && (
+              <p className="mt-1 text-xs text-green-700">
+                Reimpresión encolada (nº {reimprimir.data.reimpresiones}).
+              </p>
+            )}
+            {reimprimir.isError && (
+              <p className="mt-1 text-xs text-red-600">
+                {reimprimir.error instanceof ErrorApi
+                  ? reimprimir.error.message
+                  : 'No se pudo reimprimir.'}
+              </p>
+            )}
+          </div>
         </div>
       )}
     </Modal>

@@ -144,10 +144,10 @@ export async function buscarBoletoPorFolio(
        FROM core.v_checklist_abordaje c
        JOIN core.salida s ON s.id = c.salida_id
        JOIN core.salida_parada spo ON spo.salida_id = s.id AND spo.orden = 0
-       JOIN core.sucursal suo ON suo.id = spo.sucursal_id
+       JOIN core.punto_ruta suo ON suo.id = spo.punto_id
        JOIN core.salida_parada spd ON spd.salida_id = s.id
         AND spd.orden = (SELECT max(orden) FROM core.salida_parada WHERE salida_id = s.id)
-       JOIN core.sucursal sud ON sud.id = spd.sucursal_id
+       JOIN core.punto_ruta sud ON sud.id = spd.punto_id
       WHERE c.folio = $1`,
     [folio],
   );
@@ -276,9 +276,9 @@ export async function detalleBoleto(
        LEFT JOIN core.cliente cli ON cli.id = v.cliente_id
        JOIN core.salida s     ON s.id  = b.salida_id
        JOIN core.salida_parada sppo ON sppo.salida_id = s.id AND sppo.orden = lower(b.tramos)
-       JOIN core.sucursal spo ON spo.id = sppo.sucursal_id
+       JOIN core.punto_ruta spo ON spo.id = sppo.punto_id
        JOIN core.salida_parada sppd ON sppd.salida_id = s.id AND sppd.orden = upper(b.tramos)
-       JOIN core.sucursal spd ON spd.id = sppd.sucursal_id
+       JOIN core.punto_ruta spd ON spd.id = sppd.punto_id
       WHERE b.id = $1::uuid AND b.activo`,
     [boletoId],
   );
@@ -318,5 +318,38 @@ export async function detalleBoleto(
       estado: r.salida_estado,
       conductor: r.conductor,
     },
+  };
+}
+
+export interface ResultadoReimpresion {
+  printJobId: string;
+  /** Cuántas veces se ha reimpreso el boleto tras esta. */
+  reimpresiones: number;
+}
+
+/**
+ * Encola una reimpresión de un boleto liquidado: mismo contenido que el original
+ * (mismo snapshot) más la leyenda de reimpresión que agrega la plantilla desde
+ * `config_ticket.leyenda_reimpresion` (N-4). Rechaza un boleto con saldo o
+ * cancelado. Deja `nota_auditoria` tipo `reimpresion`.
+ */
+export async function reimprimirBoleto(
+  db: Consultable,
+  args: {
+    boletoId: string; usuarioId: string; sucursalId: string;
+    motivo?: string; ahora?: Date;
+  },
+): Promise<ResultadoReimpresion> {
+  const { rows } = await db.query<{ print_job_id: string; reimpresiones: number }>(
+    `SELECT print_job_id, reimpresiones
+       FROM core.reimprimir_boleto($1::uuid, $2::uuid, $3::uuid, $4::text, $5::timestamptz)`,
+    [
+      args.boletoId, args.usuarioId, args.sucursalId,
+      args.motivo ?? 'REIMPRESIÓN', args.ahora ?? new Date(),
+    ],
+  );
+  return {
+    printJobId: rows[0]!.print_job_id,
+    reimpresiones: Number(rows[0]!.reimpresiones),
   };
 }

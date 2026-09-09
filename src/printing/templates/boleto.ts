@@ -36,12 +36,18 @@ export interface DatosBoleto {
   porReservacion?: boolean;
   /** Saldo pendiente si la reservación no está liquidada. */
   saldoPendiente?: number;
+  /** Punto donde el pasajero sube (== `origen.nombre`; explícito para el papel, D7). */
+  puntoAscenso?: string;
+  /** El boleto es una reimpresión: agrega la leyenda de `cfg.leyendaReimpresion` (N-4). */
+  reimpreso?: boolean;
 }
 
 export interface ConfigTicket {
   leyendaPie: string;
   telefonosAtencion: string;
   proveedor: string;
+  /** Leyenda que se agrega al pie de un boleto reimpreso (N-4). */
+  leyendaReimpresion?: string;
   cols?: number;
   codePage?: CodePageName;
   /** Clave HMAC de la agencia para el campo `V:` del QR. */
@@ -131,6 +137,14 @@ export function renderBoleto(b: DatosBoleto, cfg: ConfigTicket): Buffer {
   doc.feed(1);
   doc.wrap(cfg.telefonosAtencion);
   doc.wrap(cfg.proveedor);
+
+  // Reimpresión (N-4): la leyenda va al final, en negrita, para que sea evidente
+  // que este papel no es el original.
+  if (b.reimpreso && cfg.leyendaReimpresion) {
+    doc.feed(1).bold(true);
+    doc.wrap(cfg.leyendaReimpresion);
+    doc.bold(false);
+  }
   doc.align('left');
 
   doc.feed(3).cut();
