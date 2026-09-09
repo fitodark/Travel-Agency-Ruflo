@@ -155,4 +155,27 @@ run('reparto de cupo offline (PostgreSQL real)', () => {
     // El reparto lo dispara la materialización; debe fallar ahí.
     await expect(materializarHorario(db, fx.horarioId, { dias: 0 })).rejects.toThrow(/insuficiente/i);
   });
+
+  // -------------------------------------------------------------------------
+  // Fase 4 · una parada de descenso no recibe cupo ni revienta el reparto
+  // -------------------------------------------------------------------------
+  it('una parada de solo descenso no recibe cupo y el reparto no revienta', async () => {
+    const fx = await seedRuta(db, { paradas: 4, paradaDescensoEnOrden: 2 });
+    const salidaId = await unaSalida(fx.horarioId);
+
+    const { rows } = await db.query<{ orden: number; sucursal_id: string | null }>(
+      `SELECT sp.orden, co.sucursal_id
+         FROM core.salida_parada sp
+         JOIN core.punto_ruta pr ON pr.id = sp.punto_id
+         LEFT JOIN core.cupo_offline co ON co.salida_id = sp.salida_id AND lower(co.tramos) = sp.orden
+        WHERE sp.salida_id = $1
+        ORDER BY sp.orden`,
+      [salidaId],
+    );
+    // 4 paradas materializadas; cupo solo para las terminales vendedoras (0 y 1).
+    expect(rows.map((r) => r.orden)).toEqual([0, 1, 2, 3]);
+    expect(rows.find((r) => r.orden === 2)!.sucursal_id).toBeNull();   // la parada de descenso: sin cupo
+    expect(rows.find((r) => r.orden === 0)!.sucursal_id).not.toBeNull();
+    expect(rows.find((r) => r.orden === 1)!.sucursal_id).not.toBeNull();
+  });
 });

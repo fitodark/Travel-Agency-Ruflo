@@ -205,16 +205,18 @@ run('Fase 0 · catálogo de puntos de ruta (PostgreSQL real)', () => {
     });
   });
 
-  it('materializar_salidas NO tira la ruta con parada de descenso; esa parada no entra a salida_parada', async () => {
+  it('materializar_salidas escribe salida_parada para TODA parada de la ruta; la de descenso entra sin hora (Fase 4)', async () => {
     const fx = await seedRuta(db, { paradas: 3, paradaDescensoEnOrden: 1 });
 
     const r = await materializarHorario(db, fx.horarioId, { dias: 0 });
     expect(r.creadas).toBe(1);
     expect(r.sinParadas).toBe(0);
 
-    // salida_parada: solo las 2 terminales (ordenes 0 y 2), con su punto terminal.
-    const { rows } = await db.query<{ orden: number; tipo: string; con_hora: boolean }>(
-      `SELECT sp.orden, pr.tipo, (sp.hora_paso_programada IS NOT NULL) AS con_hora
+    // salida_parada: las 3 paradas, orden contiguo. La de descenso (orden 1) sin hora.
+    const { rows } = await db.query<{ orden: number; tipo: string; con_hora: boolean; con_cierre: boolean }>(
+      `SELECT sp.orden, pr.tipo,
+              (sp.hora_paso_programada IS NOT NULL) AS con_hora,
+              (sp.cierre_venta_en IS NOT NULL) AS con_cierre
          FROM core.salida_parada sp
          JOIN core.salida s      ON s.id = sp.salida_id
          JOIN core.punto_ruta pr ON pr.id = sp.punto_id
@@ -223,8 +225,9 @@ run('Fase 0 · catálogo de puntos de ruta (PostgreSQL real)', () => {
       [fx.horarioId],
     );
     expect(rows).toEqual([
-      { orden: 0, tipo: 'terminal', con_hora: true },
-      { orden: 2, tipo: 'terminal', con_hora: true },
+      { orden: 0, tipo: 'terminal', con_hora: true, con_cierre: true },
+      { orden: 1, tipo: 'parada', con_hora: false, con_cierre: false },
+      { orden: 2, tipo: 'terminal', con_hora: true, con_cierre: true },
     ]);
   });
 

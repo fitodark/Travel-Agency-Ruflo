@@ -54,54 +54,16 @@ run('tramos_ocupacion — ocupación del asiento (PostgreSQL real)', () => {
     expect(v2.boletos).toHaveLength(1);
   });
 
-  /** Convierte el `orden` en una parada de solo descenso y le materializa su fila. */
-  const paradaDescenso = async (fx: Awaited<ReturnType<typeof seedSalida>>, orden: number): Promise<void> => {
-    await db.query(
-      `UPDATE core.punto_ruta SET tipo='parada', sucursal_id=NULL
-         WHERE id = (SELECT punto_id FROM core.salida_parada WHERE salida_id=$1 AND orden=$2)`,
-      [fx.salidaId, orden],
-    );
-    await db.query(
-      `UPDATE core.ruta_parada rp SET permite_ascenso=false, permite_descenso=true
-         FROM core.salida sa JOIN core.horario h ON h.id=sa.horario_id
-        WHERE sa.id=$1 AND rp.ruta_id=h.ruta_id
-          AND rp.punto_id=(SELECT punto_id FROM core.salida_parada WHERE salida_id=$1 AND orden=$2)`,
-      [fx.salidaId, orden],
-    );
-    await db.query(
-      `UPDATE core.salida_parada SET hora_paso_programada=NULL, cierre_venta_en=NULL
-        WHERE salida_id=$1 AND orden=$2`,
-      [fx.salidaId, orden],
-    );
-  };
-
   it('tramo_ocupacion: destino = parada de descenso ⇒ el rango llega a n-1', async () => {
-    const fx = await seedSalida(db, { paradas: 4, diasAdelante: 20, tarifaImporte: 100 });
-    await paradaDescenso(fx, 2);
+    // Fase 4: la parada de descenso se materializa en salida_parada (sin hora).
+    const fx = await seedSalida(db, { paradas: 4, paradaDescensoEnOrden: 2, diasAdelante: 20, tarifaImporte: 100 });
     expect(await rango(`SELECT core.tramo_ocupacion($1, 0, 2)::text AS r`, [fx.salidaId])).toBe('[0,3)');
     // terminal→terminal no se toca
     expect(await rango(`SELECT core.tramo_ocupacion($1, 0, 1)::text AS r`, [fx.salidaId])).toBe('[0,1)');
   });
 
-  /** Convierte el `orden` en una parada de solo ascenso (retorno) y le da su fila. */
-  const paradaAscenso = async (fx: Awaited<ReturnType<typeof seedSalida>>, orden: number): Promise<void> => {
-    await db.query(
-      `UPDATE core.punto_ruta SET tipo='parada', sucursal_id=NULL
-         WHERE id = (SELECT punto_id FROM core.salida_parada WHERE salida_id=$1 AND orden=$2)`,
-      [fx.salidaId, orden],
-    );
-    await db.query(
-      `UPDATE core.ruta_parada rp SET permite_ascenso=true, permite_descenso=false
-         FROM core.salida sa JOIN core.horario h ON h.id=sa.horario_id
-        WHERE sa.id=$1 AND rp.ruta_id=h.ruta_id
-          AND rp.punto_id=(SELECT punto_id FROM core.salida_parada WHERE salida_id=$1 AND orden=$2)`,
-      [fx.salidaId, orden],
-    );
-  };
-
   it('tramo_ocupacion: origen = parada de ascenso sin POS ⇒ el rango empieza en 0 (P-3 / D3)', async () => {
-    const fx = await seedSalida(db, { paradas: 4, diasAdelante: 20, tarifaImporte: 100 });
-    await paradaAscenso(fx, 1);
+    const fx = await seedSalida(db, { paradas: 4, paradaAscensoEnOrden: 1, diasAdelante: 20, tarifaImporte: 100 });
     // origen orden 1 = parada de ascenso ⇒ lower = 0; destino orden 3 = terminal
     expect(await rango(`SELECT core.tramo_ocupacion($1, 1, 3)::text AS r`, [fx.salidaId])).toBe('[0,3)');
     // origen terminal (orden 0) no se toca
@@ -110,8 +72,7 @@ run('tramos_ocupacion — ocupación del asiento (PostgreSQL real)', () => {
   });
 
   it('venta a una parada de descenso: el asiento se ocupa hasta el fin de la ruta y no se revende aguas abajo', async () => {
-    const fx = await seedSalida(db, { paradas: 4, diasAdelante: 20, tarifaImporte: 100 });
-    await paradaDescenso(fx, 2);
+    const fx = await seedSalida(db, { paradas: 4, paradaDescensoEnOrden: 2, diasAdelante: 20, tarifaImporte: 100 });
     const usuarioId = await crearUsuario(db);
     await seedCorte(db, fx.sucursales[0]!, usuarioId);
     const ahora = await antesDelCierre(db, fx.salidaId, 0);
@@ -137,8 +98,7 @@ run('tramos_ocupacion — ocupación del asiento (PostgreSQL real)', () => {
   });
 
   it('asientos_libres respeta tramos_ocupacion: el asiento no aparece libre para [2,3) tras un boleto a la parada de descenso', async () => {
-    const fx = await seedSalida(db, { paradas: 4, diasAdelante: 20, tarifaImporte: 100 });
-    await paradaDescenso(fx, 2);
+    const fx = await seedSalida(db, { paradas: 4, paradaDescensoEnOrden: 2, diasAdelante: 20, tarifaImporte: 100 });
     const usuarioId = await crearUsuario(db);
     await seedCorte(db, fx.sucursales[0]!, usuarioId);
     const ahora = await antesDelCierre(db, fx.salidaId, 0);
