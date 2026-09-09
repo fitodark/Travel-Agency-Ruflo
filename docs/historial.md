@@ -2535,19 +2535,47 @@ vive en la nota de memoria `donaji-rutas-paradas-tarifas`; resumen:
   el abordaje digital de F7 (`marcar_abordaje`), que D11 mantiene en la terminal
   de origen. `src/fleet/manifiesto.ts` y `poc-manifiesto.ts` sin cambio.
 - **`0054` es solo `CREATE OR REPLACE`, sin DDL** → aplicable en caliente sobre
-  nodos en `0053`. **La Fase 6 corre de `0054` a `0055`.**
+  nodos en `0053`.
 - **Verificación:** typecheck verde; `tests/printing` + `tests/fleet` 129/129
   (`tests/{printing,fleet}/manifiesto.test.ts` reescritos, 25/25); `npm test`
   472 pass / 70 fail (los mismos preexistentes, 0 regresiones).
 
-- **Pendiente de Fase 5:** 5b (`DROP COLUMN salida_parada.sucursal_id` + retiro de
-  triggers de compat + vistas `api.*` + F3-D2 + F4-D2), 5c (admin: CRUD
-  `punto_ruta`, `crearRuta` / `crearHorario` con banderas, reemplazo de rutas D5,
-  reporte de huérfanos), 5d (`crearTarifa` con categoría + `Tarifas.tsx` →
-  descuentos INAPAM/menor operativos + F4-D3), 5e (SPA `Puntos.tsx` /
-  `Horarios.tsx`).
+### Fase 5b — retiro de `core.salida_parada.sucursal_id` (`0055`)
+
+- **Rama `f-paradas-fase5b`** (apilada sobre `f-paradas-fase5-2`), commit
+  `eab775d`, migr. `0055`. Pusheada a `origin`, PR a mano en
+  `github.com/fitodark/Travel-Agency-Ruflo/pull/new/f-paradas-fase5b`. Sin
+  review, sin merge, sin deploy.
+- Último uso estructural de `sucursal_id` en el eje de paradas. `0053`/`0054` ya
+  movieron impresión y manifiesto a `core.punto_ruta`; `0055` cerró el resto:
+  - `core.materializar_salidas` — re-emitida sin `sucursal_id` en el `INSERT` de
+    `salida_parada` (la sucursal de una terminal se resuelve por `punto_ruta`).
+  - `core.repartir_cupo_offline` — re-emitida: la sucursal de la terminal sale de
+    `core.punto_ruta` (JOIN INNER; el bucle solo itera terminales con ascenso).
+  - `api.v1_boleto` / `api.v1_salida` / `api.v1_venta` — recreadas con el nombre
+    de origen/destino desde `core.punto_ruta` (mismas columnas de salida; ahora
+    una parada no-terminal también aparece con su nombre — F4-D1 en el eje API).
+  - Retiro de `trg_aa_compat_punto` + `core.trg_salida_parada_compat_punto()`.
+  - `ALTER TABLE core.salida_parada DROP COLUMN sucursal_id`.
+- **Precondición de deploy (ventana coordinada):** los 5 nodos en `0054` antes de
+  aplicar `0055` a la nube. `salida_parada` es clase A (nube → sucursal), así que
+  el orden nube-primero es seguro para los nodos ya en `0054`.
+- **Fuera de 5b:** F2-D3 (retiro de `trg_aa_tramos_ocupacion_compat`, precondición
+  propia: los 5 nodos ≥ `0050`); F3-D2 (guard de descuento por `tipo`) y F4-D2
+  (`crearRuta` assert de orden contiguo) → van con `crearRuta` en 5c.
+  **La Fase 6 corre de `0055` a `0056`.**
+- **Verificación:** typecheck verde; `tests/{fleet,ventas,printing}` 194/194;
+  `tests/{sync,db}` 113/113 (+1 todo, incl. `f1-criterios` contra la nube real y
+  el bootstrap de terminal nueva); `npm test` 475 pass / 70 fail (los mismos
+  preexistentes, 0 regresiones).
+
+- **Orden de merge:** 5a-2 (`f-paradas-fase5-2`) primero, luego 5b.
+- **Pendiente de Fase 5:** 5c (admin: CRUD `punto_ruta`, `crearRuta` /
+  `crearHorario` con banderas + F3-D2 + F4-D2, reemplazo de rutas D5, reporte de
+  huérfanos), 5d (`crearTarifa` con categoría + `Tarifas.tsx` → descuentos
+  INAPAM/menor operativos + F4-D3), 5e (SPA `Puntos.tsx` / `Horarios.tsx`).
 - **Deploy acumulado:** nube + local en `0052`; faltan las 4 terminales, y
-  `0053` + `0054` sin aplicar en ningún nodo.
+  `0053` + `0054` + `0055` sin aplicar en ningún nodo.
 - Memoria actualizada: `donaji-rutas-paradas-tarifas`, `MEMORY.md`.
 
 ---
