@@ -2610,11 +2610,39 @@ vive en la nota de memoria `donaji-rutas-paradas-tarifas`; resumen:
   `tests/admin/rutas-paradas.test.ts` 9, `tests/api/admin.test.ts` +1);
   `npm test` 485 pass / 70 fail (los mismos preexistentes, 0 regresiones).
 
+### Fase 5d — tarifas por categoría + test cross-node de arbitraje (sin migración)
+
+- **Rama `f-paradas-fase5d`** (apilada sobre `f-paradas-fase5c`), **sin migración**
+  (la columna `categoria_pasajero` existe desde `0051`). Pusheada a `origin`, PR a
+  mano en `github.com/fitodark/Travel-Agency-Ruflo/pull/new/f-paradas-fase5d`.
+- **Tarifas por categoría (`src/admin/tarifas.ts`, cierra F3-D3):** `crearTarifa`
+  gana `categoria` (`general` | `inapam` | `menor`, default `general`). Un
+  descuento (`categoria <> 'general'`) solo se acepta terminal-extremo →
+  terminal-extremo de la ruta (D4, validado contra `ruta_parada.orden` 0 y máx).
+  El precio nuevo cierra SOLO la tarifa anterior de la misma categoría del mismo
+  tramo. `listarTarifas` trae `categoria_pasajero`; `listarRutas` + la lista de
+  paradas pasan por `core.punto_ruta.nombre`. Ruta `/admin/tarifas`: schema +=
+  `categoria` enum.
+- **Web:** `Tarifas.tsx` con selector de categoría en el alta + columna en la
+  tabla + aviso/guard de "descuento solo terminal↔terminal". `web/src/api/admin.ts`
+  tipos. `Vender.tsx` **sin cambios** — ya mostraba el selector de categoría solo
+  cuando el tramo tiene tarifa de descuento (`salida.tarifas`).
+- **F4-D3 (`tests/sync/arbitraje.test.ts`):** caso cross-node — dos ocupaciones
+  que solapan en `tramos_ocupacion` (`[0,3)` y `[1,3)`) pero cuyos viajes
+  (`[0,1)` a una parada de descenso, y `[1,3)`) son disjuntos:
+  `resolverConflictoAsiento` sí dispara y elige ganador. El helper `ocupar` gana
+  `ocupHasta`.
+- **F3-D3 y F4-D3 CERRADOS.** Fase 6 sigue en `0057`.
+- **Verificación:** typecheck src + web verde; web build verde; `tests/admin` +
+  `tests/sync/arbitraje` + `tests/sync/motor-pendiente` verdes (+4 casos:
+  `config.test.ts` 3, `arbitraje.test.ts` 1); `npm test` 489 pass / 70 fail (los
+  mismos preexistentes, 0 regresiones).
+
 - **Orden de merge:** 5a-2 (`f-paradas-fase5-2`) → 5b (`f-paradas-fase5b`) →
-  5c (`f-paradas-fase5c`).
-- **Pendiente de Fase 5:** 5d (`crearTarifa` con categoría + `Tarifas.tsx` →
-  descuentos INAPAM/menor operativos + F4-D3), 5e (SPA `Puntos.tsx` /
-  `Horarios.tsx` armar ruta con puntos + banderas + pantalla de huérfanos).
+  5c (`f-paradas-fase5c`) → 5d (`f-paradas-fase5d`).
+- **Pendiente de Fase 5:** solo **5e** — SPA `Puntos.tsx` (nuevo), `Horarios.tsx`
+  (armar ruta con puntos + banderas), pantalla de boletos huérfanos. Los clientes
+  API ya están en `web/src/api/admin.ts`. Con 5e mergeado, **Fase 5 cierra**.
 - **Deploy acumulado:** nube + local en `0052`; faltan las 4 terminales, y
   `0053` + `0054` + `0055` + `0056` sin aplicar en ningún nodo.
 - Memoria actualizada: `donaji-rutas-paradas-tarifas`, `MEMORY.md`.
