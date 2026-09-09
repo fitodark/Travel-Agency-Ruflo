@@ -2666,11 +2666,49 @@ vive en la nota de memoria `donaji-rutas-paradas-tarifas`; resumen:
 
 - **Orden de merge:** 5a-2 (`f-paradas-fase5-2`) → 5b (`f-paradas-fase5b`) →
   5c (`f-paradas-fase5c`) → 5d (`f-paradas-fase5d`) → 5e (`f-paradas-fase5e`).
-- **FASE 5 CERRADA** con 5e. Sigue la **Fase 6** (`0057`): tercer método de pago
-  `corresponsal`, caducidad y cancelación / reembolso de reservas; residuales
-  del cliente N-13..N-15 por resolver.
+- **FASE 5 CERRADA** con 5e.
+
+### Fase 6a — tercer método de pago `corresponsal` (`0057`)
+
+- **Rama `f-paradas-fase6a`** (apilada sobre `f-paradas-fase5e`), migr. `0057`.
+  Pusheada a `origin`, PR a mano en
+  `github.com/fitodark/Travel-Agency-Ruflo/pull/new/f-paradas-fase6a`. Primera de
+  tres sub-PRs de la Fase 6.
+- **D13:** `core.sucursal` += `sin_sistema boolean` (Tamazulapan: corte manual
+  externo, no cuelga de `ruta_parada`, solo figura como `pago.sucursal_cobro_id`).
+  `core.v_sucursal_vigente` recreada para exponerla.
+- **`core.pago`:** `metodo` CHECK += `'corresponsal'`; `pago_check` acepta un
+  `corresponsal` verificado sin `verificado_por`. `corte_caja_id` sigue NOT NULL
+  = el corte del vendedor de origen.
+- **`core.registrar_venta`:** `metodo='corresponsal'` ⇒ `sucursal_cobro_id` = una
+  sucursal `sin_sistema` activa (validada), cubre el total (sin abonos), entra
+  `verificado=true` y cuenta como pagado — venta liquidada, boleto imprimible.
+  `referencia_transferencia` NULL.
+- **`core.trg_pago_a_ingreso`:** **omite** `corresponsal` — no crea
+  `movimiento_caja`, no suma al efectivo del corte.
+- **D8 — apartado del corte:** `core.pagos_corresponsal(corte)` +
+  `src/caja/corte.ts` `cobradoEnCorresponsal` + `GET /caja/corte/:id/corresponsal`
+  + bloque "cobrado en corresponsal" en `<Caja>` (conteo + suma + detalle por
+  sucursal de cobro, bajo los movimientos, marcado "no entra al efectivo").
+- **Venta:** `PagoInput` / `pagoSchema` += `metodo:'corresponsal'` +
+  `sucursalCobroId`; `Vender.tsx` gana la opción + selector de sucursal de cobro
+  (solo si hay sucursales `sin_sistema`); `/catalogos/sucursales` expone
+  `sinSistema`.
+- **Verificación:** typecheck src + web verde; web build verde;
+  `tests/ventas/pago-corresponsal.test.ts` (+4); `npm test` 493 pass / 70 fail
+  (los mismos preexistentes, 0 regresiones).
+- **Nota:** el archivo `0057` se editó tras aplicarlo en dev; se re-aplicó a mano
+  (revert + `DELETE FROM schema_migration WHERE version LIKE '0057%'`). En una BD
+  limpia aplica sin problema.
+
+- **Orden de merge Fase 6:** 5e → 6a (`f-paradas-fase6a`) → 6b → 6c.
+- **Pendiente de Fase 6:** 6b — caducidad de reservas (D9, liberación perezosa 1 h
+  antes de la salida; no depende de nada nuevo). 6c — cancelación / reembolso
+  (D9 + D10), **bloqueada** por las respuestas del cliente a N-13 (rol que
+  autoriza; reembolso de un `corresponsal`) y N-14 (traspaso de saldo vs
+  reembolso + cobro al reemitir un huérfano).
 - **Deploy acumulado:** nube + local en `0052`; faltan las 4 terminales, y
-  `0053` + `0054` + `0055` + `0056` sin aplicar en ningún nodo.
+  `0053` … `0057` sin aplicar en ningún nodo.
 - Memoria actualizada: `donaji-rutas-paradas-tarifas`, `MEMORY.md`.
 
 ---
