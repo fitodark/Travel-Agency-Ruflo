@@ -16,7 +16,7 @@ import {
 } from '../../fleet/manifiesto.js';
 import {
   buscarBoletoPorFolio, checklistAbordaje, corregirAbordaje, detalleBoleto,
-  finalizarSalida, marcarEnRuta, registrarAbordaje,
+  finalizarSalida, marcarEnRuta, registrarAbordaje, reimprimirBoleto,
 } from '../../fleet/abordaje.js';
 import { exige } from '../autenticar.js';
 import { noEncontrado } from '../errores.js';
@@ -84,6 +84,34 @@ export async function rutasViajes(app: FastifyInstance): Promise<void> {
     if (!d) throw noEncontrado('No hay ningún boleto con ese id.');
     return d;
   });
+
+  // Reimpresión de un boleto liquidado: mismo contenido + leyenda de reimpresión
+  // (N-4). Encola un `print_job`; el spooler lo imprime como cualquier otro.
+  app.post(
+    '/boleto/:id/reimprimir',
+    {
+      preHandler: exige({ permiso: 'ticket.reimprimir' }),
+      schema: {
+        params: idParam,
+        body: {
+          type: 'object',
+          properties: { motivo: { type: 'string', maxLength: 120 } },
+        },
+      },
+    },
+    async (req, reply) => {
+      const { id } = req.params as { id: string };
+      const { motivo } = (req.body ?? {}) as { motivo?: string };
+      const r = await reimprimirBoleto(app.db, {
+        boletoId: id,
+        usuarioId: req.sesion.usuarioId,
+        sucursalId: req.sesion.sucursalId!,
+        ...(motivo ? { motivo } : {}),
+        ahora: app.ahora(),
+      });
+      return reply.status(201).send(r);
+    },
+  );
 
   app.get(
     '/:id/manifiesto',

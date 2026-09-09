@@ -78,6 +78,7 @@ export function snapshotABoleto(datos: unknown): DatosBoleto {
     vendedor: texto(d['vendedor']),
     emitidoEn: texto(d['emitido_en']),
     porReservacion: Boolean(d['es_reservacion']),
+    ...(d['punto_ascenso'] != null ? { puntoAscenso: texto(d['punto_ascenso']) } : {}),
   };
   const saldo = Number(d['saldo_pendiente']);
   if (Number.isFinite(saldo) && saldo > 0) b.saldoPendiente = saldo;
@@ -91,14 +92,14 @@ export function renderPrintJob(
   templateKey: string,
   datos: unknown,
   ctx: ContextoImpresion,
+  esReimpresion = false,
 ): Buffer {
   switch (templateKey) {
     case 'boleto':
-      return renderBoleto(snapshotABoleto(datos), {
-        ...ctx.ticket,
-        cols: ctx.cols,
-        codePage: ctx.codePage,
-      });
+      return renderBoleto(
+        { ...snapshotABoleto(datos), reimpreso: esReimpresion },
+        { ...ctx.ticket, cols: ctx.cols, codePage: ctx.codePage },
+      );
     case 'manifiesto_conductor':
     case 'manifiesto_terminal':
       return renderManifiesto(datos as DatosManifiesto, {
@@ -140,6 +141,7 @@ interface JobReclamado {
   template_key: string;
   datos: unknown;
   intentos: number;
+  es_reimpresion: boolean;
 }
 
 /**
@@ -220,7 +222,7 @@ async function imprimirJob(
   r: ResumenSpooler,
 ): Promise<void> {
   try {
-    const bytes = renderPrintJob(job.template_key, job.datos, ctx);
+    const bytes = renderPrintJob(job.template_key, job.datos, ctx, job.es_reimpresion);
     await transporte.open();
     try {
       await transporte.write(bytes);
@@ -264,7 +266,7 @@ async function reclamarLote(
          FOR UPDATE SKIP LOCKED
          LIMIT $3
       )
-      RETURNING id, template_key, datos, intentos`,
+      RETURNING id, template_key, datos, intentos, es_reimpresion`,
     [sucursalId, [...TEMPLATES_SOPORTADOS], lote],
   );
   return rows;

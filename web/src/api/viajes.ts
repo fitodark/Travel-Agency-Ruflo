@@ -95,6 +95,21 @@ export function detalleBoleto(boletoId: string): Promise<DetalleBoleto> {
   return api<DetalleBoleto>(`/viajes/boleto/${encodeURIComponent(boletoId)}/detalle`);
 }
 
+export interface ResultadoReimpresion {
+  printJobId: string;
+  reimpresiones: number;
+}
+
+/** Reimprime un boleto liquidado: encola un `print_job` con la leyenda de reimpresión. */
+export function reimprimirBoleto(
+  boletoId: string, motivo?: string,
+): Promise<ResultadoReimpresion> {
+  return api<ResultadoReimpresion>(
+    `/viajes/boleto/${encodeURIComponent(boletoId)}/reimprimir`,
+    { method: 'POST', body: JSON.stringify(motivo ? { motivo } : {}) },
+  );
+}
+
 export function registrarAbordaje(
   boletoId: string, abordo: boolean,
 ): Promise<{ eventoId: string }> {

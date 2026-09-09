@@ -41,6 +41,8 @@ export interface ConfigTicketRow {
   logo_url: string | null;
   telefono_atencion: string | null;
   leyenda_pie: string | null;
+  /** Opcional: una fila replicada desde un nodo pre-0053 no la trae. */
+  leyenda_reimpresion?: string | null;
   credenciales_proveedor: string | null;
   hmac_qr_secreto: string | null;
 }
@@ -72,7 +74,7 @@ export async function cargarConfigTicket(
   agenciaId: string,
 ): Promise<ConfigTicketRow | null> {
   const { rows } = await client.query<ConfigTicketRow>(
-    `SELECT agencia_id, logo_url, telefono_atencion, leyenda_pie,
+    `SELECT agencia_id, logo_url, telefono_atencion, leyenda_pie, leyenda_reimpresion,
             credenciales_proveedor, hmac_qr_secreto
        FROM core.v_config_ticket_vigente
       WHERE agencia_id = $1`,
@@ -144,6 +146,9 @@ export function aConfigTicket(
     proveedor: ticket?.credenciales_proveedor ?? '',
     cols: impresora.ancho_cols,
     codePage,
+    ...(ticket?.leyenda_reimpresion
+      ? { leyendaReimpresion: ticket.leyenda_reimpresion }
+      : {}),
   };
 
   // Sin clave configurada se omite el campo `V:` en vez de firmar con un secreto
