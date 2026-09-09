@@ -317,24 +317,31 @@ reserva la registra la terminal de origen, que aparta el asiento desde el orden 
 - **P-2 RESUELTA:** montos fijos, sin cortesías ni importe 0, sin tope hoy (campo listo).
 - **Bloqueante:** ninguno.
 
-### Fase 4 — Materialización y cupo offline con paradas de descenso  ·  `0052`
+### Fase 4 — Materialización y cupo offline con paradas de descenso  ·  `0052`  ✅ ENTREGADA (rama `f-paradas-fase4`)
 
-- `core.materializar_salidas`: el `INSERT INTO core.salida_parada` deja de leer solo
-  `horario_parada`; nuevo origen = `core.ruta_parada` de la ruta + `LEFT JOIN
-  core.horario_parada`. `parada_descenso` → `hora_paso_programada` / `cierre_venta_en`
-  en `NULL`.
-- `core.repartir_cupo_offline` (`0019`): `v_n_intermedias` cuenta solo puntos
-  `terminal` con ascenso; las paradas (`tipo='parada'`, ascenso o descenso) no entran al
-  `FOR` de vendedoras ni reciben bloque. El chequeo `v_n_bloques - v_n_intermedias >= 1`
-  usa el conteo corregido.
-- **`core.cupo_offline.sucursal_id` es NOT NULL** (hallazgo de Fase 1): una parada no-terminal
-  (sin `sucursal_id`) que llegue al reparto revienta el `INSERT`. La corrección de arriba
-  (excluir las paradas del reparto) ya lo cubre; alternativa defensiva = `DROP NOT NULL` en
-  esa columna. En Fase 1/2 los fixtures de parada no-terminal se prueban sin materializar por esto.
-- **Re-verificar `core.tramo_ocupacion`** (Fase 2): cuando `materializar_salidas` emita
-  `salida_parada` para paradas no-terminal, sus dos ramas no-triviales (`lower=0`,
-  `upper=n-1`) se vuelven alcanzables por venta real — confirmar que `max(orden)` = fin de
-  ruta real y que el `p_hasta` no-materializado deja de ser un caso. (F2-Q1.)
+- `core.materializar_salidas` re-emitida: el `INSERT INTO core.salida_parada` pasa de
+  `core.horario_parada` a `core.ruta_parada rp JOIN core.punto_ruta pr LEFT JOIN
+  core.horario_parada hp` — **una fila por cada `ruta_parada` de la ruta** (`AND rp.activo`).
+  Las que tienen `horario_parada` llevan `hora_paso_programada` / `cierre_venta_en`; las
+  no-terminal (sin `horario_parada`) entran con ambos en `NULL` (D6). `orden` = `rp.orden`,
+  contiguo `0..n-1`.
+- `core.repartir_cupo_offline` (`0019`) re-emitida: **solo las terminales con ascenso venden**
+  (`punto_ruta.tipo='terminal' AND ruta_parada.permite_ascenso AND orden < max(orden)`). Se
+  arma `v_ordenes smallint[]` con esas órdenes; el `FOR` itera sobre ellas (no `0..n-2`).
+  `v_n_intermedias = v_n_vendedoras - 1`. Los índices de bloque se calculan sobre las
+  vendedoras reales. Las paradas `tipo='parada'` no reciben cupo → nunca se intenta
+  `INSERT` con `sucursal_id = NULL` (`core.cupo_offline.sucursal_id` es NOT NULL — hallazgo
+  de Fase 1, resuelto por exclusión, sin `DROP NOT NULL`).
+- **F2-Q1 verificado:** con las paradas ya materializadas, `core.tramo_ocupacion` queda vivo
+  por venta real. `max(orden)` en el helper = última `salida_parada` = terminal destino (D5),
+  así que el rango de ocupación de un boleto a una parada de descenso llega al fin real de
+  la ruta. Test `tramos-ocupacion.test.ts` migrado del insert-a-mano a `seedSalida({paradaDescensoEnOrden})`.
+- **F3-D2 → Fase 5:** el guard de descuento de `registrar_venta` es por `orden` (`destino =
+  n-1`), correcto mientras las rutas terminen en terminal (D5). Se reescribe por `tipo` en
+  Fase 5, junto con la validación de alta de ruta (`crearRuta`).
+- **`src/sync/arbitraje.ts` ya arbitra sobre `tramos_ocupacion`** (fix F2-D1, PR follow-up
+  de Fase 2). No hace falta tocarlo aquí, pero los tests de arbitraje de Fase 4 deben cubrir
+  el caso cross-node donde dos ocupaciones solapan en ocupación pero no en viaje.
 - **`src/sync/arbitraje.ts` ya arbitra sobre `tramos_ocupacion`** (fix F2-D1, PR follow-up
   de Fase 2). No hace falta tocarlo aquí, pero los tests de arbitraje de Fase 4 deben cubrir
   el caso cross-node donde dos ocupaciones solapan en ocupación pero no en viaje.
