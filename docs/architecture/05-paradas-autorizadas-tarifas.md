@@ -508,6 +508,73 @@ reserva la registra la terminal de origen, que aparta el asiento desde el orden 
     folio nuevo y si se mantuvo el precio pagado o se aplicó la tarifa vigente + saldo. La
     reimpresión queda deshabilitada para un boleto `reasignado`. Solo web, sin migración.
 
+### Notas del review de Fase 6 (`0057`–`0060`)
+
+Review independiente hecho al cierre (las fases 5–6 se mergearon con el patrón de agentes
+caído por límite de cuenta). El esquema ya está en nube + dev; estos son bugs de lógica para
+un follow-up (`0061`), no bloquean el deploy a las terminales. Ordenados por severidad.
+
+- **F6-D1 (must-fix, alto) — el boleto viejo reubicado sigue en el manifiesto / checklist /
+  conteo / reporte de huérfanos.** `core.reubicar_huerfano` (`0060`) marca el boleto viejo
+  `estado='reasignado'` pero **no toca `activo`**. En el resto del código `reasignado`
+  significa "mismo boleto, asiento nuevo, sigue viajando" (`src/sync/reasignacion.ts`), así
+  que los lectores lo excluyen solo por `estado <> 'cancelado'` y lo dejan pasar:
+  `core.datos_manifiesto` (`0054`), `core.salidas_del_dia` conteo (`0053`),
+  `core.v_checklist_abordaje` (`0027`), `core.boletos_huerfanos` (`0056`). Un pasajero
+  reubicado aparece como fantasma en la salida vieja. **Fix:** `UPDATE core.boleto SET
+  activo = false` además de `estado='reasignado'` — todos esos lectores ya filtran
+  `AND b.activo`. Verificar que `detalleBoleto` (`abordaje.ts`, filtra `b.activo`) degrade
+  bien: cerraría el modal al éxito en vez de mostrar `estado='reasignado'`.
+- **F6-D2 (bug, alto) — venta huérfana multi-boleto se destruye en la primera reubicación.**
+  `core.boletos_huerfanos` devuelve un renglón por boleto; una familia que compró 3 asientos
+  en una venta quedan como 3 huérfanos de la MISMA venta. Reubicar el 1º:
+  `UPDATE core.pago SET venta_id = <nueva> WHERE venta_id = <vieja> AND activo` mueve
+  **todos** los pagos, y `UPDATE core.venta SET estado='cancelada'` cancela la venta con los
+  boletos 2 y 3 aún `emitido`. Reubicar el 2º: `v_pagado` de la venta vieja ya es 0 → cae a
+  la rama "tarifa vigente" y **le cobra de nuevo** al pasajero. **Fix:** rechazar ventas
+  multi-boleto con mensaje claro ("reubica la venta completa"), o cancelar la venta vieja y
+  mover el pago solo cuando no queden boletos `emitido` en ella.
+- **F6-D3 (bug, medio) — doble reembolso al cancelar boleto por boleto una venta
+  multi-boleto con abono parcial.** `core.cancelar_boleto` (`0059`) calcula
+  `v_reembolso := LEAST(boleto.importe, pagado)` pero **no descuenta reembolsos previos ni
+  desactiva el pago**. Venta de 2 boletos ($450 c/u, total $900) con abono de $500: cancelar
+  el 1º → egreso $450; cancelar el 2º → `pagado` sigue $500 → egreso $450 (total $900
+  reembolsados sobre $500 pagados). El caso de pago completo sale bien solo por aritmética
+  (Σimporte = total). La caducidad `0058` no auto-libera el abono parcial precisamente
+  porque `0059` maneja el reembolso, así que es la ruta prevista. **Fix:** acotar con lo ya
+  reembolsado — `LEAST(importe, pagado − Σ egresos 'devolucion' de los pagos de la venta)`.
+- **F6-D4 (menor) — `reubicar_huerfano` no libera reservas caducas de la salida destino**
+  antes del check de asiento (a diferencia de `registrar_venta` / `adquirir_lease` en
+  `0058`). Si una reserva caduca sostiene el asiento, el `EXCLUDE` dispara "el asiento ya
+  está ocupado" en vez de reubicar. **Fix:** `PERFORM core.liberar_reservas_caducas(
+  p_salida_nueva_id, p_ahora)` antes del INSERT de la ocupación.
+- **F6-D5 (menor) — `reubicar_huerfano` no valida categoría/tarifa en la rama "precio
+  mantenido".** Con `pagado > 0` el boleto nuevo hereda `importe` y `categoria_pasajero` del
+  viejo sin pasar por `v_desc_ok` / `v_tarifa_vigente`: un boleto INAPAM con descuento se
+  reubica en un tramo parcial manteniendo el descuento, algo que `registrar_venta` prohíbe.
+  Impacto bajo (acción de admin), documentar o replicar el guard.
+- **F6-D6 (menor) — falta el guard `sync.replicando()` en `cancelar_boleto` y
+  `reubicar_huerfano`.** `liberar_reservas_caducas` (`0058`) sí lo tiene. Hoy es inocuo
+  (ambas solo se llaman desde la API), pero por consistencia conviene abortarlas si
+  `sync.replicando()`.
+- **F6-D7 (menor / UX) — pago `corresponsal` sin corte abierto en el origen → error feo.**
+  `registrar_venta` (`0057`) hace `v_corte_id := COALESCE(..., core.corte_abierto(origen))`;
+  sin corte abierto queda NULL y el INSERT en `core.pago` (`corte_caja_id` NOT NULL) revienta
+  con una violación de constraint genérica. Mismo patrón preexistente para
+  `efectivo`/`transferencia`; la SPA ya bloquea vender sin corte, así que el impacto real es
+  solo el mensaje.
+- **F6-D8 (menor / perf) — `core.reservas_caducas` se re-ejecuta por asiento** dentro del
+  `NOT IN (...)` de `core.asientos_libres` (`0058`). Impacto bajo (~18 asientos, join chico
+  por salida); se podría materializar una vez.
+
+**Correcto en el review:** `0057` (los dos CHECK, `trg_pago_a_ingreso` omitiendo
+corresponsal, `pagos_corresponsal`, validación `sin_sistema` + total sin abonos, expand-safe);
+`0058` (caducidad determinista del reloj, guard `sync.replicando()`, CTE con snapshot
+correcto, lectura vs escritura bien separadas); `0059` (ventana D9, reembolso solo en la
+sucursal de cobro N-13, corresponsal → `reembolso_pendiente_en`, `nota_auditoria`); `0060`
+(validaciones de la salida destino, `EXCLUDE` con mensaje limpio, traspaso del pago para el
+caso single-boleto).
+
 ### Orden de entrega
 
 | PR | Fase | Bloquea a | Notas |

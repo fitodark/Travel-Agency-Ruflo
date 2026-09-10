@@ -2856,6 +2856,33 @@ memoria, que estaba desactualizada en "nube+local en `0052`"):
 - Memoria actualizada: `donaji-rutas-paradas-tarifas` (§ Deploy acumulado),
   `MEMORY.md`.
 
+### Review independiente de Fase 6 (`0057`–`0060`)
+
+Las fases 5–6 se mergearon con el patrón de agentes caído por límite de cuenta;
+se hizo un review de correctitud al cierre. Notas completas en
+`docs/architecture/05-…md` § "Notas del review de Fase 6" (`F6-D1`…`F6-D8`). El
+esquema ya está en nube + dev; son bugs de lógica para un follow-up (`0061`), no
+bloquean el deploy a terminales. Los importantes:
+
+- **F6-D1 (alto):** `reubicar_huerfano` (`0060`) marca el boleto viejo
+  `estado='reasignado'` sin tocar `activo`; como `reasignado` en el resto del
+  código = "sigue viajando" (`src/sync/reasignacion.ts`), el pasajero reubicado
+  queda de fantasma en `datos_manifiesto` / `salidas_del_dia` / `v_checklist_abordaje`
+  / `boletos_huerfanos`. Fix: `SET activo = false` también (esos lectores ya
+  filtran `AND b.activo`).
+- **F6-D2 (alto):** venta huérfana multi-boleto — `reubicar_huerfano` mueve
+  **todos** los pagos y cancela la venta vieja en la primera reubicación, dejando
+  huérfanos los otros boletos de la familia y cobrándoles de nuevo al reubicarlos.
+- **F6-D3 (medio):** `cancelar_boleto` (`0059`) reembolsa `LEAST(importe, pagado)`
+  por boleto sin descontar reembolsos previos → doble reembolso al cancelar boleto
+  por boleto una venta multi-boleto con **abono parcial**.
+
+Menores (`F6-D4`…`F6-D8`): `reubicar_huerfano` no libera reservas caducas de la
+salida destino ni valida categoría/tarifa en la rama "precio mantenido"; falta el
+guard `sync.replicando()` en las dos funciones nuevas; `corresponsal` sin corte
+abierto revienta con constraint genérico; `reservas_caducas` se re-ejecuta por
+asiento en `asientos_libres`.
+
 ---
 
 Los cinco criterios de aceptación verdes contra Supabase real
