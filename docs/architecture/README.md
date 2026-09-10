@@ -42,8 +42,8 @@ versión vigente se declara en su encabezado y su historia en [CHANGELOG.md](CHA
   versión exacta de Windows)
 - P10 dejó de ser pregunta: es un **requisito confirmado** (respaldo local, ver CHANGELOG D-2)
 - **Rediseño de paradas autorizadas** (post-v0.2): cerrado backend + SPA el 2026-09-10
-  (Fases 0–6, migr. `0048`–`0060`, PRs #61–#76). Residual del plan: solo **N-15**. Falta el
-  despliegue a las 4 terminales físicas. Ver [05-paradas-autorizadas-tarifas.md](05-paradas-autorizadas-tarifas.md).
+  (Fases 0–6, migr. `0048`–`0062`, PRs #61–#78). Decisiones cerradas (P-1..P-9, N-1..N-15).
+  Falta solo el despliegue a las 4 terminales físicas. Ver [05-paradas-autorizadas-tarifas.md](05-paradas-autorizadas-tarifas.md).
 
 ## Convenciones de este blueprint
 

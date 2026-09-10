@@ -230,8 +230,10 @@ N-1..N-15). Plan y decisiones detalladas (D1–D13) en
 [05-paradas-autorizadas-tarifas.md](05-paradas-autorizadas-tarifas.md).
 
 **Estado general**: alcance nuevo, fuera del roadmap original. Seis fases
-incrementales sobre el motor ya cerrado, migraciones `0048`–`0060` (PRs #61–#76).
-Backend + SPA **cerrados el 2026-09-10**. Residual del plan: solo **N-15**.
+incrementales sobre el motor ya cerrado, migraciones `0048`–`0062` (PRs #61–#78 +
+`0061` review, `0062` reubicación de venta completa). Backend + SPA **cerrados el
+2026-09-10**; **N-15 resuelta el 2026-09-10** → plan cerrado a nivel de decisiones
+(P-1..P-9, N-1..N-15). Residual: solo el deploy a las 4 terminales.
 
 ---
 
@@ -356,6 +358,6 @@ el cobro fue afuera.
 
 | # | Estado | Nota |
 |---|---|---|
-| N-15 | Abierto, no bloquea | Una parada de ascenso sin POS que gane su propio sistema: ¿pasa a `tipo='terminal'` con cupo propio, o sigue `parada` con POS? Cambio de catálogo futuro. |
+| N-15 | ✅ Resuelta (cliente, 2026-09-10) | Una parada de ascenso que gana su sistema **pasa a `punto_ruta.tipo='terminal'` con su `core.sucursal`** — operación de catálogo, sin cambio de esquema (el `CHECK` amarra `terminal` a tener sucursal). `repartir_cupo_offline` le da un bloque disjunto `[su_orden, destino)` desde la siguiente materialización. Es sucursal completa (consola/cortes/tablero) con **su propio corte de caja**. El estrechamiento del cupo offline (R17) es aceptable: estrategia = cupo siempre online (lease), vender+imprimir nunca se bloquea. Ver `05-…md` §7.3. |
 | Deploy | En curso | Nube y entorno de desarrollo en `0060`; faltan las 4 terminales físicas (`0050`→`0060`, por TeamViewer). Ventana de `0055` (`DROP COLUMN` de tabla clase A) abierta antes de tiempo — ver `05-paradas-autorizadas-tarifas.md` § "Estado del deploy". |
 | F2-D3 | Diferido | Retiro de `trg_aa_tramos_ocupacion_compat` (precondición: los 5 nodos ≥ `0050`) — migración chica una vez las terminales estén al día. |

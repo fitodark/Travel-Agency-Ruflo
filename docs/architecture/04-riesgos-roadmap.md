@@ -435,13 +435,15 @@ sobreventa no resuelta y sin intervención manual en la base de datos.
 > | 3 | `0051` | #65, #66 | Tarifa **estricta** + `categoria_pasajero` (`general`/`inapam`/`menor`); descuento solo terminal-extremo ↔ terminal-extremo. |
 > | 4 | `0052` | #67 | Materialización de `salida_parada` por cada `ruta_parada`; cupo offline solo entre terminales con ascenso. |
 > | 5 | `0053`–`0056` | #68–#73 | Impresión / manifiesto sobre `punto_ruta`; manifiesto "lista única" (D11); `DROP COLUMN salida_parada.sucursal_id`; CRUD de puntos; alta de rutas con banderas; reemplazo por vigencia + reporte de huérfanos; tarifas por categoría; reimpresión de boleto; SPA de administración. |
-> | 6 | `0057`–`0060` | #74–#76 (+ merge local `842bfbc`) | Tercer método de pago `corresponsal` (cobro en sucursal `sin_sistema`, D8/D13); caducidad de reservas sin pagar 1 h antes de la salida (D9); cancelación con reembolso solo en la sucursal de cobro (N-13); reubicación de boletos huérfanos manteniendo el precio ya pagado (N-14) + asistente SPA. |
+> | 6 | `0057`–`0062` | #74–#78 (+ merge local `842bfbc`) | Tercer método de pago `corresponsal` (cobro en sucursal `sin_sistema`, D8/D13); caducidad de reservas sin pagar 1 h antes de la salida (D9); cancelación con reembolso solo en la sucursal de cobro (N-13); reubicación de boletos huérfanos manteniendo el precio ya pagado (N-14) + asistente SPA; review `0061` (F6-D1..D4/D6); reubicación de venta huérfana completa para familias (`0062`, F6-D2). |
 >
-> **Residual del plan:** solo **N-15** — una parada de ascenso sin POS que gane su propio
-> sistema (cambio de catálogo futuro, no bloquea nada).
+> **Decisiones:** cerradas — P-1..P-9 y N-1..N-15 respondidas. N-15 (2026-09-10): una parada
+> de ascenso que gana su sistema pasa a `punto_ruta.tipo='terminal'` con su `core.sucursal`
+> (operación de catálogo, sin cambio de esquema; sucursal completa con corte de caja propio;
+> R17 aceptable con cupo consultado siempre online).
 >
-> **Deploy:** nube y entorno de desarrollo en `0060`. **Faltan las 4 terminales físicas**
-> (`0050`→`0060`, por TeamViewer en ventana de madrugada — R7). La ventana de `0055`
+> **Deploy:** nube y entorno de desarrollo en `0062`. **Faltan las 4 terminales físicas**
+> (`0050`→`0062`, por TeamViewer en ventana de madrugada — R7). La ventana de `0055`
 > (`DROP COLUMN` de una tabla clase A) quedó abierta antes de tiempo; ver
 > [05-paradas-autorizadas-tarifas.md](05-paradas-autorizadas-tarifas.md) § "Estado del deploy".
 
