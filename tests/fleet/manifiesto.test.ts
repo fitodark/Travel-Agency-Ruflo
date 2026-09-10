@@ -137,6 +137,29 @@ run('viajes efectuados · manifiestos (PostgreSQL real)', () => {
     expect(porAsiento.get(3)!.estatus_pago).toBe('pendiente');
   });
 
+  it('D10 · una transferencia sin verificar sale como "pendiente" y no bloquea el manifiesto', async () => {
+    const { fx, usuarioId } = await prep();
+    const corteId = await seedCorte(db, fx.sucursales[0]!, usuarioId);
+    // Pago por transferencia sin verificar: no cuenta al saldo (D10).
+    const oc = await sembrarOcupacion(db, {
+      salidaId: fx.salidaId, sucursalId: fx.sucursales[0]!, usuarioId, corteId,
+      asiento: 2, desde: 0, hasta: 3, estado: 'firme',
+    });
+    await db.query(
+      `INSERT INTO core.pago (id, venta_id, sucursal_cobro_id, corte_caja_id, usuario_id,
+                              metodo, monto, verificado, pagado_en)
+       VALUES (core.uuid_v7(), $1, $2, $3, $4, 'transferencia', 450, false, now())`,
+      [oc.ventaId, fx.sucursales[0]!, corteId, usuarioId],
+    );
+
+    const m = await datosManifiesto(db, fx.salidaId, 'terminal');
+    expect(pasajerosDe(m).find((p) => p.asiento === 2)!.estatus_pago).toBe('pendiente');
+
+    // El manifiesto se genera igual (no bloquea).
+    const r = await generarManifiestos(db, { salidaId: fx.salidaId, usuarioId });
+    expect(r.terminal.pasajeros).toBe(1);
+  });
+
   it('los boletos en conflicto van marcados', async () => {
     const { fx, usuarioId } = await prep();
     const ok = await vende(fx, usuarioId, 2, 0, 3);

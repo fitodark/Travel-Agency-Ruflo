@@ -2,8 +2,8 @@ import { useState, type FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ErrorApi } from '../api/cliente';
 import {
-  buscarBoletoPorFolio, checklist, detalleBoleto, finalizarViaje, generarManifiestos,
-  marcarEnRuta, registrarAbordaje, reimprimirBoleto, salidasDelDia,
+  buscarBoletoPorFolio, cancelarBoleto, checklist, detalleBoleto, finalizarViaje,
+  generarManifiestos, marcarEnRuta, registrarAbordaje, reimprimirBoleto, salidasDelDia,
   type BoletoPorFolio, type ManifiestosEncolados, type SalidaDelDia,
 } from '../api/viajes';
 import { Modal } from '../componentes/ui';
@@ -366,8 +366,16 @@ function ModalDetalleBoleto({
     queryFn: () => detalleBoleto(boletoId),
   });
 
+  const qc = useQueryClient();
   const reimprimir = useMutation({
     mutationFn: () => reimprimirBoleto(boletoId),
+  });
+  const cancelar = useMutation({
+    mutationFn: (motivo: string) => cancelarBoleto(boletoId, motivo || undefined),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['viajes'] });
+      void detalle.refetch();
+    },
   });
 
   return (
@@ -443,30 +451,83 @@ function ModalDetalleBoleto({
               : ' · sin imprimir'}
           </p>
 
-          <div className="border-t pt-3">
+          <div className="border-t pt-3 flex flex-wrap gap-2">
             <button
               type="button"
               onClick={() => reimprimir.mutate()}
-              disabled={reimprimir.isPending || reimprimir.isSuccess}
+              disabled={reimprimir.isPending || reimprimir.isSuccess || detalle.data.estado === 'cancelado'}
               className="btn"
             >
               {reimprimir.isPending ? 'Reimprimiendo…' : 'Reimprimir boleto'}
             </button>
-            {reimprimir.isSuccess && (
-              <p className="mt-1 text-xs text-green-700">
-                Reimpresión encolada (nº {reimprimir.data.reimpresiones}).
-              </p>
-            )}
-            {reimprimir.isError && (
-              <p className="mt-1 text-xs text-red-600">
-                {reimprimir.error instanceof ErrorApi
-                  ? reimprimir.error.message
-                  : 'No se pudo reimprimir.'}
-              </p>
+            {detalle.data.estado === 'emitido' && !cancelar.isSuccess && (
+              <CancelarBoleto
+                pending={cancelar.isPending}
+                onConfirmar={(m) => cancelar.mutate(m)}
+              />
             )}
           </div>
+
+          {reimprimir.isSuccess && (
+            <p className="text-xs text-green-700">
+              Reimpresión encolada (nº {reimprimir.data.reimpresiones}).
+            </p>
+          )}
+          {reimprimir.isError && (
+            <p className="text-xs text-red-600">
+              {reimprimir.error instanceof ErrorApi ? reimprimir.error.message : 'No se pudo reimprimir.'}
+            </p>
+          )}
+          {cancelar.isSuccess && (
+            <p className="text-xs text-green-700">
+              Boleto cancelado{cancelar.data.ventaCancelada ? ' (la venta completa)' : ''}.
+              {cancelar.data.reembolsoMonto != null
+                ? ` Se registró un reembolso de ${mxn(cancelar.data.reembolsoMonto)} en el corte.`
+                : ' No había pago que reembolsar.'}
+            </p>
+          )}
+          {cancelar.isError && (
+            <p className="text-xs text-red-600">
+              {cancelar.error instanceof ErrorApi ? cancelar.error.message : 'No se pudo cancelar.'}
+            </p>
+          )}
         </div>
       )}
     </Modal>
+  );
+}
+
+function CancelarBoleto({ pending, onConfirmar }: { pending: boolean; onConfirmar: (motivo: string) => void }) {
+  const [abierto, setAbierto] = useState(false);
+  const [motivo, setMotivo] = useState('');
+  if (!abierto) {
+    return (
+      <button type="button" className="btn-sutil text-red-600" onClick={() => setAbierto(true)}>
+        Cancelar boleto
+      </button>
+    );
+  }
+  return (
+    <div className="w-full rounded-lg border border-red-200 bg-red-50/60 p-3 text-sm">
+      <p className="text-red-800">
+        Se libera el asiento y, si hubo pago en efectivo o transferencia verificada, se registra el
+        reembolso en el corte abierto. Hasta 1 h antes de la salida.
+      </p>
+      <input
+        value={motivo}
+        onChange={(e) => setMotivo(e.target.value)}
+        placeholder="Motivo (opcional)"
+        className="campo mt-2"
+      />
+      <div className="mt-2 flex gap-2">
+        <button type="button" className="btn-primario" disabled={pending}
+          onClick={() => onConfirmar(motivo)}>
+          {pending ? 'Cancelando…' : 'Confirmar cancelación'}
+        </button>
+        <button type="button" className="rounded border px-3 py-1.5" onClick={() => setAbierto(false)}>
+          No
+        </button>
+      </div>
+    </div>
   );
 }

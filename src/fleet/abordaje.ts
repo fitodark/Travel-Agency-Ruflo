@@ -327,6 +327,48 @@ export interface ResultadoReimpresion {
   reimpresiones: number;
 }
 
+export interface ResultadoCancelacion {
+  ventaId: string;
+  /** La venta entera quedó cancelada (no le quedaban boletos vivos). */
+  ventaCancelada: boolean;
+  /** `null` si no hubo pago que reembolsar. */
+  reembolsoId: string | null;
+  reembolsoMonto: number | null;
+}
+
+/**
+ * Cancela un boleto / reserva hasta 1 h antes de la salida (D9): libera el
+ * asiento y, si la venta tenía un pago confirmado en efectivo o transferencia
+ * verificada, registra un reembolso (egreso) en el corte abierto de la sucursal.
+ * Un pago `corresponsal` da error (N-13, pendiente de definir con el cliente).
+ */
+export async function cancelarBoleto(
+  db: Consultable,
+  args: {
+    boletoId: string; usuarioId: string; sucursalId: string;
+    motivo?: string; ahora?: Date;
+  },
+): Promise<ResultadoCancelacion> {
+  const { rows } = await db.query<{
+    venta_id: string; venta_cancelada: boolean;
+    reembolso_id: string | null; reembolso_monto: string | null;
+  }>(
+    `SELECT venta_id, venta_cancelada, reembolso_id, reembolso_monto
+       FROM core.cancelar_boleto($1::uuid, $2::uuid, $3::uuid, $4::text, $5::timestamptz)`,
+    [
+      args.boletoId, args.usuarioId, args.sucursalId,
+      args.motivo ?? null, args.ahora ?? new Date(),
+    ],
+  );
+  const r = rows[0]!;
+  return {
+    ventaId: r.venta_id,
+    ventaCancelada: r.venta_cancelada,
+    reembolsoId: r.reembolso_id,
+    reembolsoMonto: r.reembolso_monto === null ? null : Number(r.reembolso_monto),
+  };
+}
+
 /**
  * Encola una reimpresión de un boleto liquidado: mismo contenido que el original
  * (mismo snapshot) más la leyenda de reimpresión que agrega la plantilla desde

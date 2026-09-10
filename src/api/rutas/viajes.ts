@@ -15,7 +15,7 @@ import {
   datosManifiesto, generarManifiestos, salidasDelDia, type CopiaManifiesto,
 } from '../../fleet/manifiesto.js';
 import {
-  buscarBoletoPorFolio, checklistAbordaje, corregirAbordaje, detalleBoleto,
+  buscarBoletoPorFolio, cancelarBoleto, checklistAbordaje, corregirAbordaje, detalleBoleto,
   finalizarSalida, marcarEnRuta, registrarAbordaje, reimprimirBoleto,
 } from '../../fleet/abordaje.js';
 import { exige } from '../autenticar.js';
@@ -110,6 +110,38 @@ export async function rutasViajes(app: FastifyInstance): Promise<void> {
         ahora: app.ahora(),
       });
       return reply.status(201).send(r);
+    },
+  );
+
+  // Cancelación de un boleto / reserva (D9): libera el asiento y reembolsa el
+  // pago confirmado (efectivo / transferencia verificada) en el corte abierto.
+  app.post(
+    '/boleto/:id/cancelar',
+    {
+      preHandler: exige({ permiso: 'reserva.cancelar' }),
+      schema: {
+        params: idParam,
+        body: { type: 'object', properties: { motivo: { type: 'string', maxLength: 200 } } },
+      },
+    },
+    async (req, reply) => {
+      const { id } = req.params as { id: string };
+      const { motivo } = (req.body ?? {}) as { motivo?: string };
+      try {
+        const r = await cancelarBoleto(app.db, {
+          boletoId: id,
+          usuarioId: req.sesion.usuarioId,
+          sucursalId: req.sesion.sucursalId!,
+          ...(motivo ? { motivo } : {}),
+          ahora: app.ahora(),
+        });
+        return reply.status(201).send(r);
+      } catch (err) {
+        if (err instanceof Error && !(err as { code?: string }).code) {
+          return reply.status(422).send({ error: 'cancelacion_invalida', mensaje: err.message });
+        }
+        throw err;
+      }
     },
   );
 
