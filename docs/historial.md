@@ -3199,6 +3199,32 @@ cuánto pagó el pasajero y el cambio.
 
 ---
 
+## Sesión 67 — 2026-09-10 · Viajes: solo los que salen de la sucursal activa
+
+QA: la pantalla de Viajes mezclaba viajes de otras terminales. `core.salidas_del_dia`
+filtraba por "la sucursal es CUALQUIER parada de la ruta"; ahora **solo los viajes
+cuya terminal de ORIGEN (`salida_parada.orden = 0`) es la sucursal de la sesión**
+— coincide con el requerimiento (§"Módulo de viajes efectuados": "la terminal
+origen" imprime el manifiesto y marca el abordaje). Un vendedor está en una sola
+sucursal y esa manda. Consecuencia aceptada por el cliente: una terminal
+intermedia no ve en Viajes un viaje que solo pasa por ella.
+
+- **Migración `0066`** (`CREATE OR REPLACE core.salidas_del_dia`, misma firma —
+  única diferencia con 0053 es la condición del `WHERE`: `puo.sucursal_id =
+  p_sucursal_id` en vez del `EXISTS ... salida_parada`). Sin cambios de TS ni de
+  SPA (el filtro ya vive en el backend con `req.sesion.sucursalId`).
+- `tests/fleet/manifiesto.test.ts`: la prueba de listado ahora fija origen-only
+  (la terminal intermedia y la de destino NO ven el viaje).
+- **Deploy**: `0066` aplicada a **local**. **Falta la nube** (`npm run
+  db:migrate -- --target nube` — el clasificador me bloqueó aplicarla yo).
+- `npm test` sin regresiones nuevas (el único rojo sigue siendo
+  `tests/fleet/puntos.test.ts`, estado de datos del DB local).
+
+Fuera de alcance: el salto por folio (`buscarBoletoPorFolio`) todavía puede
+abrir el checklist de un viaje de otra terminal; el ajuste es solo el listado.
+
+---
+
 Los cinco criterios de aceptación verdes contra Supabase real
 (`tests/sync/f1-criterios.test.ts`). Contrato de pruebas del motor cerrado
 (`salud.ts` Ses. 4, arbitraje/reasignación en F4, checksum dirigido de
