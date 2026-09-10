@@ -472,12 +472,24 @@ reserva la registra la terminal de origen, que aparta el asiento desde el orden 
   - Determinista del reloj ⇒ sin ventana coordinada (como la expiración de leases).
   - **Reserva con abono parcial: NO se auto-libera** — el reembolso del abono es 6c.
   - `tests/ventas/caducidad-reservas.test.ts` (+3).
-- **6c (pendiente — BLOQUEADA por N-13/N-14) — Cancelación / reembolso (D9):** acción hasta 1 h
-  antes de la salida; si la reserva estaba pagada ⇒ `core.movimiento_caja` tipo `reembolso`
-  (egreso, `origen_tipo='devolucion'`) en el corte activo; siempre libera el asiento. + **D10**
-  (manifiesto con transferencia sin validar: se imprime igual, estatus "pendiente"). Necesita
-  N-13 (qué rol autoriza; reembolso de un `corresponsal`) y N-14 (traspaso de saldo vs
-  reembolso+cobro al reemitir un huérfano).
+- **✅ 6c-1 — Cancelación / reembolso de pago normal (`0059`, rama `f-paradas-fase6c-1`):**
+  - Permiso nuevo `reserva.cancelar` → `administrador` + `gerente` (N-13 puede sumar `vendedor`).
+  - `core.cancelar_boleto(boleto, usuario, sucursal, motivo, ahora)`: hasta 1 h antes de la
+    salida del origen; libera el asiento (`estado='liberado'`), cancela boleto + venta (si
+    queda sin boletos vivos); si hubo pago confirmado en **efectivo o transferencia verificada**
+    → `movimiento_caja` egreso `origen_tipo='devolucion'` en el corte abierto de la sucursal.
+    Pago **`corresponsal` → RAISE** (N-13). Deja `nota_auditoria` tipo `cancelacion`.
+  - `src/fleet/abordaje.ts` `cancelarBoleto` + `POST /viajes/boleto/:id/cancelar`
+    (`exige({ permiso: 'reserva.cancelar' })`, 422 en error de negocio).
+  - Web: botón "Cancelar boleto" en `<ModalDetalleBoleto>` (solo si `estado='emitido'`) con
+    confirmación + motivo; muestra el reembolso registrado.
+  - **D10 — ✅ ya venía con 5a-2** (`datos_manifiesto` marca `estatus_pago='pendiente'` para una
+    transferencia sin verificar y `generar_manifiestos` no bloquea); +1 test que lo fija.
+  - `tests/ventas/cancelar-boleto.test.ts` (+6), `tests/fleet/manifiesto.test.ts` (+1).
+    Deploy sin ventana coordinada.
+- **6c-2 (pendiente — BLOQUEADA por N-14) — Reubicación de huérfanos:** cancelar el boleto
+  viejo + reemitir en la ruta nueva (folio nuevo), con el manejo del dinero — traspaso de
+  saldo vs reembolso + cobro, y la diferencia de tarifa. Necesita N-14.
 
 ### Orden de entrega
 
@@ -489,7 +501,7 @@ reserva la registra la terminal de origen, que aparta el asiento desde el orden 
 | #D | 3 (`0051`) | — | estricta + categoría de pasajero |
 | #E | 4 (`0052`) | — | — |
 | #F | 5 (`0053` + admin + SPA) | — | 5a `0053` (impresión/manifiesto→punto, reimpresión) ✅ · 5a-2 `0054` (manifiesto lista única) ✅ · 5b `0055` (`DROP COLUMN salida_parada.sucursal_id` + `api.*`) ✅ · 5c `0056` (CRUD puntos, `crearRuta`/`crearHorario` con banderas, reemplazo D5 + huérfanos, F3-D2, F4-D2) ✅ · 5d tarifas por categoría (`crearTarifa` + `Tarifas.tsx`, F3-D3, F4-D3) ✅ · 5e SPA (`Puntos.tsx`, `Horarios.tsx` con puntos+banderas, modal de reemplazo + huérfanos) ✅ |
-| #G | 6 (`0057`+) | — | 6a `0057` (`corresponsal` + D8) ✅ · 6b `0058` (caducidad D9) ✅ · 6c cancelación/reembolso D9 + D10 (bloqueada por N-13/N-14) |
+| #G | 6 (`0057`+) | — | 6a `0057` (`corresponsal` + D8) ✅ · 6b `0058` (caducidad D9) ✅ · 6c-1 `0059` (cancelación + reembolso pago normal + D10) ✅ · 6c-2 reubicación de huérfanos (bloqueada por N-14) |
 
 Cada PR: `npm run build && npm test` verde antes de merge. Los tests de sync no deben
 `TRUNCATE sync.*` (deadlock con `hlc_estado`). Migraciones a nube + 4 terminales en la

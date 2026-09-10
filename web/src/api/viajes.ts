@@ -110,6 +110,26 @@ export function reimprimirBoleto(
   );
 }
 
+export interface ResultadoCancelacion {
+  ventaId: string;
+  ventaCancelada: boolean;
+  reembolsoId: string | null;
+  reembolsoMonto: number | null;
+}
+
+/**
+ * Cancela un boleto / reserva (D9): libera el asiento y reembolsa el pago
+ * confirmado en el corte abierto. Hasta 1 h antes de la salida.
+ */
+export function cancelarBoleto(
+  boletoId: string, motivo?: string,
+): Promise<ResultadoCancelacion> {
+  return api<ResultadoCancelacion>(
+    `/viajes/boleto/${encodeURIComponent(boletoId)}/cancelar`,
+    { method: 'POST', body: JSON.stringify(motivo ? { motivo } : {}) },
+  );
+}
+
 export function registrarAbordaje(
   boletoId: string, abordo: boolean,
 ): Promise<{ eventoId: string }> {
