@@ -19,7 +19,9 @@ import { abrirApp, bearer, tokenDe } from './helpers.js';
 const local = process.env['LOCAL_DATABASE_URL'];
 const run = local ? describe : describe.skip;
 
-const AHORA = new Date('2026-09-10T12:00:00.000Z');
+// Ancla de reloj EN EL FUTURO (ver nota en otros tests): los usuarios que
+// siembran las pruebas llevan `effective_from = now()` real.
+const AHORA = new Date(Date.now() + 30 * 86_400_000);
 const ahora = (): Date => AHORA;
 
 run('API · /admin (PostgreSQL real)', () => {
