@@ -2761,11 +2761,47 @@ vive en la nota de memoria `donaji-rutas-paradas-tarifas`; resumen:
   `tests/ventas/cancelar-boleto.test.ts` (+6), `tests/fleet/manifiesto.test.ts`
   (+1, D10); `npm test` 503 pass / 70 fail (los mismos preexistentes, 0 regresiones).
 
-- **Pendiente de Fase 6:** solo **6c-2** — reubicación de un boleto huérfano
-  (cancelar viejo + reemitir en la ruta nueva con el dinero: traspaso de saldo vs
-  reembolso + cobro, diferencia de tarifa). **Bloqueada** por N-14.
+- **6c-1 mergeado** (PR #74, `b3d27a1`). Después el cliente respondió **N-13** y
+  **N-14** — se corrigió `0059` (commit `faa05ef`, fue directo a `main` por error
+  en vez de por rama; contenido correcto, 504/70):
+  - **N-13:** el reembolso existe **únicamente en la sucursal donde se cobró**.
+    Pago corresponsal (cobrado en sucursal `sin_sistema`): el sistema **no**
+    registra nada en el corte del origen — el efectivo nunca entró. La
+    cancelación **procede** (libera el asiento), y el reembolso se hace **a mano**
+    en esa sucursal (Tamazulapan notifica y devuelve). `core.cancelar_boleto` ya
+    apunta el egreso a `pago.sucursal_cobro_id`; `sin_sistema` ⇒ sin movimiento,
+    devuelve `reembolso_pendiente_en`. *Rol: no se especificó → `administrador` +
+    `gerente`.*
+  - **N-14:** huérfano **ya pagado** ⇒ se mantiene el precio pagado (traspaso del
+    pago); **sin pagar** ⇒ tarifa vigente de la ruta nueva.
+
+### Fase 6c-2 — reubicación de un boleto huérfano (`0060`, N-14)
+
+- **Rama `f-paradas-fase6c-2`** (sobre `main`), migr. `0060`. Pusheada a `origin`,
+  PR a mano en `github.com/fitodark/Travel-Agency-Ruflo/pull/new/f-paradas-fase6c-2`.
+- `core.reubicar_huerfano(boleto_viejo, salida_nueva, origen_orden, destino_orden,
+  asiento, usuario, sucursal, ahora)`: valida la salida destino (programada,
+  venta abierta, asiento vendible, origen con ascenso) y emite el boleto nuevo —
+  **ya pagó** ⇒ importe = el pagado, `UPDATE core.pago SET venta_id` (traspaso,
+  sin mover efectivo ni cobrar diferencia); **sin pagar** ⇒ importe =
+  `v_tarifa_vigente` de la ruta nueva (RAISE si no hay), venta `pendiente`. El
+  boleto viejo queda `estado='reasignado'`, su asiento `liberado`, su venta
+  `cancelada`. `nota_auditoria` tipo `reubicacion`.
+- `src/fleet/abordaje.ts` `reubicarHuerfano` + `POST /viajes/boleto/:id/reubicar`
+  (`exige({ permiso: 'reserva.cancelar' })`, 422 en error de negocio). Cliente
+  `reubicarBoleto` en `web/src/api/viajes.ts`.
+- **Verificación:** typecheck src + web verde; web build verde;
+  `tests/ventas/reubicar-huerfano.test.ts` (+4); `npm test` 508 pass / 70 fail
+  (los mismos preexistentes, 0 regresiones).
+
+- **FASE 6 COMPLETA A NIVEL BACKEND.** N-13 y N-14 resueltas; único residual del
+  plan: **N-15** (parada de ascenso sin POS que gana su propio sistema — cambio
+  de catálogo futuro, no bloquea nada).
+- **Pendiente:** el **asistente SPA de reubicación** para el operador — buscar la
+  salida de la ruta nueva, elegir asiento y confirmar desde el reporte de
+  huérfanos / Viajes. Follow-up de frontend.
 - **Deploy acumulado:** nube + local en `0052`; faltan las 4 terminales, y
-  `0053` … `0059` sin aplicar en ningún nodo.
+  `0053` … `0060` sin aplicar en ningún nodo.
 - Memoria actualizada: `donaji-rutas-paradas-tarifas`, `MEMORY.md`.
 
 ---
