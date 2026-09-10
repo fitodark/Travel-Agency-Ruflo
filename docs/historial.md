@@ -2883,6 +2883,33 @@ guard `sync.replicando()` en las dos funciones nuevas; `corresponsal` sin corte
 abierto revienta con constraint genérico; `reservas_caducas` se re-ejecuta por
 asiento en `asientos_libres`.
 
+### `0061` — fixes del review de Fase 6
+
+`CREATE OR REPLACE` de `core.cancelar_boleto` y `core.reubicar_huerfano`
+(aplicable en caliente, sin ventana coordinada). Corrige:
+
+- **F6-D1:** `reubicar_huerfano` deja el boleto viejo `estado='reasignado',
+  activo=false` (antes solo `reasignado` → fantasma en manifiesto/checklist/
+  conteo/huérfanos, que solo excluyen `'cancelado'`). `abordaje.ts` `detalleBoleto`
+  deja de filtrar `b.activo` para que la modal siga funcionando tras reubicar.
+- **F6-D2:** `reubicar_huerfano` rechaza una venta con >1 boleto `emitido` vivo
+  ("cancélala completa y reemítela"). La reubicación de venta completa con precio
+  N-14 para familias queda como feature futura.
+- **F6-D3:** `cancelar_boleto` acota `v_reembolso` con lo ya devuelto a los pagos
+  de la venta (`Σ egresos 'devolucion' activos`), evitando el doble reembolso en
+  ventas multi-boleto con abono parcial.
+- **F6-D4:** `reubicar_huerfano` hace `PERFORM core.liberar_reservas_caducas(
+  salida_nueva, ahora)` antes de tomar el asiento.
+- **F6-D6:** guard `IF sync.replicando() THEN RAISE` en ambas funciones.
+- F6-D5/D7/D8 se dejan documentados, no se tocan.
+
+Tests: `tests/ventas/reubicar-huerfano.test.ts` +2 (activo=false + no en checklist;
+rechazo multi-boleto), `tests/ventas/cancelar-boleto.test.ts` +1 (abono parcial
+multi-boleto: reembolso total = lo pagado, no 2×). Verificación: typecheck src+web
+verde, web build verde; `tests/ventas`+`tests/fleet` 144/144, `tests/sync` 109/109
++1 todo; `npm test` completo 496/70 con `f1-criterios` intermitente por red contra
+la nube (re-run aislado limpio) — baseline efectivo 508/70 + 3 nuevos, 0 regresiones.
+
 ---
 
 Los cinco criterios de aceptación verdes contra Supabase real
