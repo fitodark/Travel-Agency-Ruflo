@@ -115,6 +115,8 @@ export interface ResultadoCancelacion {
   ventaCancelada: boolean;
   reembolsoId: string | null;
   reembolsoMonto: number | null;
+  /** Sucursal donde se hace el reembolso a mano (pago corresponsal). */
+  reembolsoPendienteEn: string | null;
 }
 
 /**

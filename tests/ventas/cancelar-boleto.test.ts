@@ -16,7 +16,7 @@ import { Client } from 'pg';
 import { resolveConnection } from '../../src/db/connection.js';
 import { registrarVenta } from '../../src/ventas/venta.js';
 import { cancelarBoleto } from '../../src/fleet/abordaje.js';
-import { saldoCorte } from '../../src/caja/corte.js';
+import { cerrarCorte, saldoCorte } from '../../src/caja/corte.js';
 import { crearUsuario, seedCorte, seedSalida } from './fixture.js';
 
 const local = process.env['LOCAL_DATABASE_URL'];
@@ -94,7 +94,7 @@ run('cancelación de boleto (PostgreSQL real)', () => {
     expect(saldoDespues!.saldoCalculado).toBe(saldoAntes!.saldoCalculado - 450);
   });
 
-  it('un pago corresponsal no se puede reembolsar por sistema (N-13)', async () => {
+  it('un pago corresponsal: cancela pero el reembolso queda a mano en la sucursal de cobro (N-13)', async () => {
     const { fx, usuarioId, corteId } = await prep();
     const { rows: ag } = await db.query<{ agencia_id: string }>(
       `SELECT agencia_id FROM core.sucursal WHERE id = $1`, [fx.sucursales[0]!],
@@ -114,9 +114,43 @@ run('cancelación de boleto (PostgreSQL real)', () => {
       pago: { metodo: 'corresponsal', monto: 450, corteCajaId: corteId, sucursalCobroId: sc[0]!.id },
     });
 
+    // Se cancela desde la terminal de origen (Huajuapan), NO desde Tamazulapan.
+    const c = await cancelarBoleto(db, {
+      boletoId: r.boletos[0]!.boletoId, usuarioId, sucursalId: fx.sucursales[0]!,
+    });
+    expect(c.reembolsoId).toBeNull();
+    expect(c.reembolsoPendienteEn).toBe('Tamazulapan');
+    expect(c.reembolsoMonto).toBe(450);
+
+    // No hubo movimiento de caja: el efectivo nunca entró al sistema.
+    const { rows: mc } = await db.query<{ n: string }>(
+      `SELECT count(*) AS n FROM core.movimiento_caja WHERE origen_tipo = 'devolucion'
+         AND registrado_en > now() - interval '1 minute'`,
+    );
+    expect(Number(mc[0]!.n)).toBe(0);
+    // Pero el asiento sí se liberó.
+    const { rows: o } = await db.query<{ estado: string }>(
+      `SELECT estado FROM core.asiento_ocupacion WHERE boleto_id = $1`, [r.boletos[0]!.boletoId],
+    );
+    expect(o[0]!.estado).toBe('liberado');
+  });
+
+  it('reembolso de un pago normal sin corte abierto en la sucursal de cobro ⇒ error', async () => {
+    const { fx, usuarioId } = await prep();
+    // Vendido y pagado en la sucursal 1 (que NO tiene corte abierto).
+    const corte1 = await seedCorte(db, fx.sucursales[1]!, usuarioId);
+    const r = await registrarVenta(db, {
+      salidaId: fx.salidaId, sucursalVentaId: fx.sucursales[1]!, usuarioId,
+      contactoTelefono: '953 111 2222', origenOrden: 0, destinoOrden: 3,
+      pasajeros: [pax(6)],
+      pago: { metodo: 'efectivo', monto: 450, corteCajaId: corte1 },
+    });
+    // Cerramos el corte de la sucursal 1.
+    await cerrarCorte(db, { corteId: corte1, usuarioCierreId: usuarioId, saldoDeclarado: 950 });
+
     await expect(cancelarBoleto(db, {
       boletoId: r.boletos[0]!.boletoId, usuarioId, sucursalId: fx.sucursales[0]!,
-    })).rejects.toThrow(/corresponsal/i);
+    })).rejects.toThrow(/corte de caja abierto/i);
   });
 
   it('no se puede cancelar a menos de 1 h de la salida', async () => {

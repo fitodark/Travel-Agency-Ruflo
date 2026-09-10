@@ -481,9 +481,11 @@ function ModalDetalleBoleto({
           {cancelar.isSuccess && (
             <p className="text-xs text-green-700">
               Boleto cancelado{cancelar.data.ventaCancelada ? ' (la venta completa)' : ''}.
-              {cancelar.data.reembolsoMonto != null
-                ? ` Se registró un reembolso de ${mxn(cancelar.data.reembolsoMonto)} en el corte.`
-                : ' No había pago que reembolsar.'}
+              {cancelar.data.reembolsoPendienteEn
+                ? ` El reembolso de ${mxn(cancelar.data.reembolsoMonto ?? 0)} se hace a mano en ${cancelar.data.reembolsoPendienteEn} (donde se cobró).`
+                : cancelar.data.reembolsoMonto != null
+                  ? ` Se registró un reembolso de ${mxn(cancelar.data.reembolsoMonto)} en el corte.`
+                  : ' No había pago que reembolsar.'}
             </p>
           )}
           {cancelar.isError && (

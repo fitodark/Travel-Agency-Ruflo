@@ -331,16 +331,22 @@ export interface ResultadoCancelacion {
   ventaId: string;
   /** La venta entera quedó cancelada (no le quedaban boletos vivos). */
   ventaCancelada: boolean;
-  /** `null` si no hubo pago que reembolsar. */
+  /** Egreso de reembolso registrado en el corte de la sucursal de cobro; `null` si no aplicó. */
   reembolsoId: string | null;
+  /** Monto pagado que se devuelve; `null` si no hubo pago. */
   reembolsoMonto: number | null;
+  /**
+   * N-13: si el pago se cobró en una sucursal sin sistema (corresponsal), el
+   * reembolso NO se registra — se hace a mano en esa sucursal. Aquí va su nombre.
+   */
+  reembolsoPendienteEn: string | null;
 }
 
 /**
  * Cancela un boleto / reserva hasta 1 h antes de la salida (D9): libera el
- * asiento y, si la venta tenía un pago confirmado en efectivo o transferencia
- * verificada, registra un reembolso (egreso) en el corte abierto de la sucursal.
- * Un pago `corresponsal` da error (N-13, pendiente de definir con el cliente).
+ * asiento y cancela boleto + venta. El reembolso solo existe en la sucursal de
+ * cobro (N-13): con sistema → egreso en su corte abierto; sin sistema
+ * (corresponsal) → sin movimiento, reembolso manual (`reembolsoPendienteEn`).
  */
 export async function cancelarBoleto(
   db: Consultable,
@@ -352,8 +358,9 @@ export async function cancelarBoleto(
   const { rows } = await db.query<{
     venta_id: string; venta_cancelada: boolean;
     reembolso_id: string | null; reembolso_monto: string | null;
+    reembolso_pendiente_en: string | null;
   }>(
-    `SELECT venta_id, venta_cancelada, reembolso_id, reembolso_monto
+    `SELECT venta_id, venta_cancelada, reembolso_id, reembolso_monto, reembolso_pendiente_en
        FROM core.cancelar_boleto($1::uuid, $2::uuid, $3::uuid, $4::text, $5::timestamptz)`,
     [
       args.boletoId, args.usuarioId, args.sucursalId,
@@ -366,6 +373,7 @@ export async function cancelarBoleto(
     ventaCancelada: r.venta_cancelada,
     reembolsoId: r.reembolso_id,
     reembolsoMonto: r.reembolso_monto === null ? null : Number(r.reembolso_monto),
+    reembolsoPendienteEn: r.reembolso_pendiente_en,
   };
 }
 

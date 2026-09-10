@@ -1,11 +1,11 @@
 # 05 · Paradas autorizadas y tarifa por parada — Plan de implementación
 
-> **Estado: BORRADOR — P-1..P-9 y N-1..N-12 RESPONDIDAS (2026-09-07). Residuales N-13..N-15 (§7.3), solo Fase 6.**
+> **Estado: BORRADOR — P-1..P-9 y N-1..N-12 RESPONDIDAS (2026-09-07). N-13/N-14 RESUELTAS (2026-09-09), solo N-15 residual.**
 > Fecha de apertura: 2026-09-03 · Blueprint v0.2
 >
 > Este plan se construyó a partir de cuatro sesiones con el cliente sobre el flujo real
 > de rutas. Las **decisiones fijadas** (§2, D1..D13) ya incorporan las respuestas a
-> P-1..P-9 y N-1..N-12. Quedan tres **dudas residuales** (§7.3, N-13..N-15) que solo
+> P-1..P-9 y N-1..N-12. Queda una duda residual (§7.3, N-15) que solo
 > afinan la Fase 6 y no bloquean el modelo de datos. QA pidió que no se retrabaje:
 > las Fases 0-5 se pueden construir sin más insumos del cliente.
 >
@@ -71,10 +71,10 @@ terminal vs. parada-solo-descenso** y **cerrar validaciones** que hoy no existen
 | **D6** | **(P-6, P-8)** Solo las **terminales con POS** reciben cupo offline propio (`[su_orden, destino)`). Las **paradas de ascenso sin POS** tienen `hora_paso` (para el boleto) pero **no** cupo: venden vía reserva contra el cupo del origen. Las **paradas de descenso** tienen fila en `salida_parada` con `hora_paso_programada = NULL` y `cierre_venta_en = NULL`, sin cupo. | El boleto a una parada de descenso cierra su venta cuando cierra la terminal de origen. |
 | **D7** | **(P-4, P-7, N-4)** El boleto impreso a una parada muestra **nombre de la parada + tarifa + punto de ascenso del pasajero**, sin `referencia` y sin hora para el descenso. La **reimpresión** lleva exactamente el mismo contenido que el original **más una leyenda** que indica que es reimpresión; el texto se configura en `config_ticket` (`leyenda_reimpresion`). La impresión original (al cerrar el wizard) va sin leyenda. | — |
 | **D8** | **(P-4, N-1, N-2, N-3)** **Cobro descentralizado dentro de alcance.** `core.pago.sucursal_cobro_id` (ya existe) puede ≠ sucursal de origen. Tercer método `metodo = 'corresponsal'`: lo cobra una sucursal **sin sistema** (`core.sucursal.sin_sistema = true`, p. ej. Tamazulapan) o una parada de ascenso sin POS. **No** se guarda referencia de la llamada, pero **sí** queda marcado el `sucursal_cobro_id`. `corte_caja_id` = el corte abierto del **vendedor de origen** que registró la reserva (para agruparlo); `trg_pago_a_ingreso` (`0025`) **omite** los `corresponsal` — **no** crean `movimiento_caja`, así que **no** entran al total de efectivo. El **corte de la sucursal de origen** muestra un **apartado adicional**: "cobrado en corresponsal" con conteo, suma y detalle (`SELECT … FROM core.pago WHERE corte_caja_id = … AND metodo = 'corresponsal'`), identificando la sucursal de cobro. Así el corte "cuadra" (efectivo real) y a la vez el origen sabe cuánto se cobró afuera. La llamada de confirmación lo marca pagado (`verificado = true`, `saldo_pendiente = 0`, boleto imprimible). Rol: `vendedor`, sin tope. | No es un tablero nuevo: es una sección del corte existente. |
-| **D9** | **(P-4, P-6, N-5, N-6)** **Reserva sin pagar** (`es_reservacion = true`, `saldo_pendiente > 0`) **caduca 1 h antes de `salida.hora_salida`** (hora de salida **del origen** de la ruta); el asiento se libera y vuelve al cupo del origen. **Liberación perezosa** (al buscar/vender/materializar), no job nocturno. **Cancelación / reembolso** también hasta **1 h antes**: si la reserva **estaba pagada**, se registra un **movimiento de reembolso** (egreso) en el corte de caja activo y se libera el asiento; si **no** estaba pagada, solo se libera el asiento. Las reservas pagadas no caducan solas — requieren cancelación explícita. | Reembolso de un pago `corresponsal`: **N-13**. |
+| **D9** | **(P-4, P-6, N-5, N-6)** **Reserva sin pagar** (`es_reservacion = true`, `saldo_pendiente > 0`) **caduca 1 h antes de `salida.hora_salida`** (hora de salida **del origen** de la ruta); el asiento se libera y vuelve al cupo del origen. **Liberación perezosa** (al buscar/vender/materializar), no job nocturno. **Cancelación / reembolso** también hasta **1 h antes**: si la reserva **estaba pagada**, se registra un **reembolso** (egreso) en el corte abierto **de la sucursal donde se cobró** (N-13); si el cobro fue en una sucursal `sin_sistema` (`corresponsal`), el sistema no registra nada y el reembolso se hace a mano allá; si **no** estaba pagada, solo se libera el asiento. Las reservas pagadas no caducan solas — requieren cancelación explícita. | N-13 **resuelta** (§7.3). |
 | **D10** | **(P-6, N-7)** La **transferencia** la valida el `vendedor` a mano (preguntando a administración) antes de imprimir el manifiesto. Si al imprimir **sigue sin validar**, el manifiesto **se imprime igual** con el estatus del pasajero como **"pendiente"** (no se bloquea la impresión ni se libera el asiento). El estatus de pago por pasajero es visible en pantalla. Guía de negocio: validarla ≥ 20 min antes del abordaje. | — |
 | **D11** | **(P-7, N-8, N-9)** El **manifiesto** es una **lista única** por pasajero con: **nombre, asiento, "sube en" (punto de ascenso), "baja en" (parada / terminal de descenso) y estatus de pago**. **Sin importe/tarifa**, sin hora para descensos. El **abordaje digital de F7 (`marcar_abordaje`) se mantiene y se usa en la terminal de origen**; en las terminales de ascenso intermedias el **checador** marca **a mano** sobre el impreso y esa info **se captura después** en el sistema (debe permanecer el registro). | — |
-| **D12** | **(P-5, N-10, N-11)** **Boletos huérfanos** (vendidos en la ruta vieja para viajar tras el corte, antes de configurar la nueva): poner `core.ruta.vigente_hasta` / `horario.vigente_hasta` **no se bloquea** aunque existan boletos vendidos después. El sistema produce un **listado/reporte** (folio, pasajero, contacto, fecha/hora de la salida vieja, asiento, origen→destino, importe). El usuario negocia con el pasajero y **reubica a mano**: la reubicación es **cancelar el boleto viejo + reemitir** (folio nuevo) en la ruta nueva. Des-materializar salidas viejas ≥ corte = manual. Mismo mapa de asientos si la unidad es la misma. | Traspaso de saldo vs reembolso+cobro al reemitir: **N-14**. |
+| **D12** | **(P-5, N-10, N-11)** **Boletos huérfanos** (vendidos en la ruta vieja para viajar tras el corte, antes de configurar la nueva): poner `core.ruta.vigente_hasta` / `horario.vigente_hasta` **no se bloquea** aunque existan boletos vendidos después. El sistema produce un **listado/reporte** (folio, pasajero, contacto, fecha/hora de la salida vieja, asiento, origen→destino, importe). El usuario negocia con el pasajero y **reubica a mano**: la reubicación es **cancelar el boleto viejo + reemitir** (folio nuevo) en la ruta nueva. **Si el huérfano ya pagó ⇒ se mantiene el precio pagado** (el pago se traspasa al folio nuevo, sin mover efectivo aunque cambie la tarifa); **si no pagó ⇒ se cobra la tarifa vigente de la ruta nueva** (N-14). Des-materializar salidas viejas ≥ corte = manual. Mismo mapa de asientos si la unidad es la misma. | N-14 **resuelta** (§7.3). |
 | **D13** | **(P-4)** **Sucursales sin sistema.** `core.sucursal` gana `sin_sistema boolean`. Una sucursal así: no tiene `corte_caja` en el sistema, no aparece en `ruta_parada`, solo figura como `sucursal_cobro_id` en pagos `corresponsal`. Reserva comunicándose con la terminal de origen (el `vendedor` del origen registra). | Tamazulapan es una sucursal nueva de este tipo. |
 
 ---
@@ -472,24 +472,28 @@ reserva la registra la terminal de origen, que aparta el asiento desde el orden 
   - Determinista del reloj ⇒ sin ventana coordinada (como la expiración de leases).
   - **Reserva con abono parcial: NO se auto-libera** — el reembolso del abono es 6c.
   - `tests/ventas/caducidad-reservas.test.ts` (+3).
-- **✅ 6c-1 — Cancelación / reembolso de pago normal (`0059`, rama `f-paradas-fase6c-1`):**
-  - Permiso nuevo `reserva.cancelar` → `administrador` + `gerente` (N-13 puede sumar `vendedor`).
+- **✅ 6c-1 — Cancelación / reembolso (`0059`, rama `f-paradas-fase6c-1`):**
+  - Permiso nuevo `reserva.cancelar` → `administrador` + `gerente`.
   - `core.cancelar_boleto(boleto, usuario, sucursal, motivo, ahora)`: hasta 1 h antes de la
     salida del origen; libera el asiento (`estado='liberado'`), cancela boleto + venta (si
-    queda sin boletos vivos); si hubo pago confirmado en **efectivo o transferencia verificada**
-    → `movimiento_caja` egreso `origen_tipo='devolucion'` en el corte abierto de la sucursal.
-    Pago **`corresponsal` → RAISE** (N-13). Deja `nota_auditoria` tipo `cancelacion`.
+    queda sin boletos vivos). **Reembolso (N-13):** solo en la sucursal donde se cobró —
+    `LEAST(boleto.importe, pagado)` como egreso `origen_tipo='devolucion'` en su corte abierto
+    (sin corte abierto ahí ⇒ error); si esa sucursal es `sin_sistema` (`corresponsal`) ⇒ **sin
+    movimiento**, la función devuelve `reembolso_pendiente_en` = nombre de la sucursal para la
+    devolución manual. `nota_auditoria` tipo `cancelacion`.
   - `src/fleet/abordaje.ts` `cancelarBoleto` + `POST /viajes/boleto/:id/cancelar`
     (`exige({ permiso: 'reserva.cancelar' })`, 422 en error de negocio).
   - Web: botón "Cancelar boleto" en `<ModalDetalleBoleto>` (solo si `estado='emitido'`) con
-    confirmación + motivo; muestra el reembolso registrado.
+    confirmación + motivo; muestra dónde queda el reembolso.
   - **D10 — ✅ ya venía con 5a-2** (`datos_manifiesto` marca `estatus_pago='pendiente'` para una
     transferencia sin verificar y `generar_manifiestos` no bloquea); +1 test que lo fija.
-  - `tests/ventas/cancelar-boleto.test.ts` (+6), `tests/fleet/manifiesto.test.ts` (+1).
+  - `tests/ventas/cancelar-boleto.test.ts` (+7), `tests/fleet/manifiesto.test.ts` (+1).
     Deploy sin ventana coordinada.
-- **6c-2 (pendiente — BLOQUEADA por N-14) — Reubicación de huérfanos:** cancelar el boleto
-  viejo + reemitir en la ruta nueva (folio nuevo), con el manejo del dinero — traspaso de
-  saldo vs reembolso + cobro, y la diferencia de tarifa. Necesita N-14.
+- **6c-2 (DESBLOQUEADA — N-14 resuelta) — Reubicación de huérfanos:** cancelar el boleto viejo
+  + reemitir en la ruta nueva (folio nuevo). **Si el huérfano ya pagó** ⇒ el boleto nuevo se
+  emite al **importe pagado** y el/los `pago` se traspasan (`UPDATE pago SET venta_id`), sin
+  mover efectivo. **Si no pagó** ⇒ boleto nuevo a la **tarifa vigente** de la ruta nueva,
+  venta `pendiente` (pago normal después).
 
 ### Orden de entrega
 
@@ -501,7 +505,7 @@ reserva la registra la terminal de origen, que aparta el asiento desde el orden 
 | #D | 3 (`0051`) | — | estricta + categoría de pasajero |
 | #E | 4 (`0052`) | — | — |
 | #F | 5 (`0053` + admin + SPA) | — | 5a `0053` (impresión/manifiesto→punto, reimpresión) ✅ · 5a-2 `0054` (manifiesto lista única) ✅ · 5b `0055` (`DROP COLUMN salida_parada.sucursal_id` + `api.*`) ✅ · 5c `0056` (CRUD puntos, `crearRuta`/`crearHorario` con banderas, reemplazo D5 + huérfanos, F3-D2, F4-D2) ✅ · 5d tarifas por categoría (`crearTarifa` + `Tarifas.tsx`, F3-D3, F4-D3) ✅ · 5e SPA (`Puntos.tsx`, `Horarios.tsx` con puntos+banderas, modal de reemplazo + huérfanos) ✅ |
-| #G | 6 (`0057`+) | — | 6a `0057` (`corresponsal` + D8) ✅ · 6b `0058` (caducidad D9) ✅ · 6c-1 `0059` (cancelación + reembolso pago normal + D10) ✅ · 6c-2 reubicación de huérfanos (bloqueada por N-14) |
+| #G | 6 (`0057`+) | — | 6a `0057` (`corresponsal` + D8) ✅ · 6b `0058` (caducidad D9) ✅ · 6c-1 `0059` (cancelación + reembolso N-13 + D10) ✅ · 6c-2 reubicación de huérfanos (N-14) |
 
 Cada PR: `npm run build && npm test` verde antes de merge. Los tests de sync no deben
 `TRUNCATE sync.*` (deadlock con `hlc_estado`). Migraciones a nube + 4 terminales en la
@@ -580,13 +584,13 @@ misma ventana.
 | **N-11** | Reubicación = **cancelar y volver a emitir** (folio nuevo). | D12, Fase 5 |
 | **N-12** | "Viaje redondo" = **dos boletos separados**, cada uno con su tarifa. La **edad del menor** queda a **criterio del vendedor** (sin validación del sistema). | D4, Fase 3 |
 
-### 7.3 Dudas de detalle residuales (N-13..N-15) — Fase 6, no bloquean el modelo
+### 7.3 Dudas de detalle residuales (N-13..N-15) — Fase 6
 
-| ID | Duda | Toca |
+| ID | Respuesta / estado | Toca |
 |---|---|---|
-| **N-13** | Reembolso de un pago `corresponsal`: ¿se hace **a mano en la corresponsal** (fuera del sistema, ya que el origen nunca tuvo ese efectivo), o el sistema registra una línea negativa de corresponsal en el corte del origen? ¿Qué rol autoriza cancelación/reembolso — `vendedor` o `gerente`? | D9, Fase 6 |
-| **N-14** | Al **cancelar + reemitir** un huérfano ya pagado: ¿el pago se **traspasa** al folio nuevo (sin mover efectivo) o es **reembolso en el corte + cobro nuevo**? ¿Y si la tarifa de la ruta nueva difiere? | D12, Fase 5 |
-| **N-15** | Cuando una parada de ascenso sin POS **gana su propio sistema**: ¿pasa a `punto_ruta.tipo = 'terminal'` con su `core.sucursal` (y empieza a tener cupo propio), o sigue siendo `parada` con POS? | D1/D2, Fase 1 |
+| **N-13 — RESUELTA (cliente, 2026-09-09)** | El reembolso **solo existe en la sucursal donde se cobró**. Pago `corresponsal` (cobrado en sucursal `sin_sistema`, p. ej. Tamazulapan): el sistema **NO** registra ninguna línea en el corte del origen — el efectivo nunca entró. La cancelación **procede** (libera el asiento), y el reembolso se hace **a mano en esa sucursal**: Tamazulapan notifica la cancelación y Tamazulapan devuelve. Si el pasajero pide el reembolso en Huajuapan **no se puede** — se cancela igual, pero la devolución es en Tamazulapan. Escenario raro pero se contempla (conciliación manual). *Rol: no se especificó → se asume `administrador` + `gerente` (recomendación no objetada).* | D9, 6c-1 ✅ |
+| **N-14 — RESUELTA (cliente, 2026-09-09)** | Reubicación de un huérfano = conciliación con el pasajero + reemitir en la ruta nueva. **Si ya pagó** ⇒ se **mantiene el precio pagado** aunque la tarifa nueva difiera (el pago se traspasa al folio nuevo, sin mover efectivo, sin cobrar/devolver diferencia). **Si no pagó** ⇒ se le cobra el **monto vigente** de la tarifa de la ruta nueva. | D12, 6c-2 |
+| **N-15** | Cuando una parada de ascenso sin POS **gana su propio sistema**: ¿pasa a `punto_ruta.tipo = 'terminal'` con su `core.sucursal` (y empieza a tener cupo propio), o sigue siendo `parada` con POS? *(no bloquea nada — cambio de catálogo futuro)* | D1/D2 |
 
 ### Respuestas del cliente ya recibidas (sesión 2026-09-02)
 
