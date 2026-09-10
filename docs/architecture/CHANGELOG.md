@@ -219,3 +219,143 @@ Dos pendientes registrados:
 | P8 | Abierto | Calibración de umbrales de sync. El respaldo 4G/LTE lo alivia parcialmente. |
 | P12 | Medio cerrado | NTP resuelto por D-5. Falta confirmar zona horaria de las 4 sucursales. |
 | — | Abierto menor | Región de Supabase (default East US) y versión exacta de Windows. |
+
+---
+
+# Delta post-v0.2 · Rediseño de paradas autorizadas y tarifa por parada
+
+Fechas: 2026-09-03 (apertura del plan) → 2026-09-10 (cierre backend + SPA).
+Origen: cuatro sesiones con el cliente sobre el flujo real de rutas (P-1..P-9,
+N-1..N-15). Plan y decisiones detalladas (D1–D13) en
+[05-paradas-autorizadas-tarifas.md](05-paradas-autorizadas-tarifas.md).
+
+**Estado general**: alcance nuevo, fuera del roadmap original. Seis fases
+incrementales sobre el motor ya cerrado, migraciones `0048`–`0060` (PRs #61–#76).
+Backend + SPA **cerrados el 2026-09-10**. Residual del plan: solo **N-15**.
+
+---
+
+## D-9 · Las paradas dejan de ser sucursales — catálogo `core.punto_ruta`
+
+**Confirmado (P-1, P-5)**: hay paradas de **solo ascenso** o **solo descenso** que
+no son terminales, no tienen POS ni caja, y no deben aparecer en el CRUD de
+sucursales/usuarios.
+
+**Qué cambia**
+- Catálogo nuevo `core.punto_ruta`, `tipo ∈ ('terminal','parada')`. `ruta_parada` y
+  `salida_parada` apuntan a un punto, ya no a `core.sucursal`. `terminal` conserva
+  `sucursal_id`; una `parada` no consume `sucursal.codigo`.
+- Bandera de sentido **por `ruta_parada`**: `permite_ascenso` / `permite_descenso`
+  (una parada puede ser descenso en la ida y ascenso en el retorno).
+- El boleto guarda **dos rangos**: `tramos` (viaje — tarifa, impresión, manifiesto)
+  y `tramos_ocupacion` (cupo, `EXCLUDE`, disponibilidad). Difieren cuando el destino
+  es parada de descenso, o cuando la venta la origina una parada de ascenso sin POS
+  (el asiento lo aparta la terminal de origen desde el orden 0).
+
+**Impacto**: `02-modelo-datos.md` §3; `01b-consistencia-asientos.md` §3; migr.
+`0048`–`0050`, `0055`.
+
+---
+
+## D-10 · Tarifa estricta + categoría de pasajero
+
+**Confirmado (P-2, N-12)**: cada parada autorizada tiene **su propia tarifa** desde
+la terminal de origen; los descuentos son **montos fijos** (INAPAM, menor) y **solo
+terminal-extremo → terminal-extremo**.
+
+**Qué cambia**
+- `core.registrar_venta` valida el importe contra `core.tarifa` de forma **estricta**:
+  sin tarifa vigente para el par ⇒ rechaza; cada `pasajero.importe` debe igualar la
+  tarifa de su `categoria`. Interruptor `core.parametro` `validar_tarifa_estricta`
+  (default `true`).
+- `core.tarifa` gana `categoria_pasajero` (`general` \| `inapam` \| `menor`) y
+  `tope_asientos smallint NULL` (inerte, para el futuro). La categoría **no se
+  imprime**. No hay cortesías ni importe 0; no hay "viaje redondo".
+
+**Impacto**: `02-modelo-datos.md` §4; migr. `0051`, `0056` (guard por `tipo='terminal'`).
+
+---
+
+## D-11 · Materialización y cupo con paradas no-terminal
+
+**Qué cambia**
+- `core.materializar_salidas` escribe una fila de `salida_parada` por cada
+  `ruta_parada`; las paradas no-terminal entran con `hora_paso_programada` y
+  `cierre_venta_en` en `NULL` (D6).
+- `core.repartir_cupo_offline` reparte cupo **solo entre terminales con ascenso**;
+  las paradas de descenso no reciben bloque (evita `cupo_offline.sucursal_id` NULL).
+
+**Impacto**: `01b-consistencia-asientos.md` §3.5; migr. `0052`.
+
+---
+
+## D-12 · Cobro descentralizado — tercer método `corresponsal` y sucursal `sin_sistema`
+
+**Confirmado (P-4, N-1..N-3)**: Tamazulapan es una sucursal **sin sistema** (corte
+manual externo). El pasajero paga allá; la base solo reserva y debe registrar que
+el cobro fue afuera.
+
+**Qué cambia**
+- `core.sucursal` gana `sin_sistema boolean` (D13): sin `corte_caja` en el sistema,
+  no cuelga de `ruta_parada`, solo figura como `pago.sucursal_cobro_id`.
+- `core.pago.metodo` CHECK gana `'corresponsal'`. `corte_caja_id` **sigue NOT NULL**
+  = corte del vendedor de origen. El pago entra `verificado` y cuenta como pagado,
+  pero el trigger `pago→ingreso` (`0025`) lo **omite** (no suma al efectivo del
+  corte). El corte del origen lo muestra en un apartado aparte
+  (`core.pagos_corresponsal`).
+
+**Impacto**: `02b-modelo-transaccional.md` §5; `03-auth-impresion-config.md` §2
+(leyenda de pie del boleto); migr. `0057`.
+
+---
+
+## D-13 · Caducidad, cancelación y reubicación de reservas
+
+**Confirmado (P-4, P-6, N-5, N-6, N-13, N-14)**.
+
+**Qué cambia**
+- **Caducidad (D9):** una reserva **sin ningún pago** caduca 1 h antes de la salida
+  del origen. Liberación **perezosa** (al buscar / adquirir lease / vender), sin job
+  nocturno. Determinista del reloj ⇒ sin ventana coordinada.
+- **Cancelación con reembolso (N-13):** el reembolso **solo existe en la sucursal
+  donde se cobró** (`pago.sucursal_cobro_id`) — `movimiento_caja` egreso
+  `origen_tipo='devolucion'` en su corte abierto. Si esa sucursal es `sin_sistema`,
+  la cancelación procede pero el reembolso es **manual** allá (se devuelve
+  `reembolso_pendiente_en`).
+- **Reubicación de huérfanos (N-14):** al reemplazar una ruta por vigencia (D5) los
+  boletos vendidos para las fechas nuevas quedan huérfanos. Se reubican a mano: si
+  el pasajero **ya pagó** se mantiene el precio (el pago se traspasa al folio
+  nuevo, sin mover efectivo); si **no pagó**, se cobra la tarifa vigente de la ruta
+  nueva. Asistente SPA en `<ModalDetalleBoleto>`.
+
+**Impacto**: `02b-modelo-transaccional.md` §5; migr. `0058`–`0060`.
+
+---
+
+## D-14 · Manifiesto "lista única" y reemplazo de rutas por vigencia
+
+**Qué cambia**
+- **Manifiesto (D11):** deja de agrupar por parada de ascenso; es una **lista plana**
+  por pasajero: nombre, asiento, *sube en*, *baja en*, estatus de pago. **Sin
+  importe**. Las dos copias (conductor / terminal) tienen contenido idéntico. El
+  abordaje digital de F7 sigue en la terminal de origen; en las intermedias el
+  checador marca a mano y se captura después.
+- **Reemplazo de ruta (D5/D12):** cambiar las paradas = baja lógica + alta nueva
+  independiente. `core.ruta` gana `vigente_hasta` y `reemplaza_a`; **sin traslape**
+  de fechas. Poner `vigente_hasta` **no se bloquea** con boletos vendidos después:
+  el sistema devuelve el listado de huérfanos (`core.boletos_huerfanos`) para la
+  reubicación manual.
+- **Reimpresión (N-4):** mismo snapshot + leyenda de pie desde
+  `config_ticket.leyenda_reimpresion`.
+
+**Impacto**: `03-auth-impresion-config.md` §2.5; migr. `0053`–`0054`, `0056`.
+
+---
+
+## Pendiente de este delta
+
+| # | Estado | Nota |
+|---|---|---|
+| N-15 | Abierto, no bloquea | Una parada de ascenso sin POS que gane su propio sistema: ¿pasa a `tipo='terminal'` con cupo propio, o sigue `parada` con POS? Cambio de catálogo futuro. |
+| Deploy | En curso | Nube y entorno de desarrollo en `0060`; faltan las 4 terminales físicas (`0050`→`0060`, por TeamViewer). Ventana de `0055` (`DROP COLUMN` de tabla clase A) abierta antes de tiempo — ver `05-paradas-autorizadas-tarifas.md` § "Estado del deploy". |
+| F2-D3 | Diferido | Retiro de `trg_aa_tramos_ocupacion_compat` (precondición: los 5 nodos ≥ `0050`) — migración chica una vez las terminales estén al día. |
