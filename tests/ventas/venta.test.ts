@@ -153,7 +153,7 @@ run('registro de venta (PostgreSQL real)', () => {
     expect(r.printJobs).toBe(0);
   });
 
-  it('transferencia: no cuenta al saldo hasta verificarla', async () => {
+  it('transferencia íntegra (0065): finaliza e imprime al registrar; confirmar la liquida', async () => {
     const c = await preparar();
     const r = await registrarVenta(db, {
       salidaId: c.salidaId, sucursalVentaId: c.sucursales[0]!, usuarioId: c.usuarioId,
@@ -162,9 +162,15 @@ run('registro de venta (PostgreSQL real)', () => {
       pago: { metodo: 'transferencia', monto: 900, referencia: 'REF-9', corteCajaId: c.corteId },
       ahora: c.ahora,
     });
-    expect(r.pagado, 'una transferencia sin verificar no es dinero confirmado').toBe(0);
-    expect(r.estado).toBe('pendiente');
-    expect(r.printJobs).toBe(0);
+    expect(r.pagado, 'una transferencia sin confirmar no es dinero confirmado').toBe(0);
+    expect(r.estado).toBe('finalizada_transferencia');
+    expect(r.printJobs, 'el boleto se imprime al registrar (el pasajero aborda)').toBe(2);
+    expect(r.imprimible).toBe(true);
+
+    const { rows: est0 } = await db.query<{ estado: string }>(
+      `SELECT estado FROM core.venta WHERE id = $1`, [r.ventaId],
+    );
+    expect(est0[0]!.estado).toBe('finalizada_transferencia');
 
     const { rows } = await db.query<{ id: string }>(
       `SELECT id FROM core.pago WHERE venta_id = $1`, [r.ventaId],
@@ -172,13 +178,30 @@ run('registro de venta (PostgreSQL real)', () => {
     const v = await verificarTransferencia(db, rows[0]!.id, c.usuarioId, c.ahora);
     expect(v.pagado).toBe(900);
     expect(v.liquidada).toBe(true);
-    expect(v.printJobs).toBe(2);
+    expect(v.printJobs, 'ya se imprimió al registrar').toBe(0);
+
+    const { rows: est1 } = await db.query<{ estado: string }>(
+      `SELECT estado FROM core.venta WHERE id = $1`, [r.ventaId],
+    );
+    expect(est1[0]!.estado).toBe('liquidada');
 
     const saldo = await saldoDeVenta(db, r.ventaId);
     expect(saldo!.saldoPendiente).toBe(0);
+
+    // El ingreso entra al corte, pero como transferencia (no efectivo físico).
+    const { rows: cs } = await db.query<{
+      ingresos_efectivo: string; ingresos_transferencia: string; efectivo_calculado: string;
+    }>(
+      `SELECT ingresos_efectivo, ingresos_transferencia, efectivo_calculado
+         FROM core.v_corte_saldo WHERE corte_caja_id = $1`, [c.corteId],
+    );
+    expect(Number(cs[0]!.ingresos_transferencia)).toBe(900);
+    expect(Number(cs[0]!.ingresos_efectivo)).toBe(0);
+    // saldo_inicial (500) + 0 efectivo - 0 egresos
+    expect(Number(cs[0]!.efectivo_calculado)).toBe(500);
   });
 
-  it('solo quien registró la venta puede verificar la transferencia', async () => {
+  it('0065: la transferencia la puede confirmar un gerente (no solo quien vendió)', async () => {
     const c = await preparar();
     const r = await registrarVenta(db, {
       salidaId: c.salidaId, sucursalVentaId: c.sucursales[0]!, usuarioId: c.usuarioId,
@@ -190,9 +213,46 @@ run('registro de venta (PostgreSQL real)', () => {
     const { rows } = await db.query<{ id: string }>(
       `SELECT id FROM core.pago WHERE venta_id = $1`, [r.ventaId],
     );
-    const otro = await crearUsuario(db);
-    await expect(verificarTransferencia(db, rows[0]!.id, otro, c.ahora))
-      .rejects.toThrow(/solo quien registró/i);
+    const gerente = await crearUsuario(db, 'gerente');
+    const v = await verificarTransferencia(db, rows[0]!.id, gerente, c.ahora);
+    expect(v.liquidada).toBe(true);
+
+    // Un vendedor cualquiera (ni el que vendió ni gerente) NO puede.
+    const r2 = await registrarVenta(db, {
+      salidaId: c.salidaId, sucursalVentaId: c.sucursales[0]!, usuarioId: c.usuarioId,
+      contactoTelefono: '953 111 2222', origenOrden: 0, destinoOrden: 3,
+      pasajeros: [dosPasajeros[1]!],
+      pago: { metodo: 'transferencia', monto: 450, corteCajaId: c.corteId },
+      ahora: c.ahora,
+    });
+    const { rows: p2 } = await db.query<{ id: string }>(
+      `SELECT id FROM core.pago WHERE venta_id = $1`, [r2.ventaId],
+    );
+    const otroVendedor = await crearUsuario(db, 'vendedor');
+    await expect(verificarTransferencia(db, p2[0]!.id, otroVendedor, c.ahora))
+      .rejects.toThrow(/quien registró la venta o un gerente/i);
+  });
+
+  it('0065: confirmar sin un corte abierto en la sucursal de cobro ⇒ RAISE', async () => {
+    const c = await preparar();
+    const r = await registrarVenta(db, {
+      salidaId: c.salidaId, sucursalVentaId: c.sucursales[0]!, usuarioId: c.usuarioId,
+      contactoTelefono: '953 111 2222', origenOrden: 0, destinoOrden: 3,
+      pasajeros: [dosPasajeros[0]!],
+      pago: { metodo: 'transferencia', monto: 450, corteCajaId: c.corteId },
+      ahora: c.ahora,
+    });
+    const { rows } = await db.query<{ id: string }>(
+      `SELECT id FROM core.pago WHERE venta_id = $1`, [r.ventaId],
+    );
+    // Se cierra el corte de la sucursal de cobro antes de confirmar.
+    await db.query(
+      `UPDATE core.corte_caja SET estado = 'cerrado', cerrado_en = now(),
+              saldo_final_declarado = 0, saldo_final_calculado = 0 WHERE id = $1`,
+      [c.corteId],
+    );
+    await expect(verificarTransferencia(db, rows[0]!.id, c.usuarioId, c.ahora))
+      .rejects.toThrow(/no hay un corte de caja abierto/i);
   });
 
   it('`registrarPago` liquida una reservación y encola sus tickets — cobro en otra sucursal (C5)', async () => {
@@ -350,6 +410,96 @@ run('registro de venta (PostgreSQL real)', () => {
       pasajeros: [dosPasajeros[0]!],
       ahora: new Date(rows[0]!.cierre.getTime() + 60_000),
     })).rejects.toThrow(/ya cerró/i);
+  });
+
+  // -------------------------------------------------------------------------
+  // Efectivo recibido / cambio (migración 0064)
+  // -------------------------------------------------------------------------
+  const pagoEfectivo = async (c: Ctx): Promise<{ recibido: string | null; cambio: string | null }> => {
+    const { rows } = await db.query<{ recibido: string | null; cambio: string | null }>(
+      `SELECT p.efectivo_recibido AS recibido, p.efectivo_cambio AS cambio
+         FROM core.pago p
+         JOIN core.venta v ON v.id = p.venta_id
+        WHERE v.salida_id = $1
+        ORDER BY p.pagado_en DESC LIMIT 1`, [c.salidaId],
+    );
+    return rows[0]!;
+  };
+
+  it('efectivo con `efectivoRecibido` > total: guarda recibido y calcula el cambio', async () => {
+    const c = await preparar();
+    const r = await registrarVenta(db, {
+      salidaId: c.salidaId, sucursalVentaId: c.sucursales[0]!, usuarioId: c.usuarioId,
+      contactoTelefono: '953 111 2222', origenOrden: 0, destinoOrden: 3,
+      pasajeros: dosPasajeros,
+      pago: { metodo: 'efectivo', monto: 900, efectivoRecibido: 1000, corteCajaId: c.corteId },
+      ahora: c.ahora,
+    });
+    expect(r.pagado).toBe(900);
+    expect(r.estado).toBe('liquidada');
+
+    const p = await pagoEfectivo(c);
+    expect(Number(p.recibido)).toBe(1000);
+    expect(Number(p.cambio)).toBe(100);
+
+    // El corte sigue tomando `monto`, no el efectivo recibido.
+    const { rows: mov } = await db.query<{ monto: string }>(
+      `SELECT m.monto FROM core.movimiento_caja m
+         JOIN core.pago p ON p.id = m.origen_id
+         JOIN core.venta v ON v.id = p.venta_id
+        WHERE v.salida_id = $1 AND m.origen_tipo = 'pago_boleto' AND m.activo`, [c.salidaId],
+    );
+    expect(Number(mov[0]!.monto)).toBe(900);
+  });
+
+  it('efectivo con `efectivoRecibido` = total: cambio 0', async () => {
+    const c = await preparar();
+    await registrarVenta(db, {
+      salidaId: c.salidaId, sucursalVentaId: c.sucursales[0]!, usuarioId: c.usuarioId,
+      contactoTelefono: '953 111 2222', origenOrden: 0, destinoOrden: 3,
+      pasajeros: dosPasajeros,
+      pago: { metodo: 'efectivo', monto: 900, efectivoRecibido: 900, corteCajaId: c.corteId },
+      ahora: c.ahora,
+    });
+    const p = await pagoEfectivo(c);
+    expect(Number(p.recibido)).toBe(900);
+    expect(Number(p.cambio)).toBe(0);
+  });
+
+  it('efectivo con `efectivoRecibido` < monto ⇒ RAISE', async () => {
+    const c = await preparar();
+    await expect(registrarVenta(db, {
+      salidaId: c.salidaId, sucursalVentaId: c.sucursales[0]!, usuarioId: c.usuarioId,
+      contactoTelefono: '953 111 2222', origenOrden: 0, destinoOrden: 3,
+      pasajeros: dosPasajeros,
+      pago: { metodo: 'efectivo', monto: 900, efectivoRecibido: 800, corteCajaId: c.corteId },
+      ahora: c.ahora,
+    })).rejects.toThrow(/no cubre el monto/i);
+  });
+
+  it('`efectivoRecibido` con un pago que no es efectivo ⇒ RAISE', async () => {
+    const c = await preparar();
+    await expect(registrarVenta(db, {
+      salidaId: c.salidaId, sucursalVentaId: c.sucursales[0]!, usuarioId: c.usuarioId,
+      contactoTelefono: '953 111 2222', origenOrden: 0, destinoOrden: 3,
+      pasajeros: dosPasajeros,
+      pago: { metodo: 'transferencia', monto: 900, efectivoRecibido: 1000, corteCajaId: c.corteId },
+      ahora: c.ahora,
+    })).rejects.toThrow(/solo aplica a un pago en efectivo/i);
+  });
+
+  it('efectivo sin `efectivoRecibido`: las columnas quedan NULL (comportamiento previo)', async () => {
+    const c = await preparar();
+    await registrarVenta(db, {
+      salidaId: c.salidaId, sucursalVentaId: c.sucursales[0]!, usuarioId: c.usuarioId,
+      contactoTelefono: '953 111 2222', origenOrden: 0, destinoOrden: 3,
+      pasajeros: dosPasajeros,
+      pago: { metodo: 'efectivo', monto: 900, corteCajaId: c.corteId },
+      ahora: c.ahora,
+    });
+    const p = await pagoEfectivo(c);
+    expect(p.recibido).toBeNull();
+    expect(p.cambio).toBeNull();
   });
 
   it('el importe total es la suma de los importes de los pasajeros', async () => {

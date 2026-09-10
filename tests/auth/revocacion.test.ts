@@ -16,7 +16,10 @@ import { seedAuth, PASSWORD_OK } from './fixture.js';
 
 const local = process.env['LOCAL_DATABASE_URL'];
 const run = local ? describe : describe.skip;
-const AHORA = new Date('2026-09-10T16:00:00.000Z');
+// Ancla de reloj EN EL FUTURO (mismo criterio que rama `test-anclas-de-reloj`):
+// las pruebas siembran usuarios/semillas con `effective_from = now()` (hora
+// real). Fija, la ancla se quedaba en el pasado y todo parecía "no vigente".
+const AHORA = new Date(Date.now() + 30 * 86_400_000);
 const ahora = (): Date => AHORA;
 
 run('revocación · aplicar el código en la terminal (PostgreSQL real)', () => {

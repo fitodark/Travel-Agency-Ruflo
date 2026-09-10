@@ -3,9 +3,10 @@ import { useLocation } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ErrorApi } from '../api/cliente';
 import {
-  abrirCorte, anularMovimiento, cerrarCorte, cobradoEnCorresponsal, corteAbierto,
-  historialCortes, movimientos,
-  registrarEgreso, type CierreCorte, type CorteHistorial,
+  abrirCorte, anularMovimiento, cerrarCorte, cobradoEnCorresponsal,
+  confirmarTransferencia, corteAbierto,
+  historialCortes, movimientos, registrarEgreso, transferenciasPorVerificar,
+  type CierreCorte, type CorteAbierto, type CorteHistorial,
 } from '../api/caja';
 import { useSesion } from '../auth/sesion';
 import { fechaHora } from '../lib/fechas';
@@ -58,8 +59,85 @@ export function Caja() {
         />
       )}
 
+      <TransferenciasPorVerificar
+        hayCorte={!!corte.data}
+        onCambio={() => { setError(null); void invalidar(); }}
+        onError={alError}
+      />
+
       <HistorialCortes />
     </div>
+  );
+}
+
+/**
+ * Cola del encargado (0065): transferencias registradas en esta sucursal cuyo
+ * comprobante aún no se confirma. Al confirmar, el monto entra al corte abierto
+ * en ese momento (no al de cuando se vendió) — de ahí que necesite un corte
+ * abierto. La puede confirmar quien vendió o un gerente/administrador.
+ */
+function TransferenciasPorVerificar({
+  hayCorte, onCambio, onError,
+}: { hayCorte: boolean; onCambio: () => void; onError: (e: unknown) => void }) {
+  const q = useQuery({
+    queryKey: ['caja', 'transferencias'],
+    queryFn: transferenciasPorVerificar,
+  });
+  const confirmar = useMutation({
+    mutationFn: (pagoId: string) => confirmarTransferencia(pagoId),
+    onSuccess: onCambio,
+    onError,
+  });
+
+  if (!q.data || q.data.length === 0) return null;
+
+  return (
+    <section className="space-y-2">
+      <h2 className="text-sm font-semibold text-slate-600">
+        Transferencias por verificar ({q.data.length})
+      </h2>
+      {!hayCorte && (
+        <p className="text-xs text-amber-700">
+          Abre el corte de caja para poder confirmar: el monto entra al corte abierto.
+        </p>
+      )}
+      <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-tarjeta">
+        <table className="w-full text-sm">
+          <thead className="border-b border-slate-200 bg-slate-50/70 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+            <tr>
+              <th className="px-4 py-2.5">Registrada</th>
+              <th className="px-4 py-2.5">Folio</th>
+              <th className="px-4 py-2.5">Pasajero</th>
+              <th className="px-4 py-2.5">Vendió</th>
+              <th className="px-4 py-2.5">Referencia</th>
+              <th className="px-3 py-2 text-right">Monto</th>
+              <th className="px-4 py-2.5" />
+            </tr>
+          </thead>
+          <tbody>
+            {q.data.map((t) => (
+              <tr key={t.pagoId} className="border-t border-slate-100">
+                <td className="px-4 py-3 whitespace-nowrap">{fechaHora(t.registradoEn)}</td>
+                <td className="px-4 py-3 font-mono">{t.folio ?? '—'}</td>
+                <td className="px-4 py-3">{t.pasajero ?? '—'}</td>
+                <td className="px-4 py-3">{t.vendedor}</td>
+                <td className="px-4 py-3">{t.referencia ?? '—'}</td>
+                <td className="px-3 py-3 text-right">${t.monto}</td>
+                <td className="px-4 py-3 text-right">
+                  <button
+                    className="btn-primario px-3 py-1 text-xs"
+                    disabled={!hayCorte || confirmar.isPending}
+                    onClick={() => confirmar.mutate(t.pagoId)}
+                  >
+                    Confirmar pago
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
   );
 }
 
@@ -91,7 +169,8 @@ function HistorialCortes() {
               <th className="px-3 py-2 text-right">Inicial</th>
               <th className="px-3 py-2 text-right">Ingresos</th>
               <th className="px-3 py-2 text-right">Egresos</th>
-              <th className="px-3 py-2 text-right">Calculado</th>
+              <th className="px-3 py-2 text-right">Transfer.</th>
+              <th className="px-3 py-2 text-right">Efectivo esp.</th>
               <th className="px-3 py-2 text-right">Declarado</th>
               <th className="px-3 py-2 text-right">Diferencia</th>
               <th className="px-4 py-2.5" />
@@ -117,7 +196,7 @@ function HistorialCortes() {
 function FilaCorte({
   c, esAdmin, abierto, onToggle,
 }: { c: CorteHistorial; esAdmin: boolean; abierto: boolean; onToggle: () => void }) {
-  const cols = esAdmin ? 11 : 10;
+  const cols = esAdmin ? 12 : 11;
   const dif = c.diferencia;
   return (
     <>
@@ -131,7 +210,8 @@ function FilaCorte({
         <td className="px-3 py-3 text-right">${c.saldoInicial}</td>
         <td className="px-3 py-3 text-right">${c.ingresos}</td>
         <td className="px-3 py-3 text-right">${c.egresos}</td>
-        <td className="px-3 py-3 text-right">${c.saldoCalculado}</td>
+        <td className="px-3 py-3 text-right">{c.transferencia ? `$${c.transferencia}` : '—'}</td>
+        <td className="px-3 py-3 text-right">${c.efectivoCalculado}</td>
         <td className="px-3 py-3 text-right">{dinero(c.saldoDeclarado)}</td>
         <td className={`px-3 py-3 text-right ${dif && dif !== 0 ? 'text-red-700' : ''}`}>
           {dif === null ? '—' : `$${dif}${dif > 0 ? ' (sobra)' : dif < 0 ? ' (falta)' : ''}`}
@@ -270,7 +350,7 @@ function CorteAbiertoVista({
   corteId, saldo, puedeAnular, onCambio, onError,
 }: {
   corteId: string;
-  saldo: { saldoInicial: number; ingresos: number; egresos: number; saldoCalculado: number };
+  saldo: CorteAbierto;
   puedeAnular: boolean;
   onCambio: () => void;
   onError: (e: unknown) => void;
@@ -307,24 +387,38 @@ function CorteAbiertoVista({
     return (
       <div className="rounded border border-green-300 bg-green-50 p-4 text-sm space-y-1">
         <div className="font-semibold">Corte cerrado</div>
-        <div>Calculado: ${cierre.saldoCalculado} · declarado: ${cierre.saldoDeclarado}</div>
+        <div>
+          Efectivo esperado: ${cierre.efectivoCalculado} · declarado: ${cierre.saldoDeclarado}
+        </div>
         <div className={cierre.diferencia === 0 ? '' : 'text-red-700'}>
           Diferencia: ${cierre.diferencia}
           {cierre.diferencia > 0 && ' (sobra)'}
           {cierre.diferencia < 0 && ' (falta)'}
         </div>
+        {cierre.transferencia > 0 && (
+          <div className="text-slate-600">
+            Transferencias (suman al corte, no al efectivo): ${cierre.transferencia} ·
+            total del corte ${cierre.saldoCalculado}
+          </div>
+        )}
       </div>
     );
   }
 
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <Cifra etiqueta="Inicial" valor={saldo.saldoInicial} />
-        <Cifra etiqueta="Ingresos" valor={saldo.ingresos} />
+        <Cifra etiqueta="Ingresos efectivo" valor={saldo.ingresosEfectivo} />
         <Cifra etiqueta="Egresos" valor={saldo.egresos} />
-        <Cifra etiqueta="En caja" valor={saldo.saldoCalculado} fuerte />
+        <Cifra etiqueta="Efectivo esperado" valor={saldo.efectivoCalculado} fuerte />
       </div>
+      {saldo.ingresosTransferencia > 0 && (
+        <p className="text-xs text-slate-500">
+          Transferencias verificadas: ${saldo.ingresosTransferencia} — suman al corte
+          (total ${saldo.saldoCalculado}) pero no son efectivo físico en la terminal.
+        </p>
+      )}
 
       <form
         onSubmit={(e: FormEvent) => { e.preventDefault(); egreso.mutate(); }}

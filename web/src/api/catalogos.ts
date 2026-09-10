@@ -21,6 +21,8 @@ export interface PuntoRuta {
   tipo: 'terminal' | 'parada';
   municipio: string | null;
   referencia: string | null;
+  /** Sucursal a la que representa este punto terminal; `null` para una parada. */
+  sucursalId: string | null;
   /** Hay al menos una ruta activa donde este punto permite ascenso. */
   puedeOriginar: boolean;
 }

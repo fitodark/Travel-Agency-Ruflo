@@ -28,6 +28,11 @@ export interface PagoInput {
   monto: number;
   esAbono?: boolean;
   referencia?: string;
+  /**
+   * Solo `efectivo` (0064): con cuánto pagó el pasajero (>= `monto`). El backend
+   * calcula el cambio. Informativo para el cajón — no entra al corte ni al boleto.
+   */
+  efectivoRecibido?: number;
   /** Corte al que suma. Si se omite, se usa el corte abierto de la sucursal. */
   corteCajaId?: string;
   /**
@@ -65,7 +70,7 @@ export interface BoletoEmitido {
 
 export interface ResultadoVenta {
   ventaId: string;
-  estado: 'pendiente' | 'liquidada';
+  estado: 'pendiente' | 'liquidada' | 'finalizada_transferencia';
   importeTotal: number;
   pagado: number;
   saldoPendiente: number;
@@ -90,6 +95,7 @@ function pagoAJson(p: PagoInput): Record<string, unknown> {
     metodo: p.metodo,
     monto: p.monto,
     es_abono: p.esAbono ?? false,
+    ...(p.efectivoRecibido != null ? { efectivo_recibido: p.efectivoRecibido } : {}),
     ...(p.referencia ? { referencia: p.referencia } : {}),
     ...(p.corteCajaId ? { corte_caja_id: p.corteCajaId } : {}),
     ...(p.sucursalCobroId ? { sucursal_cobro_id: p.sucursalCobroId } : {}),
@@ -98,7 +104,7 @@ function pagoAJson(p: PagoInput): Record<string, unknown> {
 
 interface FilaVenta {
   venta_id: string;
-  estado_venta: 'pendiente' | 'liquidada';
+  estado_venta: 'pendiente' | 'liquidada' | 'finalizada_transferencia';
   importe_total: string;
   pagado: string;
   saldo_pendiente: string;
@@ -239,6 +245,40 @@ export async function verificarTransferencia(
     liquidada: r.liquidada,
     printJobs: Number(r.print_jobs),
   };
+}
+
+export interface TransferenciaPorVerificar {
+  pagoId: string;
+  ventaId: string;
+  folio: string | null;
+  pasajero: string | null;
+  monto: number;
+  referencia: string | null;
+  vendedor: string;
+  registradoEn: string;
+}
+
+/**
+ * Cola del encargado (0065): transferencias registradas en `sucursalId` cuyo
+ * comprobante aún no se confirma. El pasajero manda el comprobante y quien vendió
+ * —o un gerente/admin— lo marca pagado con `verificarTransferencia`.
+ */
+export async function transferenciasPorVerificar(
+  db: Consultable, sucursalId: string,
+): Promise<TransferenciaPorVerificar[]> {
+  const { rows } = await db.query<{
+    pago_id: string; venta_id: string; folio: string | null; pasajero: string | null;
+    monto: string; referencia: string | null; vendedor: string; registrado_en: Date;
+  }>(
+    `SELECT pago_id, venta_id, folio, pasajero, monto, referencia, vendedor, registrado_en
+       FROM core.pagos_transferencia_por_verificar($1::uuid)`,
+    [sucursalId],
+  );
+  return rows.map((r) => ({
+    pagoId: r.pago_id, ventaId: r.venta_id, folio: r.folio, pasajero: r.pasajero,
+    monto: Number(r.monto), referencia: r.referencia, vendedor: r.vendedor,
+    registradoEn: r.registrado_en.toISOString(),
+  }));
 }
 
 export interface SaldoVenta {

@@ -26,6 +26,8 @@ const pagoSchema = {
     metodo: { type: 'string', enum: ['efectivo', 'transferencia', 'corresponsal'] },
     monto: { type: 'number', exclusiveMinimum: 0 },
     esAbono: { type: 'boolean' },
+    /** Solo efectivo (0064): con cuánto pagó el pasajero (>= monto). */
+    efectivoRecibido: { type: 'number', exclusiveMinimum: 0 },
     referencia: { type: 'string', maxLength: 120 },
     corteCajaId: { type: 'string', format: 'uuid' },
     /** Solo `corresponsal`: la sucursal `sin_sistema` donde se cobró (D8). */
@@ -162,7 +164,8 @@ export async function rutasVentas(app: FastifyInstance): Promise<void> {
         }>;
         pago?: {
           metodo: 'efectivo' | 'transferencia' | 'corresponsal'; monto: number;
-          esAbono?: boolean; referencia?: string; corteCajaId?: string; sucursalCobroId?: string;
+          esAbono?: boolean; efectivoRecibido?: number; referencia?: string;
+          corteCajaId?: string; sucursalCobroId?: string;
         };
       };
 

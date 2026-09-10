@@ -5,6 +5,13 @@ export interface CorteAbierto {
   saldoInicial: number;
   ingresos: number;
   egresos: number;
+  /** Ingresos en efectivo (0065). */
+  ingresosEfectivo: number;
+  /** Ingresos por transferencia verificada (0065): suman al corte, no a la caja. */
+  ingresosTransferencia: number;
+  /** Efectivo que debe estar en la caja = inicial + ingresos efectivo − egresos. */
+  efectivoCalculado: number;
+  /** Total del corte (incluye transferencia). */
   saldoCalculado: number;
 }
 
@@ -25,8 +32,15 @@ export interface CierreCorte {
   saldoInicial: number;
   ingresos: number;
   egresos: number;
+  ingresosEfectivo: number;
+  /** Ingresos por transferencia verificada: suman al corte, no a la caja. */
+  transferencia: number;
+  /** Efectivo que debe estar en la caja. */
+  efectivoCalculado: number;
+  /** Total del corte (incluye transferencia). */
   saldoCalculado: number;
   saldoDeclarado: number;
+  /** `declarado − efectivoCalculado`. */
   diferencia: number;
 }
 
@@ -79,8 +93,14 @@ export interface CorteHistorial {
   saldoInicial: number;
   ingresos: number;
   egresos: number;
+  /** Ingresos por transferencia verificada: suman al corte, no a la caja. */
+  transferencia: number;
+  /** Efectivo que debe estar en la caja. */
+  efectivoCalculado: number;
+  /** Total del corte (incluye transferencia). */
   saldoCalculado: number;
   saldoDeclarado: number | null;
+  /** `declarado − efectivoCalculado`. */
   diferencia: number | null;
 }
 
@@ -111,4 +131,35 @@ export function anularMovimiento(id: string, motivo: string): Promise<{ anulado:
     method: 'POST',
     body: JSON.stringify({ motivo }),
   });
+}
+
+// ---------------------------------------------------------------------------
+// Transferencias por verificar (0065): el encargado recibe el comprobante y
+// confirma el pago; el monto entra al corte abierto en ese momento.
+// ---------------------------------------------------------------------------
+export interface TransferenciaPorVerificar {
+  pagoId: string;
+  ventaId: string;
+  folio: string | null;
+  pasajero: string | null;
+  monto: number;
+  referencia: string | null;
+  vendedor: string;
+  registradoEn: string;
+}
+
+export function transferenciasPorVerificar(): Promise<TransferenciaPorVerificar[]> {
+  return api<TransferenciaPorVerificar[]>('/caja/transferencias-por-verificar');
+}
+
+export interface ConfirmacionTransferencia {
+  pagado: number;
+  saldoPendiente: number;
+  liquidada: boolean;
+  printJobs: number;
+}
+
+/** Confirma el comprobante de una transferencia (quien vendió o un gerente/admin). */
+export function confirmarTransferencia(pagoId: string): Promise<ConfirmacionTransferencia> {
+  return api<ConfirmacionTransferencia>(`/ventas/pagos/${pagoId}/verificar`, { method: 'POST' });
 }

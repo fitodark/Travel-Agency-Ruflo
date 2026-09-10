@@ -71,6 +71,8 @@ export interface PagoInput {
   metodo: 'efectivo' | 'transferencia' | 'corresponsal';
   monto: number;
   esAbono?: boolean;
+  /** Solo `efectivo` (0064): con cuánto pagó el pasajero (>= `monto`). El backend calcula el cambio. */
+  efectivoRecibido?: number;
   referencia?: string;
   /** Solo `corresponsal`: la sucursal `sin_sistema` donde se cobró (D8). */
   sucursalCobroId?: string;
@@ -94,11 +96,13 @@ export interface BoletoEmitido {
   asientoNum: number;
   pasajero: string;
   importe: number;
+  /** Categoría de tarifa con que se emitió el boleto (D4). `general` salvo descuento. */
+  categoria: CategoriaPasajero;
 }
 
 export interface ResultadoVenta {
   ventaId: string;
-  estado: 'pendiente' | 'liquidada';
+  estado: 'pendiente' | 'liquidada' | 'finalizada_transferencia';
   importeTotal: number;
   pagado: number;
   saldoPendiente: number;

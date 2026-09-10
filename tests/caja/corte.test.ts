@@ -39,7 +39,9 @@ run('corte de caja · ciclo de vida (PostgreSQL real)', () => {
 
     const s = await saldoCorte(db, corteId);
     expect(s).toEqual({
-      corteId, saldoInicial: 500, ingresos: 0, egresos: 0, saldoCalculado: 500,
+      corteId, saldoInicial: 500, ingresos: 0, egresos: 0,
+      ingresosEfectivo: 0, ingresosTransferencia: 0, efectivoCalculado: 500,
+      saldoCalculado: 500,
     });
     expect(await corteAbiertoDe(db, fx.sucursales[0]!)).toBe(corteId);
   });
@@ -92,6 +94,7 @@ run('corte de caja · ciclo de vida (PostgreSQL real)', () => {
     });
     expect(cierre).toEqual({
       saldoInicial: 500, ingresos: 0, egresos: 0,
+      ingresosEfectivo: 0, transferencia: 0, efectivoCalculado: 500,
       saldoCalculado: 500, saldoDeclarado: 540, diferencia: 40,
     });
 

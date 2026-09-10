@@ -26,9 +26,16 @@ export interface CierreCorte {
   saldoInicial: number;
   ingresos: number;
   egresos: number;
+  /** Ingresos en efectivo (0065): todo lo que sí movió la caja física. */
+  ingresosEfectivo: number;
+  /** Ingresos por transferencia verificada (0065): suman al corte, no a la caja. */
+  transferencia: number;
+  /** Efectivo que debe estar en la caja = inicial + ingresos efectivo − egresos. */
+  efectivoCalculado: number;
+  /** Total del corte (incluye transferencia). */
   saldoCalculado: number;
   saldoDeclarado: number;
-  /** `declarado - calculado`: positivo = sobra efectivo, negativo = falta. */
+  /** `declarado − efectivoCalculado`: positivo = sobra efectivo, negativo = falta. */
   diferencia: number;
 }
 
@@ -38,9 +45,11 @@ export async function cerrarCorte(
 ): Promise<CierreCorte> {
   const { rows } = await db.query<{
     saldo_inicial: string; ingresos: string; egresos: string;
+    ingresos_efectivo: string; transferencia: string; efectivo_calculado: string;
     saldo_calculado: string; saldo_declarado: string; diferencia: string;
   }>(
-    `SELECT saldo_inicial, ingresos, egresos, saldo_calculado, saldo_declarado, diferencia
+    `SELECT saldo_inicial, ingresos, egresos, ingresos_efectivo, transferencia,
+            efectivo_calculado, saldo_calculado, saldo_declarado, diferencia
        FROM core.cerrar_corte($1::uuid, $2::uuid, $3::numeric, $4::timestamptz)`,
     [args.corteId, args.usuarioCierreId, args.saldoDeclarado, args.ahora ?? new Date()],
   );
@@ -49,6 +58,9 @@ export async function cerrarCorte(
     saldoInicial: Number(r.saldo_inicial),
     ingresos: Number(r.ingresos),
     egresos: Number(r.egresos),
+    ingresosEfectivo: Number(r.ingresos_efectivo),
+    transferencia: Number(r.transferencia),
+    efectivoCalculado: Number(r.efectivo_calculado),
     saldoCalculado: Number(r.saldo_calculado),
     saldoDeclarado: Number(r.saldo_declarado),
     diferencia: Number(r.diferencia),
@@ -60,15 +72,24 @@ export interface SaldoCorte {
   saldoInicial: number;
   ingresos: number;
   egresos: number;
+  /** Ingresos en efectivo (0065). */
+  ingresosEfectivo: number;
+  /** Ingresos por transferencia verificada (0065): suman al corte, no a la caja. */
+  ingresosTransferencia: number;
+  /** Efectivo que debe estar en la caja = inicial + ingresos efectivo − egresos. */
+  efectivoCalculado: number;
+  /** Total del corte (incluye transferencia). */
   saldoCalculado: number;
 }
 
 export async function saldoCorte(db: Consultable, corteId: string): Promise<SaldoCorte | null> {
   const { rows } = await db.query<{
-    corte_caja_id: string; saldo_inicial: string; ingresos: string;
-    egresos: string; saldo_calculado: string;
+    corte_caja_id: string; saldo_inicial: string; ingresos: string; egresos: string;
+    ingresos_efectivo: string; ingresos_transferencia: string;
+    efectivo_calculado: string; saldo_calculado: string;
   }>(
-    `SELECT corte_caja_id, saldo_inicial, ingresos, egresos, saldo_calculado
+    `SELECT corte_caja_id, saldo_inicial, ingresos, egresos, ingresos_efectivo,
+            ingresos_transferencia, efectivo_calculado, saldo_calculado
        FROM core.v_corte_saldo WHERE corte_caja_id = $1::uuid`,
     [corteId],
   );
@@ -79,6 +100,9 @@ export async function saldoCorte(db: Consultable, corteId: string): Promise<Sald
     saldoInicial: Number(r.saldo_inicial),
     ingresos: Number(r.ingresos),
     egresos: Number(r.egresos),
+    ingresosEfectivo: Number(r.ingresos_efectivo),
+    ingresosTransferencia: Number(r.ingresos_transferencia),
+    efectivoCalculado: Number(r.efectivo_calculado),
     saldoCalculado: Number(r.saldo_calculado),
   };
 }
@@ -162,10 +186,15 @@ export interface CorteHistorial {
   saldoInicial: number;
   ingresos: number;
   egresos: number;
+  /** Ingresos por transferencia verificada (0065): suman al corte, no a la caja. */
+  transferencia: number;
+  /** Efectivo que debe estar en la caja (0065). */
+  efectivoCalculado: number;
+  /** Total del corte (incluye transferencia). */
   saldoCalculado: number;
   /** `null` mientras el corte sigue abierto. */
   saldoDeclarado: number | null;
-  /** `declarado − calculado`; `null` mientras el corte sigue abierto. */
+  /** `declarado − efectivoCalculado`; `null` mientras el corte sigue abierto. */
   diferencia: number | null;
 }
 
@@ -181,6 +210,8 @@ interface FilaCorteHistorial {
   saldo_inicial: string;
   ingresos: string;
   egresos: string;
+  transferencia: string;
+  efectivo_calculado: string;
   saldo_calculado: string;
   saldo_declarado: string | null;
   diferencia: string | null;
@@ -196,7 +227,7 @@ export async function historialCortes(
   const { rows } = await db.query<FilaCorteHistorial>(
     `SELECT corte_id, sucursal_id, sucursal, estado, abierto_en, cerrado_en,
             usuario_apertura, usuario_cierre, saldo_inicial, ingresos, egresos,
-            saldo_calculado, saldo_declarado, diferencia
+            transferencia, efectivo_calculado, saldo_calculado, saldo_declarado, diferencia
        FROM core.f_cortes_visibles($1::text, $2::uuid, $3::uuid, $4::date, $5::date, $6::text)`,
     [
       alcance.rol, alcance.usuarioId, alcance.sucursalId,
@@ -215,6 +246,8 @@ export async function historialCortes(
     saldoInicial: Number(r.saldo_inicial),
     ingresos: Number(r.ingresos),
     egresos: Number(r.egresos),
+    transferencia: Number(r.transferencia),
+    efectivoCalculado: Number(r.efectivo_calculado),
     saldoCalculado: Number(r.saldo_calculado),
     saldoDeclarado: num(r.saldo_declarado),
     diferencia: num(r.diferencia),
