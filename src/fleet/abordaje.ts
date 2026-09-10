@@ -455,3 +455,98 @@ export async function reubicarHuerfano(
     printJobs: Number(r.print_jobs),
   };
 }
+
+export interface BoletoReubicable {
+  boletoId: string;
+  folio: string;
+  pasajeroNombre: string;
+  asientoNum: number;
+}
+
+/** Boletos vivos (`emitido`) de una venta — para reubicar la venta completa. */
+export async function boletosReubicables(
+  db: Consultable, ventaId: string,
+): Promise<BoletoReubicable[]> {
+  const { rows } = await db.query<{
+    boleto_id: string; folio: string; pasajero_nombre: string; asiento_num: number;
+  }>(
+    `SELECT id AS boleto_id, folio, pasajero_nombre, asiento_num
+       FROM core.boleto
+      WHERE venta_id = $1::uuid AND activo AND estado = 'emitido'
+      ORDER BY asiento_num`,
+    [ventaId],
+  );
+  return rows.map((r) => ({
+    boletoId: r.boleto_id,
+    folio: r.folio,
+    pasajeroNombre: r.pasajero_nombre,
+    asientoNum: Number(r.asiento_num),
+  }));
+}
+
+export interface AsignacionReubicar {
+  boletoViejoId: string;
+  origenOrden: number;
+  destinoOrden: number;
+  asientoNum: number;
+}
+
+export interface ResultadoReubicarVenta {
+  ventaNuevaId: string;
+  importeTotal: number;
+  pagado: number;
+  saldoPendiente: number;
+  precioMantenido: boolean;
+  boletos: Array<{ boletoId: string; folio: string; asientoNum: number; pasajero: string; importe: number }>;
+  printJobs: number;
+}
+
+/**
+ * Reubica una venta huérfana COMPLETA (multi-boleto, familia, D12/N-14) en una
+ * salida de la ruta nueva: emite una venta nueva con todos los boletos al precio
+ * pagado (traspasa el pago una vez) o a la tarifa vigente si no había pago. Las
+ * asignaciones deben cubrir exactamente los boletos vivos de la venta.
+ */
+export async function reubicarVentaHuerfana(
+  db: Consultable,
+  args: {
+    ventaViejaId: string; salidaNuevaId: string;
+    asignaciones: AsignacionReubicar[];
+    usuarioId: string; sucursalId: string; ahora?: Date;
+  },
+): Promise<ResultadoReubicarVenta> {
+  const asig = args.asignaciones.map((a) => ({
+    boleto_viejo_id: a.boletoViejoId,
+    origen_orden: a.origenOrden,
+    destino_orden: a.destinoOrden,
+    asiento_num: a.asientoNum,
+  }));
+  const { rows } = await db.query<{
+    venta_nueva_id: string; importe_total: string; pagado: string;
+    saldo_pendiente: string; precio_mantenido: boolean;
+    boletos: Array<{ boleto_id: string; folio: string; asiento_num: number; pasajero: string; importe: number }>;
+    print_jobs: number;
+  }>(
+    `SELECT venta_nueva_id, importe_total, pagado, saldo_pendiente,
+            precio_mantenido, boletos, print_jobs
+       FROM core.reubicar_venta_huerfana($1::uuid, $2::uuid, $3::jsonb,
+                                         $4::uuid, $5::uuid, $6::timestamptz)`,
+    [
+      args.ventaViejaId, args.salidaNuevaId, JSON.stringify(asig),
+      args.usuarioId, args.sucursalId, args.ahora ?? new Date(),
+    ],
+  );
+  const r = rows[0]!;
+  return {
+    ventaNuevaId: r.venta_nueva_id,
+    importeTotal: Number(r.importe_total),
+    pagado: Number(r.pagado),
+    saldoPendiente: Number(r.saldo_pendiente),
+    precioMantenido: r.precio_mantenido,
+    boletos: (r.boletos ?? []).map((b) => ({
+      boletoId: b.boleto_id, folio: b.folio, asientoNum: Number(b.asiento_num),
+      pasajero: b.pasajero, importe: Number(b.importe),
+    })),
+    printJobs: Number(r.print_jobs),
+  };
+}

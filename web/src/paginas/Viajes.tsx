@@ -4,9 +4,9 @@ import { ErrorApi } from '../api/cliente';
 import { listarPuntos } from '../api/catalogos';
 import { buscarSalidas, type SalidaDisponible } from '../api/ventas';
 import {
-  buscarBoletoPorFolio, cancelarBoleto, checklist, detalleBoleto, finalizarViaje,
-  generarManifiestos, marcarEnRuta, registrarAbordaje, reimprimirBoleto, reubicarBoleto,
-  salidasDelDia,
+  boletosReubicables, buscarBoletoPorFolio, cancelarBoleto, checklist, detalleBoleto,
+  finalizarViaje, generarManifiestos, marcarEnRuta, registrarAbordaje, reimprimirBoleto,
+  reubicarBoleto, reubicarVentaHuerfana, salidasDelDia,
   type BoletoPorFolio, type ManifiestosEncolados, type SalidaDelDia,
 } from '../api/viajes';
 import { Modal } from '../componentes/ui';
@@ -389,9 +389,20 @@ function ModalDetalleBoleto({
       void detalle.refetch();
     },
   });
+  const reubicarVenta = useMutation({
+    mutationFn: (d: {
+      salidaNuevaId: string; origenOrden: number; destinoOrden: number;
+      asientos: Array<{ boletoViejoId: string; asientoNum: number }>;
+    }) => reubicarVentaHuerfana(detalle.data!.venta.ventaId, d),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['viajes'] });
+      void detalle.refetch();
+    },
+  });
 
   const puedeMover =
-    detalle.data?.estado === 'emitido' && !cancelar.isSuccess && !reubicar.isSuccess;
+    detalle.data?.estado === 'emitido'
+    && !cancelar.isSuccess && !reubicar.isSuccess && !reubicarVenta.isSuccess;
 
   return (
     <Modal titulo="Detalle del boleto" onCerrar={onCerrar}>
@@ -486,8 +497,11 @@ function ModalDetalleBoleto({
             )}
             {puedeMover && (
               <ReubicarBoleto
-                pending={reubicar.isPending}
+                ventaId={detalle.data.venta.ventaId}
+                multiBoleto={detalle.data.venta.boletosEnLaVenta > 1}
+                pending={reubicar.isPending || reubicarVenta.isPending}
                 onConfirmar={(d) => reubicar.mutate(d)}
+                onConfirmarVenta={(d) => reubicarVenta.mutate(d)}
               />
             )}
           </div>
@@ -534,6 +548,27 @@ function ModalDetalleBoleto({
           {reubicar.isError && (
             <p className="text-xs text-red-600">
               {reubicar.error instanceof ErrorApi ? reubicar.error.message : 'No se pudo reubicar.'}
+            </p>
+          )}
+          {reubicarVenta.isSuccess && (
+            <p className="text-xs text-green-700">
+              Venta reubicada: {reubicarVenta.data.boletos.length} boleto(s) (folios{' '}
+              <span className="font-mono">
+                {reubicarVenta.data.boletos.map((b) => b.folio).join(', ')}
+              </span>).{' '}
+              {reubicarVenta.data.precioMantenido
+                ? `Se mantuvo el precio ya pagado (${mxn(reubicarVenta.data.importeTotal)}).`
+                : `Tarifa vigente de la ruta nueva: ${mxn(reubicarVenta.data.importeTotal)}${
+                    reubicarVenta.data.saldoPendiente > 0
+                      ? ` · saldo pendiente ${mxn(reubicarVenta.data.saldoPendiente)}.`
+                      : '.'
+                  }`}
+              {reubicarVenta.data.printJobs > 0 && ` ${reubicarVenta.data.printJobs} boleto(s) reimpreso(s).`}
+            </p>
+          )}
+          {reubicarVenta.isError && (
+            <p className="text-xs text-red-600">
+              {reubicarVenta.error instanceof ErrorApi ? reubicarVenta.error.message : 'No se pudo reubicar la venta.'}
             </p>
           )}
         </div>
@@ -584,32 +619,85 @@ interface DatosReubicar {
   asientoNum: number;
 }
 
+interface DatosReubicarVenta {
+  salidaNuevaId: string;
+  origenOrden: number;
+  destinoOrden: number;
+  asientos: Array<{ boletoViejoId: string; asientoNum: number }>;
+}
+
 /**
- * Asistente para reubicar un boleto huérfano (D12/N-14): el operador busca una
- * salida de la ruta nueva por fecha + origen/destino, elige el asiento y
- * confirma. El backend cancela el boleto viejo y reemite; si el pasajero ya
- * pagó mantiene el precio, si no cobra la tarifa vigente de la ruta nueva.
+ * Asistente para reubicar un huérfano (D12/N-14): el operador busca una salida de
+ * la ruta nueva por fecha + origen/destino, elige asiento(s) y confirma. El
+ * backend cancela el/los boleto(s) viejo(s) y reemite; si ya pagó mantiene el
+ * precio, si no cobra la tarifa vigente. Una venta de un boleto usa el flujo
+ * simple; una venta multi-boleto (familia) se reubica completa, un asiento por
+ * pasajero, todos en el mismo tramo.
  */
-function ReubicarBoleto(
-  { pending, onConfirmar }: { pending: boolean; onConfirmar: (d: DatosReubicar) => void },
-) {
+function ReubicarBoleto({
+  ventaId, multiBoleto, pending, onConfirmar, onConfirmarVenta,
+}: {
+  ventaId: string;
+  multiBoleto: boolean;
+  pending: boolean;
+  onConfirmar: (d: DatosReubicar) => void;
+  onConfirmarVenta: (d: DatosReubicarVenta) => void;
+}) {
   const [abierto, setAbierto] = useState(false);
   const [fecha, setFecha] = useState(hoyIso());
   const [origen, setOrigen] = useState('');
   const [destino, setDestino] = useState('');
   const [salida, setSalida] = useState<SalidaDisponible | null>(null);
-  const [asiento, setAsiento] = useState<number | null>(null);
+  // Un asiento por boleto viejo (multi) o el único asiento (simple, clave '').
+  const [asientos, setAsientos] = useState<Record<string, number>>({});
 
   const puntos = useQuery({ queryKey: ['puntos'], queryFn: listarPuntos });
-  const busqueda = useMutation({
-    mutationFn: () => buscarSalidas({ fecha, origen, destino, personas: 1, conConexion: false }),
-    onSuccess: () => { setSalida(null); setAsiento(null); },
+  const reubicables = useQuery({
+    queryKey: ['viajes', 'reubicables', ventaId],
+    queryFn: () => boletosReubicables(ventaId),
+    enabled: abierto && multiBoleto,
   });
+  const busqueda = useMutation({
+    mutationFn: () =>
+      buscarSalidas({
+        fecha, origen, destino,
+        personas: multiBoleto ? (reubicables.data?.length ?? 1) : 1,
+        conConexion: false,
+      }),
+    onSuccess: () => { setSalida(null); setAsientos({}); },
+  });
+
+  const pasajeros = multiBoleto
+    ? (reubicables.data ?? []).map((b) => ({ key: b.boletoId, etiqueta: `${b.pasajeroNombre} (asiento ${b.asientoNum})` }))
+    : [{ key: '', etiqueta: 'Pasajero' }];
+  const tomados = new Set(Object.values(asientos));
+  const listo = pasajeros.every((p) => asientos[p.key] != null);
+
+  const confirmar = () => {
+    if (!salida) return;
+    if (multiBoleto) {
+      onConfirmarVenta({
+        salidaNuevaId: salida.salidaId,
+        origenOrden: salida.origenOrden,
+        destinoOrden: salida.destinoOrden,
+        asientos: (reubicables.data ?? []).map((b) => ({
+          boletoViejoId: b.boletoId, asientoNum: asientos[b.boletoId]!,
+        })),
+      });
+    } else {
+      onConfirmar({
+        salidaNuevaId: salida.salidaId,
+        origenOrden: salida.origenOrden,
+        destinoOrden: salida.destinoOrden,
+        asientoNum: asientos['']!,
+      });
+    }
+  };
 
   if (!abierto) {
     return (
       <button type="button" className="btn-sutil text-brand-700" onClick={() => setAbierto(true)}>
-        Reubicar a otra ruta
+        Reubicar {multiBoleto ? 'la venta' : ''} a otra ruta
       </button>
     );
   }
@@ -617,8 +705,10 @@ function ReubicarBoleto(
   return (
     <div className="w-full space-y-3 rounded-lg border border-brand-200 bg-brand-50/50 p-3 text-sm">
       <p className="text-slate-600">
-        Reubica al pasajero en una salida de la ruta nueva. Si ya pagó, se mantiene el precio;
-        si no, se cobra la tarifa vigente de la ruta nueva.
+        {multiBoleto
+          ? 'Reubica a toda la venta en una salida de la ruta nueva (un asiento por pasajero, mismo tramo). '
+          : 'Reubica al pasajero en una salida de la ruta nueva. '}
+        Si ya pagó, se mantiene el precio; si no, se cobra la tarifa vigente de la ruta nueva.
       </p>
 
       <div className="grid grid-cols-2 gap-2">
@@ -686,7 +776,7 @@ function ReubicarBoleto(
               <button
                 type="button"
                 disabled={!s.seleccionable}
-                onClick={() => { setSalida(s); setAsiento(null); }}
+                onClick={() => { setSalida(s); setAsientos({}); }}
                 className={`w-full rounded border p-2 text-left text-xs ${
                   s.seleccionable ? 'bg-white hover:bg-slate-50' : 'bg-slate-100 text-slate-400'
                 }`}
@@ -705,7 +795,7 @@ function ReubicarBoleto(
       )}
 
       {salida && (
-        <div className="space-y-2">
+        <div className="space-y-3">
           <div className="flex items-center justify-between text-xs text-slate-500">
             <span>
               {fechaHora(salida.horaSalidaOrigen)} · {salida.origenNombre} → {salida.destinoNombre}
@@ -713,39 +803,48 @@ function ReubicarBoleto(
             <button
               type="button"
               className="underline"
-              onClick={() => { setSalida(null); setAsiento(null); }}
+              onClick={() => { setSalida(null); setAsientos({}); }}
             >
               cambiar salida
             </button>
           </div>
-          <div className="flex flex-wrap gap-1.5">
-            {salida.asientosOfrecibles.map((n) => (
-              <button
-                key={n}
-                type="button"
-                onClick={() => setAsiento(n)}
-                className={`h-9 w-9 rounded border text-xs ${
-                  asiento === n
-                    ? 'border-brand-600 bg-brand-600 text-white'
-                    : 'bg-white hover:bg-brand-50'
-                }`}
-              >
-                {n}
-              </button>
-            ))}
-          </div>
+
+          {pasajeros.map((p) => (
+            <div key={p.key} className="space-y-1">
+              {multiBoleto && <p className="text-xs text-slate-600">{p.etiqueta}</p>}
+              <div className="flex flex-wrap gap-1.5">
+                {salida.asientosOfrecibles.map((n) => {
+                  const mio = asientos[p.key] === n;
+                  const ajeno = !mio && tomados.has(n);
+                  return (
+                    <button
+                      key={n}
+                      type="button"
+                      disabled={ajeno}
+                      onClick={() => setAsientos((prev) => ({ ...prev, [p.key]: n }))}
+                      className={`h-9 w-9 rounded border text-xs ${
+                        mio
+                          ? 'border-brand-600 bg-brand-600 text-white'
+                          : ajeno
+                            ? 'cursor-not-allowed bg-slate-100 text-slate-300'
+                            : 'bg-white hover:bg-brand-50'
+                      }`}
+                    >
+                      {n}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+
           <button
             type="button"
             className="btn-primario"
-            disabled={asiento === null || pending}
-            onClick={() => onConfirmar({
-              salidaNuevaId: salida.salidaId,
-              origenOrden: salida.origenOrden,
-              destinoOrden: salida.destinoOrden,
-              asientoNum: asiento!,
-            })}
+            disabled={!listo || pending}
+            onClick={confirmar}
           >
-            {pending ? 'Reubicando…' : `Reubicar${asiento !== null ? ` al asiento ${asiento}` : ''}`}
+            {pending ? 'Reubicando…' : multiBoleto ? 'Reubicar la venta' : 'Reubicar'}
           </button>
         </div>
       )}
