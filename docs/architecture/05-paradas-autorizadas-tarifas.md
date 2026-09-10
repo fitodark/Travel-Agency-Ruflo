@@ -439,7 +439,7 @@ reserva la registra la terminal de origen, que aparta el asiento desde el orden 
     (misma copia point-in-time que F0-D2 / D2 arriba).
 - **Bloqueante:** ninguno.
 
-### Fase 6 — Tercer método de pago (`corresponsal`), caducidad y cancelación de reservas  ·  `0057`–`0060`  ·  ✅ backend completo (falta el asistente SPA de reubicación)
+### Fase 6 — Tercer método de pago (`corresponsal`), caducidad y cancelación de reservas  ·  `0057`–`0060`  ·  ✅ completa
 
 > Migración corrida: `0054` = 5a-2 (manifiesto lista única), `0055` = 5b
 > (`DROP COLUMN salida_parada.sucursal_id`), `0056` = 5c (alta de rutas + F3-D2).
@@ -501,8 +501,12 @@ reserva la registra la terminal de origen, que aparta el asiento desde el orden 
     (`exige({ permiso: 'reserva.cancelar' })`, 422 en negocio). Cliente `reubicarBoleto` en
     `web/src/api/viajes.ts`.
   - `tests/ventas/reubicar-huerfano.test.ts` (+4). Deploy sin ventana coordinada.
-  - **Follow-up (SPA):** el asistente para el operador — buscar la salida de la ruta nueva,
-    elegir asiento y confirmar la reubicación desde el reporte de huérfanos / Viajes.
+  - **✅ Asistente SPA (`f-paradas-fase6d-spa-reubicar`):** `<ReubicarBoleto>` dentro de
+    `<ModalDetalleBoleto>` en `web/src/paginas/Viajes.tsx` (junto a "Cancelar boleto", solo si
+    `estado='emitido'`). Flujo: fecha + origen/destino (puntos) → `buscarSalidas` → elegir
+    salida → elegir asiento (`asientosOfrecibles`) → `reubicarBoleto`. El resultado muestra el
+    folio nuevo y si se mantuvo el precio pagado o se aplicó la tarifa vigente + saldo. La
+    reimpresión queda deshabilitada para un boleto `reasignado`. Solo web, sin migración.
 
 ### Orden de entrega
 
@@ -514,7 +518,7 @@ reserva la registra la terminal de origen, que aparta el asiento desde el orden 
 | #D | 3 (`0051`) | — | estricta + categoría de pasajero |
 | #E | 4 (`0052`) | — | — |
 | #F | 5 (`0053` + admin + SPA) | — | 5a `0053` (impresión/manifiesto→punto, reimpresión) ✅ · 5a-2 `0054` (manifiesto lista única) ✅ · 5b `0055` (`DROP COLUMN salida_parada.sucursal_id` + `api.*`) ✅ · 5c `0056` (CRUD puntos, `crearRuta`/`crearHorario` con banderas, reemplazo D5 + huérfanos, F3-D2, F4-D2) ✅ · 5d tarifas por categoría (`crearTarifa` + `Tarifas.tsx`, F3-D3, F4-D3) ✅ · 5e SPA (`Puntos.tsx`, `Horarios.tsx` con puntos+banderas, modal de reemplazo + huérfanos) ✅ |
-| #G | 6 (`0057`–`0060`) | — | 6a `0057` (`corresponsal` + D8) ✅ · 6b `0058` (caducidad D9) ✅ · 6c-1 `0059` (cancelación + reembolso N-13 + D10) ✅ · 6c-2 `0060` (reubicación de huérfanos N-14) ✅ · falta el asistente SPA de reubicación |
+| #G | 6 (`0057`–`0060`) | — | 6a `0057` (`corresponsal` + D8) ✅ · 6b `0058` (caducidad D9) ✅ · 6c-1 `0059` (cancelación + reembolso N-13 + D10) ✅ · 6c-2 `0060` (reubicación de huérfanos N-14) ✅ · 6d asistente SPA de reubicación ✅ |
 
 Cada PR: `npm run build && npm test` verde antes de merge. Los tests de sync no deben
 `TRUNCATE sync.*` (deadlock con `hlc_estado`). Migraciones a nube + 4 terminales en la
