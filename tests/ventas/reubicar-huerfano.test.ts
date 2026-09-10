@@ -124,6 +124,53 @@ run('reubicación de huérfano (PostgreSQL real)', () => {
     })).rejects.toThrow(/solo se reubica un boleto emitido/i);
   });
 
+  it('F6-D1: el boleto viejo queda activo=false y sale del manifiesto / checklist', async () => {
+    const { vieja, nueva, usuarioId, corteId } = await prep();
+    const v = await registrarVenta(db, {
+      salidaId: vieja.salidaId, sucursalVentaId: vieja.sucursales[0]!, usuarioId,
+      contactoTelefono: '953 111 2222', origenOrden: 0, destinoOrden: 2,
+      pasajeros: [{ asientoNum: 4, nombre: 'Don Luis', importe: 450 }],
+      pago: { metodo: 'efectivo', monto: 450, corteCajaId: corteId },
+    });
+
+    await reubicarHuerfano(db, {
+      boletoViejoId: v.boletos[0]!.boletoId, salidaNuevaId: nueva.salidaId,
+      origenOrden: 0, destinoOrden: 2, asientoNum: 4,
+      usuarioId, sucursalId: vieja.sucursales[0]!,
+    });
+
+    const { rows: b } = await db.query<{ estado: string; activo: boolean }>(
+      `SELECT estado, activo FROM core.boleto WHERE id = $1`, [v.boletos[0]!.boletoId],
+    );
+    expect(b[0]).toMatchObject({ estado: 'reasignado', activo: false });
+
+    // No aparece en el checklist ni lo cuenta salidas_del_dia (ambos filtran activo).
+    const { rows: ck } = await db.query<{ n: string }>(
+      `SELECT count(*) AS n FROM core.v_checklist_abordaje WHERE boleto_id = $1`,
+      [v.boletos[0]!.boletoId],
+    );
+    expect(Number(ck[0]!.n)).toBe(0);
+  });
+
+  it('F6-D2: rechaza reubicar un boleto de una venta con varios boletos vivos', async () => {
+    const { vieja, nueva, usuarioId, corteId } = await prep();
+    const v = await registrarVenta(db, {
+      salidaId: vieja.salidaId, sucursalVentaId: vieja.sucursales[0]!, usuarioId,
+      contactoTelefono: '953 111 2222', origenOrden: 0, destinoOrden: 2,
+      pasajeros: [
+        { asientoNum: 4, nombre: 'Mamá', importe: 450 },
+        { asientoNum: 5, nombre: 'Hija', importe: 450 },
+      ],
+      pago: { metodo: 'efectivo', monto: 900, corteCajaId: corteId },
+    });
+
+    await expect(reubicarHuerfano(db, {
+      boletoViejoId: v.boletos[0]!.boletoId, salidaNuevaId: nueva.salidaId,
+      origenOrden: 0, destinoOrden: 2, asientoNum: 4,
+      usuarioId, sucursalId: vieja.sucursales[0]!,
+    })).rejects.toThrow(/tiene 2 boletos vivos|venta completa/i);
+  });
+
   it('rechaza si el asiento ya está ocupado en la salida nueva', async () => {
     const { vieja, nueva, usuarioId, corteId } = await prep();
     // Alguien ya compró el asiento 4 en la salida nueva.

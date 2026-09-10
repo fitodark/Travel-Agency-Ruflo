@@ -279,7 +279,9 @@ export async function detalleBoleto(
        JOIN core.punto_ruta spo ON spo.id = sppo.punto_id
        JOIN core.salida_parada sppd ON sppd.salida_id = s.id AND sppd.orden = upper(b.tramos)
        JOIN core.punto_ruta spd ON spd.id = sppd.punto_id
-      WHERE b.id = $1::uuid AND b.activo`,
+      WHERE b.id = $1::uuid`,
+    // Sin filtro `b.activo`: la modal de detalle debe seguir mostrando el boleto
+    // tras cancelarlo o reubicarlo (F6-D1 deja el reubicado `activo = false`).
     [boletoId],
   );
 

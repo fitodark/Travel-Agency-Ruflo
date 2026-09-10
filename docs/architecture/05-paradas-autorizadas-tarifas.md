@@ -511,61 +511,52 @@ reserva la registra la terminal de origen, que aparta el asiento desde el orden 
 ### Notas del review de Fase 6 (`0057`–`0060`)
 
 Review independiente hecho al cierre (las fases 5–6 se mergearon con el patrón de agentes
-caído por límite de cuenta). El esquema ya está en nube + dev; estos son bugs de lógica para
-un follow-up (`0061`), no bloquean el deploy a las terminales. Ordenados por severidad.
+caído por límite de cuenta). El esquema ya está en nube + dev; eran bugs de lógica. **`0061`
+corrige F6-D1..D4 y F6-D6** (`CREATE OR REPLACE` de `cancelar_boleto` y `reubicar_huerfano`;
+sin ventana coordinada). Ordenados por severidad.
 
-- **F6-D1 (must-fix, alto) — el boleto viejo reubicado sigue en el manifiesto / checklist /
-  conteo / reporte de huérfanos.** `core.reubicar_huerfano` (`0060`) marca el boleto viejo
-  `estado='reasignado'` pero **no toca `activo`**. En el resto del código `reasignado`
-  significa "mismo boleto, asiento nuevo, sigue viajando" (`src/sync/reasignacion.ts`), así
-  que los lectores lo excluyen solo por `estado <> 'cancelado'` y lo dejan pasar:
-  `core.datos_manifiesto` (`0054`), `core.salidas_del_dia` conteo (`0053`),
-  `core.v_checklist_abordaje` (`0027`), `core.boletos_huerfanos` (`0056`). Un pasajero
-  reubicado aparece como fantasma en la salida vieja. **Fix:** `UPDATE core.boleto SET
-  activo = false` además de `estado='reasignado'` — todos esos lectores ya filtran
-  `AND b.activo`. Verificar que `detalleBoleto` (`abordaje.ts`, filtra `b.activo`) degrade
-  bien: cerraría el modal al éxito en vez de mostrar `estado='reasignado'`.
-- **F6-D2 (bug, alto) — venta huérfana multi-boleto se destruye en la primera reubicación.**
-  `core.boletos_huerfanos` devuelve un renglón por boleto; una familia que compró 3 asientos
-  en una venta quedan como 3 huérfanos de la MISMA venta. Reubicar el 1º:
-  `UPDATE core.pago SET venta_id = <nueva> WHERE venta_id = <vieja> AND activo` mueve
-  **todos** los pagos, y `UPDATE core.venta SET estado='cancelada'` cancela la venta con los
-  boletos 2 y 3 aún `emitido`. Reubicar el 2º: `v_pagado` de la venta vieja ya es 0 → cae a
-  la rama "tarifa vigente" y **le cobra de nuevo** al pasajero. **Fix:** rechazar ventas
-  multi-boleto con mensaje claro ("reubica la venta completa"), o cancelar la venta vieja y
-  mover el pago solo cuando no queden boletos `emitido` en ella.
-- **F6-D3 (bug, medio) — doble reembolso al cancelar boleto por boleto una venta
-  multi-boleto con abono parcial.** `core.cancelar_boleto` (`0059`) calcula
-  `v_reembolso := LEAST(boleto.importe, pagado)` pero **no descuenta reembolsos previos ni
-  desactiva el pago**. Venta de 2 boletos ($450 c/u, total $900) con abono de $500: cancelar
-  el 1º → egreso $450; cancelar el 2º → `pagado` sigue $500 → egreso $450 (total $900
-  reembolsados sobre $500 pagados). El caso de pago completo sale bien solo por aritmética
-  (Σimporte = total). La caducidad `0058` no auto-libera el abono parcial precisamente
-  porque `0059` maneja el reembolso, así que es la ruta prevista. **Fix:** acotar con lo ya
-  reembolsado — `LEAST(importe, pagado − Σ egresos 'devolucion' de los pagos de la venta)`.
-- **F6-D4 (menor) — `reubicar_huerfano` no libera reservas caducas de la salida destino**
-  antes del check de asiento (a diferencia de `registrar_venta` / `adquirir_lease` en
-  `0058`). Si una reserva caduca sostiene el asiento, el `EXCLUDE` dispara "el asiento ya
-  está ocupado" en vez de reubicar. **Fix:** `PERFORM core.liberar_reservas_caducas(
-  p_salida_nueva_id, p_ahora)` antes del INSERT de la ocupación.
-- **F6-D5 (menor) — `reubicar_huerfano` no valida categoría/tarifa en la rama "precio
-  mantenido".** Con `pagado > 0` el boleto nuevo hereda `importe` y `categoria_pasajero` del
-  viejo sin pasar por `v_desc_ok` / `v_tarifa_vigente`: un boleto INAPAM con descuento se
-  reubica en un tramo parcial manteniendo el descuento, algo que `registrar_venta` prohíbe.
-  Impacto bajo (acción de admin), documentar o replicar el guard.
-- **F6-D6 (menor) — falta el guard `sync.replicando()` en `cancelar_boleto` y
-  `reubicar_huerfano`.** `liberar_reservas_caducas` (`0058`) sí lo tiene. Hoy es inocuo
-  (ambas solo se llaman desde la API), pero por consistencia conviene abortarlas si
-  `sync.replicando()`.
-- **F6-D7 (menor / UX) — pago `corresponsal` sin corte abierto en el origen → error feo.**
-  `registrar_venta` (`0057`) hace `v_corte_id := COALESCE(..., core.corte_abierto(origen))`;
-  sin corte abierto queda NULL y el INSERT en `core.pago` (`corte_caja_id` NOT NULL) revienta
-  con una violación de constraint genérica. Mismo patrón preexistente para
-  `efectivo`/`transferencia`; la SPA ya bloquea vender sin corte, así que el impacto real es
-  solo el mensaje.
-- **F6-D8 (menor / perf) — `core.reservas_caducas` se re-ejecuta por asiento** dentro del
-  `NOT IN (...)` de `core.asientos_libres` (`0058`). Impacto bajo (~18 asientos, join chico
-  por salida); se podría materializar una vez.
+- **F6-D1 (must-fix, alto) — ✅ RESUELTO en `0061`.** El boleto viejo reubicado seguía en el
+  manifiesto / checklist / conteo / reporte de huérfanos. `core.reubicar_huerfano` (`0060`)
+  marcaba el boleto viejo `estado='reasignado'` sin tocar `activo`; en el resto del código
+  `reasignado` = "mismo boleto, asiento nuevo, sigue viajando" (`src/sync/reasignacion.ts`),
+  así que `core.datos_manifiesto` (`0054`), `core.salidas_del_dia` (`0053`),
+  `core.v_checklist_abordaje` (`0027`) y `core.boletos_huerfanos` (`0056`) —que solo excluyen
+  `'cancelado'`— lo dejaban pasar. **Fix:** `UPDATE core.boleto SET estado='reasignado',
+  activo=false` (esos lectores ya filtran `AND b.activo`). `abordaje.ts` `detalleBoleto` dejó
+  de filtrar `b.activo` para que la modal siga mostrando el boleto tras reubicarlo.
+- **F6-D2 (bug, alto) — ✅ RESUELTO en `0061`** (rechazo). `core.boletos_huerfanos` devuelve
+  un renglón por boleto; una familia de 3 asientos en una venta son 3 huérfanos de la MISMA
+  venta. `reubicar_huerfano` movía **todos** los `core.pago` y cancelaba la venta vieja en la
+  1ª reubicación → los otros boletos quedaban en venta cancelada sin pago y se les cobraba de
+  nuevo. **Fix:** `reubicar_huerfano` rechaza una venta con más de un boleto `emitido` vivo,
+  con mensaje que apunta al flujo manual (cancelar + reemitir la venta completa, D12).
+  *Pendiente futuro:* reubicación de venta completa manteniendo el precio N-14 para familias
+  (nueva función `reubicar_venta_huerfana` con N asignaciones de asiento en una llamada).
+- **F6-D3 (bug, medio) — ✅ RESUELTO en `0061`.** Doble reembolso al cancelar boleto por
+  boleto una venta multi-boleto con abono parcial: `core.cancelar_boleto` (`0059`) calculaba
+  `LEAST(boleto.importe, pagado)` sin descontar reembolsos previos ni desactivar el pago
+  (2×$450 sobre $500 pagados; el pago completo salía bien solo por aritmética). **Fix:**
+  `v_reembolso := GREATEST(0, LEAST(importe, pagado − Σ egresos 'devolucion' activos de los
+  pagos de la venta))`.
+- **F6-D4 (menor) — ✅ RESUELTO en `0061`.** `reubicar_huerfano` no liberaba las reservas
+  caducas de la salida destino antes del check de asiento (a diferencia de `registrar_venta`
+  / `adquirir_lease`). **Fix:** `PERFORM core.liberar_reservas_caducas(p_salida_nueva_id,
+  p_ahora)` antes del INSERT de la ocupación.
+- **F6-D6 (menor) — ✅ RESUELTO en `0061`.** `cancelar_boleto` / `reubicar_huerfano` no
+  abortaban bajo `sync.replicando()` (a diferencia de `liberar_reservas_caducas`). **Fix:**
+  `IF sync.replicando() THEN RAISE` al inicio de ambas.
+- **F6-D5 (menor) — NO se toca.** `reubicar_huerfano` no valida categoría/tarifa en la rama
+  "precio mantenido": un boleto INAPAM con descuento se reubica en un tramo parcial
+  manteniendo el descuento, algo que `registrar_venta` prohíbe. Impacto bajo (acción de
+  admin, conciliación manual) — se deja documentado.
+- **F6-D7 (menor / UX) — NO se toca.** Pago `corresponsal` (o `efectivo`/`transferencia`)
+  sin corte abierto en el origen → `v_corte_id` NULL → el INSERT en `core.pago`
+  (`corte_caja_id` NOT NULL) revienta con constraint genérico en vez de un mensaje claro.
+  Mismo patrón preexistente; la SPA ya bloquea vender sin corte, el impacto real es solo el
+  mensaje.
+- **F6-D8 (menor / perf) — NO se toca.** `core.reservas_caducas` se re-ejecuta por asiento
+  dentro del `NOT IN (...)` de `core.asientos_libres` (`0058`). Impacto bajo (~18 asientos,
+  join chico por salida).
 
 **Correcto en el review:** `0057` (los dos CHECK, `trg_pago_a_ingreso` omitiendo
 corresponsal, `pagos_corresponsal`, validación `sin_sistema` + total sin abonos, expand-safe);
@@ -591,13 +582,13 @@ Cada PR: `npm run build && npm test` verde antes de merge. Los tests de sync no 
 `TRUNCATE sync.*` (deadlock con `hlc_estado`). Migraciones a nube + 4 terminales en la
 misma ventana.
 
-### Estado del deploy (`0048`–`0060`) — 10 sep 2026
+### Estado del deploy (`0048`–`0061`) — 10 sep 2026
 
 | Nodo | Versión | Estado |
 |---|---|---|
-| **NUBE** (Supabase) | `0060` | ✅ el usuario migró `0053`–`0056` el 9 sep 23:04 y `0057`–`0060` el 10 sep 01:41; `db:migrate:nube --dry` → "nada pendiente", sin drift de checksum. |
-| **Local dev** | `0060` | ✅ aplicado fase por fase durante el desarrollo. |
-| **4 terminales** (Huajuapan / Acatlán / Acatitla / CDMX) | `0049` | ⛔ **pendientes de `0050`→`0060`** — el usuario las migra por TeamViewer en ventana de madrugada (`migrate.ts` solo tiene targets `local` / `nube`). Runbook por terminal: `git pull` → `npm ci` → `npm run build` → `npm run db:status` (confirmar `0049`) → `npm run db:migrate` → `npm run db:status` (verificar `0060`) → reiniciar API / spooler. |
+| **NUBE** (Supabase) | `0060` | ✅ el usuario migró `0053`–`0056` el 9 sep 23:04 y `0057`–`0060` el 10 sep 01:41. Falta `0061` (fixes del review, `CREATE OR REPLACE` — aplicable en caliente). |
+| **Local dev** | `0061` | ✅ `0061` aplica limpio sobre `0060`. |
+| **4 terminales** (Huajuapan / Acatlán / Acatitla / CDMX) | `0049` | ⛔ **pendientes de `0050`→`0061`** — el usuario las migra por TeamViewer en ventana de madrugada (`migrate.ts` solo tiene targets `local` / `nube`). Runbook por terminal: `git pull` → `npm ci` → `npm run build` → `npm run db:status` (confirmar `0049`) → `npm run db:migrate` → `npm run db:status` (verificar `0061`) → reiniciar API / spooler. |
 
 **Ventana de `0055` abierta / con riesgo.** `0055` hizo `DROP COLUMN
 core.salida_parada.sucursal_id` en la nube (tabla **clase A**, nube → sucursal) sin que se

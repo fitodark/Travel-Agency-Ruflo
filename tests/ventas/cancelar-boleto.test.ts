@@ -197,6 +197,39 @@ run('cancelación de boleto (PostgreSQL real)', () => {
     expect(Number(vivos[0]!.n)).toBe(1);
   });
 
+  it('F6-D3: venta multi-boleto con abono parcial — el reembolso total no pasa de lo pagado', async () => {
+    const { fx, usuarioId, corteId } = await prep();
+    // Venta de 2 boletos ($900) con un abono de $500 en efectivo.
+    const r = await registrarVenta(db, {
+      salidaId: fx.salidaId, sucursalVentaId: fx.sucursales[0]!, usuarioId,
+      contactoTelefono: '953 111 2222', origenOrden: 0, destinoOrden: 3,
+      esReservacion: true,
+      pasajeros: [pax(4, 'Ana'), pax(5, 'Beto')],
+      pago: { metodo: 'efectivo', monto: 500, esAbono: true, corteCajaId: corteId },
+    });
+
+    const c1 = await cancelarBoleto(db, {
+      boletoId: r.boletos[0]!.boletoId, usuarioId, sucursalId: fx.sucursales[0]!,
+    });
+    const c2 = await cancelarBoleto(db, {
+      boletoId: r.boletos[1]!.boletoId, usuarioId, sucursalId: fx.sucursales[0]!,
+    });
+
+    // 1er boleto: LEAST(450, 500) = 450. 2º boleto: LEAST(450, 500-450) = 50.
+    expect(c1.reembolsoMonto).toBe(450);
+    expect(c2.reembolsoMonto).toBe(50);
+
+    // Suma de egresos 'devolucion' contra los pagos de esta venta = lo pagado, no 900.
+    const { rows } = await db.query<{ total: string | null }>(
+      `SELECT SUM(mc.monto) AS total
+         FROM core.movimiento_caja mc
+         JOIN core.pago p ON p.id = mc.origen_id
+        WHERE mc.origen_tipo = 'devolucion' AND mc.activo AND p.venta_id = $1`,
+      [r.ventaId],
+    );
+    expect(Number(rows[0]!.total)).toBe(500);
+  });
+
   it('rechaza cancelar un boleto ya cancelado', async () => {
     const { fx, usuarioId } = await prep();
     const r = await registrarVenta(db, {
