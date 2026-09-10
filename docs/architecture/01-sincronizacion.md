@@ -188,6 +188,15 @@ abiertas con `pg_snapshot_xmin(pg_current_snapshot())`.
 A 360 boletos/día (D-1), una semana entera sin conexión son ~10 000 filas de outbox:
 trivial para PostgreSQL y para un lote de 500.
 
+**Implementación del "catch-up antes de vender fuera de cupo" (migración `0063`):** mientras el
+nodo está degradado (`sync.salud.ultima_sync_exitosa` más vieja que
+`umbral_sync_degradado_horas`, 72 h), la venta se restringe al **cupo propio** aunque el
+cliente diga tener conexión — `core.sync_degradado(sucursal, ahora)` lo consulta en
+`core.registrar_venta`, `core.adquirir_lease` y `core.asientos_ofrecibles`. Un nodo que
+nunca sincronizó (recién instalado) no cuenta como degradado. Sale del bloqueo cuando el
+motor vuelve a sincronizar y refresca `ultima_sync_exitosa`. Es el único arrastre de F1
+(estaba como `it.todo` en `tests/sync/engine.test.ts`).
+
 ---
 
 ## 4. Resolución de conflictos por entidad

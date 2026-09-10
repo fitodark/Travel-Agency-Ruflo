@@ -290,9 +290,9 @@ run('engine · ciclo, cadencia y backoff', () => {
 
   // -------------------------------------------------------------------------
   // El "catch-up de pull ANTES de vender fuera de cupo" (§3.3) NO es una
-  // propiedad solo del motor: exige que el camino de venta consulte una señal
+  // propiedad solo del motor: exige que el camino de venta consulte la señal
   // ("¿el nodo está al día con el cupo?") y bloquee el override si no. El motor
-  // ya expone `modo === 'degradado'` y `snapshot.ultimaSyncExitosa`; falta el
-  // enganche en `src/ventas/`. Queda como `it.todo` hasta esa decisión.
-  it.todo('hace catch-up de pull ANTES de permitir vender asientos fuera de cupo (§3.3)');
+  // expone `sync.salud.ultima_sync_exitosa`; el enganche vive en el SQL de venta
+  // desde `0063` (`core.sync_degradado` en `registrar_venta` / `adquirir_lease` /
+  // `asientos_ofrecibles`). Pruebas: `tests/ventas/catchup-cupo.test.ts`.
 });
