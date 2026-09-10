@@ -215,13 +215,15 @@ run('consola · rutas con paradas / puntos / reemplazo (PostgreSQL real)', () =>
 
   it('reemplazarRuta exige fecha futura', async () => {
     const fx = await seedSalida(db, { paradas: 2, diasAdelante: 30 });
-    const { rows } = await db.query<{ ruta_id: string }>(
-      `SELECT ruta_id FROM core.horario WHERE id = $1`, [fx.horarioId],
+    const { rows } = await db.query<{ ruta_id: string; hoy: string }>(
+      `SELECT h.ruta_id, current_date::text AS hoy FROM core.horario h WHERE h.id = $1`,
+      [fx.horarioId],
     );
     const { puntos } = await dosTerminales();
+    // `hoy` según la base (no `new Date()` en UTC, que de noche ya es "mañana").
     await expect(reemplazarRuta(db, {
       rutaViejaId: rows[0]!.ruta_id, nombre: 'x',
-      vigenteDesde: new Date().toISOString().slice(0, 10),
+      vigenteDesde: rows[0]!.hoy,
       paradas: [
         { puntoId: puntos[0]!, permiteAscenso: true, permiteDescenso: true },
         { puntoId: puntos[1]!, permiteAscenso: true, permiteDescenso: true },

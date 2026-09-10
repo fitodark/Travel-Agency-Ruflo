@@ -439,31 +439,45 @@ reserva la registra la terminal de origen, que aparta el asiento desde el orden 
     (misma copia point-in-time que F0-D2 / D2 arriba).
 - **Bloqueante:** ninguno.
 
-### Fase 6 — Tercer método de pago (`corresponsal`), caducidad y cancelación de reservas  ·  `0057`
+### Fase 6 — Tercer método de pago (`corresponsal`), caducidad y cancelación de reservas  ·  `0057`+
 
 > Migración corrida: `0054` = 5a-2 (manifiesto lista única), `0055` = 5b
 > (`DROP COLUMN salida_parada.sucursal_id`), `0056` = 5c (alta de rutas + F3-D2).
 
-- `core.pago`: `metodo` CHECK gana `'corresponsal'` (`corte_caja_id` **sigue NOT NULL**).
-  `core.sucursal` → `ADD COLUMN sin_sistema`. (`config_ticket.leyenda_reimpresion` ya la agregó
-  la `0053`.)
-- `core.registrar_venta` / registro de pago: `metodo='corresponsal'` ⇒ `sucursal_cobro_id`
-  = sucursal `sin_sistema` (o parada de ascenso sin POS), `corte_caja_id` = corte abierto
-  del vendedor de origen, `verificado=true`, `saldo_pendiente=0`. El trigger `pago→ingreso`
-  (`0025`) **omite** `corresponsal` (no crea `movimiento_caja`).
-- **Corte de caja (D8):** `src/caja/` — el reporte del corte gana un apartado
-  "cobrado en corresponsal" (conteo + suma + detalle por `sucursal_cobro_id`), sin sumar
-  al efectivo. Ver `<HistorialCortes>` / el cierre de corte.
-- **Caducidad (D9):** liberación perezosa de reservas con `saldo_pendiente > 0` cuyo
-  `salida.hora_salida - 1h < now()` — en `buscar_salidas`, `adquirir_lease`,
-  `registrar_venta`, `materializar_salidas` / job de cupo.
-- **Cancelación / reembolso (D9):** acción hasta 1 h antes de la salida; si la reserva
-  estaba pagada ⇒ `core.movimiento_caja` tipo `reembolso` (egreso) en el corte activo;
-  siempre libera el asiento.
-- **Manifiesto con transferencia sin validar (D10):** se imprime igual, estatus del
-  pasajero = "pendiente"; no bloquea.
-- `pagoSchema`, selector en `Vender.tsx`, estatus visible en Viajes.
-- **Bloqueante:** ninguno. Dudas de detalle abiertas: **N-13..N-15** (§7.2).
+- **✅ 6a — `corresponsal` (`0057`, rama `f-paradas-fase6a`):**
+  - `core.sucursal` += `sin_sistema boolean` (D13). `v_sucursal_vigente` recreada para exponerla.
+  - `core.pago.metodo` CHECK += `'corresponsal'`; `pago_check` acepta `corresponsal` verificado
+    sin `verificado_por`. `corte_caja_id` sigue NOT NULL = corte del vendedor de origen.
+  - `core.registrar_venta`: `metodo='corresponsal'` ⇒ `sucursal_cobro_id` = una sucursal
+    `sin_sistema` activa (se valida), cubre el total (sin abonos), entra `verificado=true` y
+    cuenta como pagado (venta liquidada, boleto imprimible). `referencia_transferencia` NULL.
+  - `core.trg_pago_a_ingreso`: **omite** `corresponsal` — no crea `movimiento_caja`, no suma
+    al efectivo del corte.
+  - **D8:** `core.pagos_corresponsal(corte)` + `src/caja/corte.ts` `cobradoEnCorresponsal` +
+    `GET /caja/corte/:id/corresponsal`; apartado "cobrado en corresponsal" en `<Caja>` (bajo
+    los movimientos del corte).
+  - `pagoSchema` / `PagoInput` += `metodo:'corresponsal'` + `sucursalCobroId`; `Vender.tsx`
+    gana la opción + selector de sucursal de cobro (solo si hay sucursales `sin_sistema`).
+  - `tests/ventas/pago-corresponsal.test.ts` (+4). Deploy sin ventana coordinada.
+- **✅ 6b — Caducidad (D9) (`0058`, rama `f-paradas-fase6b`):** una reserva **sin ningún pago**
+  (`es_reservacion`, `pagado = 0`) caduca 1 h antes de `salida_parada` orden 0
+  (`hora_paso_programada - 1h <= ahora`). **Liberación perezosa** (sin job):
+  - `core.reservas_caducas(salida, ahora)` (STABLE) lista las ocupaciones a liberar;
+  - `core.liberar_reservas_caducas(salida, ahora)` (VOLATILE) las materializa —
+    `asiento_ocupacion.estado='liberado'`, `boleto.estado='cancelado'`,
+    `venta.estado='cancelada'` (si no le quedan boletos vivos); guarda contra `sync.replicando()`;
+  - `core.asientos_libres` deja de contar la ocupación caduca (lado LECTURA, sin escribir);
+  - `core.adquirir_lease` y `core.registrar_venta` llaman a `liberar_reservas_caducas` antes de
+    tocar el asiento (lado ESCRITURA).
+  - Determinista del reloj ⇒ sin ventana coordinada (como la expiración de leases).
+  - **Reserva con abono parcial: NO se auto-libera** — el reembolso del abono es 6c.
+  - `tests/ventas/caducidad-reservas.test.ts` (+3).
+- **6c (pendiente — BLOQUEADA por N-13/N-14) — Cancelación / reembolso (D9):** acción hasta 1 h
+  antes de la salida; si la reserva estaba pagada ⇒ `core.movimiento_caja` tipo `reembolso`
+  (egreso, `origen_tipo='devolucion'`) en el corte activo; siempre libera el asiento. + **D10**
+  (manifiesto con transferencia sin validar: se imprime igual, estatus "pendiente"). Necesita
+  N-13 (qué rol autoriza; reembolso de un `corresponsal`) y N-14 (traspaso de saldo vs
+  reembolso+cobro al reemitir un huérfano).
 
 ### Orden de entrega
 
@@ -475,7 +489,7 @@ reserva la registra la terminal de origen, que aparta el asiento desde el orden 
 | #D | 3 (`0051`) | — | estricta + categoría de pasajero |
 | #E | 4 (`0052`) | — | — |
 | #F | 5 (`0053` + admin + SPA) | — | 5a `0053` (impresión/manifiesto→punto, reimpresión) ✅ · 5a-2 `0054` (manifiesto lista única) ✅ · 5b `0055` (`DROP COLUMN salida_parada.sucursal_id` + `api.*`) ✅ · 5c `0056` (CRUD puntos, `crearRuta`/`crearHorario` con banderas, reemplazo D5 + huérfanos, F3-D2, F4-D2) ✅ · 5d tarifas por categoría (`crearTarifa` + `Tarifas.tsx`, F3-D3, F4-D3) ✅ · 5e SPA (`Puntos.tsx`, `Horarios.tsx` con puntos+banderas, modal de reemplazo + huérfanos) ✅ |
-| #G | 6 (`0057`) | — | `corresponsal` + caducidad + cancelación; ver N-13..N-15 |
+| #G | 6 (`0057`+) | — | 6a `0057` (`corresponsal` + D8) ✅ · 6b `0058` (caducidad D9) ✅ · 6c cancelación/reembolso D9 + D10 (bloqueada por N-13/N-14) |
 
 Cada PR: `npm run build && npm test` verde antes de merge. Los tests de sync no deben
 `TRUNCATE sync.*` (deadlock con `hlc_estado`). Migraciones a nube + 4 terminales en la

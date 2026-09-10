@@ -12,8 +12,8 @@
 
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import {
-  abrirCorte, cerrarCorte, corteAbiertoDe, corteVisiblePor, historialCortes,
-  saldoCorte, type AlcanceCorte,
+  abrirCorte, cerrarCorte, cobradoEnCorresponsal, corteAbiertoDe, corteVisiblePor,
+  historialCortes, saldoCorte, type AlcanceCorte,
 } from '../../caja/corte.js';
 import {
   anularMovimiento, movimientosDeCorte, registrarEgreso, type Rol,
@@ -119,6 +119,18 @@ export async function rutasCaja(app: FastifyInstance): Promise<void> {
       const { id } = req.params as { id: string };
       if (!(await corteVisiblePor(app.db, id, alcanceDe(req)))) throw prohibido();
       return movimientosDeCorte(app.db, id, req.sesion.rol as Rol);
+    },
+  );
+
+  // Apartado "cobrado en corresponsal" del corte (D8): pagos que se cobraron en
+  // una sucursal sin sistema y NO entran al efectivo, listados aparte.
+  app.get(
+    '/corte/:id/corresponsal',
+    { schema: { params: idParam } },
+    async (req) => {
+      const { id } = req.params as { id: string };
+      if (!(await corteVisiblePor(app.db, id, alcanceDe(req)))) throw prohibido();
+      return cobradoEnCorresponsal(app.db, id);
     },
   );
 

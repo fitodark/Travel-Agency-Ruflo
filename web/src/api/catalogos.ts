@@ -7,6 +7,8 @@ export interface Sucursal {
   telefonoPrincipal: string | null;
   direccionCompleta: string | null;
   zonaHoraria: string;
+  /** D13: sucursal sin sistema — solo cobra pagos `corresponsal`. */
+  sinSistema: boolean;
 }
 
 export function listarSucursales(): Promise<Sucursal[]> {

@@ -49,6 +49,24 @@ export function movimientos(corteId: string): Promise<Movimiento[]> {
   return api<Movimiento[]>(`/caja/corte/${corteId}/movimientos`);
 }
 
+export interface CobradoEnCorresponsal {
+  conteo: number;
+  suma: number;
+  detalle: {
+    pagoId: string;
+    folio: string | null;
+    pasajero: string | null;
+    sucursalCobro: string;
+    monto: number;
+    pagadoEn: string;
+  }[];
+}
+
+/** Apartado "cobrado en corresponsal" del corte (D8): no entra al efectivo. */
+export function cobradoEnCorresponsal(corteId: string): Promise<CobradoEnCorresponsal> {
+  return api<CobradoEnCorresponsal>(`/caja/corte/${corteId}/corresponsal`);
+}
+
 export interface CorteHistorial {
   corteId: string;
   sucursalId: string;

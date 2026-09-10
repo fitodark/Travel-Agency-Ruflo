@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { ErrorApi } from '../api/cliente';
-import { listarPuntos } from '../api/catalogos';
+import { listarPuntos, listarSucursales } from '../api/catalogos';
 import {
   buscarSalidas, registrarVenta,
   type CategoriaPasajero, type ResultadoVenta, type SalidaDisponible,
@@ -57,8 +57,14 @@ export function Vender() {
   const [asientos, setAsientos] = useState<number[]>([]);
   const [nombres, setNombres] = useState<Record<number, string>>({});
   const [categorias, setCategorias] = useState<Record<number, CategoriaPasajero>>({});
-  const [metodo, setMetodo] = useState<'efectivo' | 'transferencia' | 'sin_pago'>('efectivo');
+  const [metodo, setMetodo] = useState<'efectivo' | 'transferencia' | 'corresponsal' | 'sin_pago'>('efectivo');
   const [referencia, setReferencia] = useState('');
+  const [sucursalCobroId, setSucursalCobroId] = useState('');
+
+  // D8: las sucursales sin sistema (Tamazulapan) son las únicas donde puede
+  // cobrarse un pago `corresponsal`.
+  const sucursales = useQuery({ queryKey: ['catalogos', 'sucursales'], queryFn: listarSucursales });
+  const sinSistema = (sucursales.data ?? []).filter((s) => s.sinSistema);
   const [resultado, setResultado] = useState<ResultadoVenta | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -103,7 +109,13 @@ export function Vender() {
         })),
         ...(metodo === 'sin_pago'
           ? {}
-          : { pago: { metodo, monto: total, ...(referencia ? { referencia } : {}) } }),
+          : {
+              pago: {
+                metodo, monto: total,
+                ...(metodo === 'transferencia' && referencia ? { referencia } : {}),
+                ...(metodo === 'corresponsal' ? { sucursalCobroId } : {}),
+              },
+            }),
       });
     },
     onSuccess: (r) => {
@@ -125,6 +137,7 @@ export function Vender() {
     setResultado(null);
     setError(null);
     setMetodo('efectivo');
+    setSucursalCobroId('');
     setReferencia('');
   };
 
@@ -393,6 +406,17 @@ export function Vender() {
                 {m}
               </label>
             ))}
+            {sinSistema.length > 0 && (
+              <label className="flex items-center gap-2">
+                <input
+                  type="radio"
+                  name="metodo"
+                  checked={metodo === 'corresponsal'}
+                  onChange={() => setMetodo('corresponsal')}
+                />
+                Corresponsal (cobrado en sucursal sin sistema)
+              </label>
+            )}
             {esReservacion && (
               <label className="flex items-center gap-2">
                 <input
@@ -415,12 +439,29 @@ export function Vender() {
               />
             </label>
           )}
+          {metodo === 'corresponsal' && (
+            <label className="block">
+              Sucursal donde se cobró
+              <select
+                value={sucursalCobroId}
+                onChange={(e) => setSucursalCobroId(e.target.value)}
+                className="campo mt-1"
+              >
+                <option value="">— elige —</option>
+                {sinSistema.map((s) => <option key={s.id} value={s.id}>{s.nombre}</option>)}
+              </select>
+            </label>
+          )}
           <p className="text-slate-500">
-            {metodo === 'sin_pago' ? 'Sin cobro ahora.' : `Se cobra $${total} en ${metodo}.`}
+            {metodo === 'sin_pago'
+              ? 'Sin cobro ahora.'
+              : metodo === 'corresponsal'
+                ? `Se registra el cobro de $${total} hecho en la corresponsal (no entra al efectivo del corte).`
+                : `Se cobra $${total} en ${metodo}.`}
           </p>
           <button
             onClick={() => venta.mutate()}
-            disabled={venta.isPending}
+            disabled={venta.isPending || (metodo === 'corresponsal' && !sucursalCobroId)}
             className="btn-primario"
           >
             {venta.isPending ? 'Registrando…' : 'Registrar venta'}

@@ -68,10 +68,12 @@ export interface Pasajero {
 }
 
 export interface PagoInput {
-  metodo: 'efectivo' | 'transferencia';
+  metodo: 'efectivo' | 'transferencia' | 'corresponsal';
   monto: number;
   esAbono?: boolean;
   referencia?: string;
+  /** Solo `corresponsal`: la sucursal `sin_sistema` donde se cobró (D8). */
+  sucursalCobroId?: string;
 }
 
 export interface NuevaVenta {

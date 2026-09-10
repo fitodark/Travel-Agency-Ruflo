@@ -19,7 +19,8 @@ export async function rutasCatalogos(app: FastifyInstance): Promise<void> {
   app.get('/sucursales', { preHandler: exige() }, async () => {
     const { rows } = await app.db.query(
       `SELECT id, nombre, codigo, telefono_principal AS "telefonoPrincipal",
-              direccion_completa AS "direccionCompleta", zona_horaria AS "zonaHoraria"
+              direccion_completa AS "direccionCompleta", zona_horaria AS "zonaHoraria",
+              sin_sistema AS "sinSistema"
          FROM core.v_sucursal_vigente
         ORDER BY nombre`,
     );

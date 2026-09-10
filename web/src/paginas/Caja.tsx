@@ -3,7 +3,8 @@ import { useLocation } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ErrorApi } from '../api/cliente';
 import {
-  abrirCorte, anularMovimiento, cerrarCorte, corteAbierto, historialCortes, movimientos,
+  abrirCorte, anularMovimiento, cerrarCorte, cobradoEnCorresponsal, corteAbierto,
+  historialCortes, movimientos,
   registrarEgreso, type CierreCorte, type CorteHistorial,
 } from '../api/caja';
 import { useSesion } from '../auth/sesion';
@@ -143,12 +144,49 @@ function FilaCorte({
       </tr>
       {abierto && (
         <tr>
-          <td colSpan={cols} className="bg-slate-50/60 px-4 py-3">
+          <td colSpan={cols} className="bg-slate-50/60 px-4 py-3 space-y-3">
             <MovimientosDeCorte corteId={c.corteId} />
+            <CorresponsalDeCorte corteId={c.corteId} />
           </td>
         </tr>
       )}
     </>
+  );
+}
+
+/** Apartado "cobrado en corresponsal" (D8): no suma al efectivo del corte. */
+function CorresponsalDeCorte({ corteId }: { corteId: string }) {
+  const q = useQuery({
+    queryKey: ['caja', 'corresponsal', corteId],
+    queryFn: () => cobradoEnCorresponsal(corteId),
+  });
+  if (!q.data || q.data.conteo === 0) return null;
+  return (
+    <div className="rounded border border-arena-200 bg-arena-50/60 p-3">
+      <p className="text-xs font-semibold uppercase tracking-wide text-arena-800">
+        Cobrado en corresponsal — {q.data.conteo} pago(s), ${q.data.suma} (no entra al efectivo)
+      </p>
+      <table className="mt-2 w-full text-sm">
+        <thead className="text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+          <tr>
+            <th className="py-1 pr-4">Fecha</th><th className="py-1 pr-4">Folio</th>
+            <th className="py-1 pr-4">Pasajero</th><th className="py-1 pr-4">Sucursal de cobro</th>
+            <th className="py-1 text-right">Monto</th>
+          </tr>
+        </thead>
+        <tbody>
+          {q.data.detalle.map((d) => (
+            <tr key={d.pagoId} className="border-t border-slate-200">
+              <td className="py-1 pr-4 whitespace-nowrap">{fechaHora(d.pagadoEn)}</td>
+              <td className="py-1 pr-4 font-mono">{d.folio ?? '—'}</td>
+              <td className="py-1 pr-4">{d.pasajero ?? '—'}</td>
+              <td className="py-1 pr-4">{d.sucursalCobro}</td>
+              <td className="py-1 text-right">${d.monto}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
