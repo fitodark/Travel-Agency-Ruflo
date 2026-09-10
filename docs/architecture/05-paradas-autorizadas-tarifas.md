@@ -585,13 +585,13 @@ Cada PR: `npm run build && npm test` verde antes de merge. Los tests de sync no 
 `TRUNCATE sync.*` (deadlock con `hlc_estado`). Migraciones a nube + 4 terminales en la
 misma ventana.
 
-### Estado del deploy (`0048`–`0062`) — 10 sep 2026
+### Estado del deploy (`0048`–`0063`) — 10 sep 2026
 
 | Nodo | Versión | Estado |
 |---|---|---|
-| **NUBE** (Supabase) | `0062` | ✅ el usuario migró `0053`–`0056` el 9 sep 23:04, `0057`–`0060` el 10 sep 01:41, `0061` el 10 sep 05:23, `0062` el 10 sep 12:16. `db:migrate:nube --dry` → "nada pendiente", sin drift. |
-| **Local dev** | `0062` | ✅ |
-| **4 terminales** (Huajuapan / Acatlán / Acatitla / CDMX) | `0049` | ⛔ **pendientes de `0050`→`0062`** — el usuario las migra por TeamViewer en ventana de madrugada (`migrate.ts` solo tiene targets `local` / `nube`). Runbook por terminal: `git pull` → `npm ci` → `npm run build` → `npm run db:status` (confirmar `0049`) → `npm run db:migrate` → `npm run db:status` (verificar `0062`) → reiniciar API / spooler. |
+| **NUBE** (Supabase) | `0063` | ✅ el usuario migró `0053`–`0056` el 9 sep 23:04, `0057`–`0060` el 10 sep 01:41, `0061` 05:23, `0062` 12:16, `0063` 13:04. `db:migrate:nube --dry` → "nada pendiente", sin drift. |
+| **Local dev** | `0063` | ✅ |
+| **4 terminales** (Huajuapan / Acatlán / Acatitla / CDMX) | `0049` | ⛔ **pendientes de `0050`→`0063`** — el usuario las migra por TeamViewer en ventana de madrugada (`migrate.ts` solo tiene targets `local` / `nube`). Runbook por terminal: `git pull` → `npm ci` → `npm run build` → `npm run db:status` (confirmar `0049`) → `npm run db:migrate` → `npm run db:status` (verificar `0063`) → reiniciar API / spooler. |
 
 **Ventana de `0055` abierta / con riesgo.** `0055` hizo `DROP COLUMN
 core.salida_parada.sucursal_id` en la nube (tabla **clase A**, nube → sucursal) sin que se
