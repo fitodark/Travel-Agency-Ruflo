@@ -524,6 +524,26 @@ Cada PR: `npm run build && npm test` verde antes de merge. Los tests de sync no 
 `TRUNCATE sync.*` (deadlock con `hlc_estado`). Migraciones a nube + 4 terminales en la
 misma ventana.
 
+### Estado del deploy (`0048`–`0060`) — 10 sep 2026
+
+| Nodo | Versión | Estado |
+|---|---|---|
+| **NUBE** (Supabase) | `0060` | ✅ el usuario migró `0053`–`0056` el 9 sep 23:04 y `0057`–`0060` el 10 sep 01:41; `db:migrate:nube --dry` → "nada pendiente", sin drift de checksum. |
+| **Local dev** | `0060` | ✅ aplicado fase por fase durante el desarrollo. |
+| **4 terminales** (Huajuapan / Acatlán / Acatitla / CDMX) | `0049` | ⛔ **pendientes de `0050`→`0060`** — el usuario las migra por TeamViewer en ventana de madrugada (`migrate.ts` solo tiene targets `local` / `nube`). Runbook por terminal: `git pull` → `npm ci` → `npm run build` → `npm run db:status` (confirmar `0049`) → `npm run db:migrate` → `npm run db:status` (verificar `0060`) → reiniciar API / spooler. |
+
+**Ventana de `0055` abierta / con riesgo.** `0055` hizo `DROP COLUMN
+core.salida_parada.sucursal_id` en la nube (tabla **clase A**, nube → sucursal) sin que se
+cumpliera la precondición "los 5 nodos en `0054` antes de `0055`". Una `salida_parada`
+materializada en la nube desde el 9 sep 23:04 puede **atascar el pull** de una terminal que
+sigue en `0049` (allá `sucursal_id` es `NOT NULL`); se auto-cura en cuanto esa terminal pasa
+`0055`. → Prioridad: migrar las 4 terminales y, tras cada una, verificar que su sync no quedó
+"atascado".
+
+Con las 4 terminales en `0050`+ queda **desbloqueado F2-D3** (retiro de
+`trg_aa_tramos_ocupacion_compat`, precondición propia "los 5 nodos ≥ `0050`") — migración
+chica futura, fuera de este deploy.
+
 ---
 
 ## 5. Superficie de cambio (resumen)
