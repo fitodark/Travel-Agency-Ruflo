@@ -18,8 +18,9 @@ Fuentes: `knowledge/requerimiendo-donaji.md` (requerimiento del cliente, autorit
 | [02b-modelo-transaccional.md](02b-modelo-transaccional.md) | Ventas, boletos, pagos, caja, folios, eventos, configuración |
 | [03-auth-impresion-config.md](03-auth-impresion-config.md) | Auth/autz offline, impresión térmica ESC/POS, ventana de propagación de configuración |
 | [04-riesgos-roadmap.md](04-riesgos-roadmap.md) | Riesgos por severidad, puntos de extensión Etapa 2, roadmap con criterios de aceptación |
+| [05-paradas-autorizadas-tarifas.md](05-paradas-autorizadas-tarifas.md) | **Rediseño post-v0.2**: paradas de solo ascenso/descenso, tarifa por parada, cobro descentralizado, caducidad/cancelación/reubicación de reservas (Fases 0–6, migr. `0048`–`0060`) |
 | [preguntas-tecnicas.md](preguntas-tecnicas.md) | Preguntas técnicas: 8 cerradas, 4 abiertas no bloqueantes |
-| [CHANGELOG.md](CHANGELOG.md) | **Registro de cambios v0.1 → v0.2** con los 8 deltas y su impacto |
+| [CHANGELOG.md](CHANGELOG.md) | **Registro de cambios**: v0.1 → v0.2 (8 deltas D-1..D-8) + delta post-v0.2 del rediseño de paradas autorizadas (D-9..D-14) |
 
 El nombre de archivo `blueprint.md` es deliberadamente neutro respecto de la versión: es
 la entrada enlazada desde el resto de los documentos y no cambia entre revisiones. La
@@ -40,6 +41,9 @@ versión vigente se declara en su encabezado y su historia en [CHANGELOG.md](CHA
 - Abiertas no bloqueantes: P7 (parcial), P8, P12, y dos ítems menores (región de Supabase,
   versión exacta de Windows)
 - P10 dejó de ser pregunta: es un **requisito confirmado** (respaldo local, ver CHANGELOG D-2)
+- **Rediseño de paradas autorizadas** (post-v0.2): cerrado backend + SPA el 2026-09-10
+  (Fases 0–6, migr. `0048`–`0060`, PRs #61–#76). Residual del plan: solo **N-15**. Falta el
+  despliegue a las 4 terminales físicas. Ver [05-paradas-autorizadas-tarifas.md](05-paradas-autorizadas-tarifas.md).
 
 ## Convenciones de este blueprint
 
@@ -47,4 +51,7 @@ versión vigente se declara en su encabezado y su historia en [CHANGELOG.md](CHA
 - **CONTRADICCIÓN** — inconsistencia detectada entre requerimiento y propuesta, o interna.
 - **VACÍO** — información faltante que no bloquea el diseño pero sí la implementación.
 - **PREGUNTA** — pregunta técnica abierta; ver `preguntas-tecnicas.md`.
-- **D-n** — delta confirmado en la v0.2; ver `CHANGELOG.md`.
+- **D-n** — delta confirmado: `D-1..D-8` en la v0.2; `D-9..D-14` en el rediseño post-v0.2 de
+  paradas autorizadas. Ver `CHANGELOG.md`.
+- **Dn / Pn / Nn** (sin guion) — decisiones (`D1..D13`) y preguntas del cliente (`P-1..P-9`,
+  `N-1..N-15`) del plan de paradas autorizadas; ver `05-paradas-autorizadas-tarifas.md` §2/§7.
