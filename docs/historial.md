@@ -2944,7 +2944,32 @@ Tests: `tests/ventas/reubicar-venta-huerfana.test.ts` (+4): familia pagada
 rechazo por asiento ocupado. Verificación: typecheck src+web verde, web build
 verde, `tests/ventas`+`fleet`+`api/viajes` 159/159; `npm test` completo
 **515 pass / 70 fail** (los mismos preexistentes, 0 regresiones; 508 baseline
-+ 3 de `0061` + 4 de `0062`).
++ 3 de `0061` + 4 de `0062`). **Mergeado: PR #78, `main` = `d56d031`.**
+Nube + dev migradas a `0062` (10 sep). Faltan las 4 terminales físicas.
+
+### N-15 resuelta (cliente, 2026-09-10) — plan de paradas autorizadas cerrado
+
+Aclarado que **POS ≠ impresora**: POS = nodo con PC + app + `core.sucursal` +
+corte de caja + folios + bloque de cupo offline. Una "parada de ascenso sin POS"
+no es un nodo del sistema.
+
+Cuando esa parada gana su sistema: **pasa a `punto_ruta.tipo='terminal'` con su
+`core.sucursal`** — operación de catálogo, sin cambio de esquema. El esquema ya
+amarra `terminal` a tener `core.sucursal` (`CHECK`), así que no hay estado
+"parada con POS". `repartir_cupo_offline` le asigna un bloque disjunto
+`[su_orden, destino)` desde la siguiente materialización; las salidas ya
+materializadas conservan su reparto. Para Tamazulapan (hoy `sin_sistema=true`):
+`sin_sistema=false` + agregar como `punto_ruta` terminal a sus rutas.
+
+Dos decisiones de producto que respondió el cliente:
+- **P1:** al volverse terminal es **sucursal completa** (consola de admin, cortes,
+  tablero) y **debe tener su propio corte de caja**.
+- **P2:** el estrechamiento del cupo offline por bloques (R17) es **aceptable** —
+  la estrategia es consultar el cupo **siempre online** (lease); requisito duro:
+  **vender + imprimir el ticket nunca se bloquea**.
+
+Con N-15, el plan `05-…md` queda **cerrado a nivel de decisiones** (P-1..P-9,
+N-1..N-15). Doc header y §7.3 actualizados. Memoria al día.
 
 ---
 
