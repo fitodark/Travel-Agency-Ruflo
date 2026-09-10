@@ -2894,7 +2894,7 @@ asiento en `asientos_libres`.
   deja de filtrar `b.activo` para que la modal siga funcionando tras reubicar.
 - **F6-D2:** `reubicar_huerfano` rechaza una venta con >1 boleto `emitido` vivo
   ("cancélala completa y reemítela"). La reubicación de venta completa con precio
-  N-14 para familias queda como feature futura.
+  N-14 para familias se implementa en `0062`.
 - **F6-D3:** `cancelar_boleto` acota `v_reembolso` con lo ya devuelto a los pagos
   de la venta (`Σ egresos 'devolucion' activos`), evitando el doble reembolso en
   ventas multi-boleto con abono parcial.
@@ -2909,6 +2909,42 @@ multi-boleto: reembolso total = lo pagado, no 2×). Verificación: typecheck src
 verde, web build verde; `tests/ventas`+`tests/fleet` 144/144, `tests/sync` 109/109
 +1 todo; `npm test` completo 496/70 con `f1-criterios` intermitente por red contra
 la nube (re-run aislado limpio) — baseline efectivo 508/70 + 3 nuevos, 0 regresiones.
+**Mergeado: PR #77, `main` = `498b236`.**
+
+### `0062` — reubicación de venta huérfana completa (familias multi-boleto, F6-D2)
+
+Cierra el hueco que dejó `0061` (rechazaba las ventas multi-boleto). Función nueva
+`core.reubicar_venta_huerfana(venta_vieja, salida_nueva, asignaciones jsonb,
+usuario, sucursal, ahora)`: emite **una** venta nueva con todos los boletos, en
+dos pasadas (validar + calcular importe por boleto; emitir boleto + ocupación).
+
+- N-14: familia **pagada** ⇒ cada boleto al importe del boleto viejo, `UPDATE
+  core.pago SET venta_id` una vez (traspaso, sin mover efectivo); **sin pagar** ⇒
+  tarifa vigente de la ruta nueva por tramo/categoría, venta `pendiente`.
+- Las asignaciones deben cubrir **exactamente** los boletos vivos de la venta
+  (`array_agg` ordenado, comparación `IS DISTINCT FROM`) — si no, el pago se
+  traspasaría dejando boletos huérfanos.
+- Boletos viejos → `reasignado` + `activo=false` (F6-D1); asientos liberados;
+  venta vieja `cancelada`. `nota_auditoria` `entidad='core.venta'` tipo
+  `reubicacion`. `PERFORM liberar_reservas_caducas` sobre la salida destino
+  (F6-D4). Guard `sync.replicando()`.
+- `src/fleet/abordaje.ts`: `boletosReubicables(venta)` + `reubicarVentaHuerfana`.
+  `GET /viajes/venta/:id/reubicables` + `POST /viajes/venta/:id/reubicar`
+  (`reserva.cancelar`, 422 en negocio; el body lleva un origen/destino y un asiento
+  por boleto, todos el mismo tramo).
+- Web: `<ReubicarBoleto>` conmuta a modo multi-boleto cuando
+  `venta.boletosEnLaVenta > 1` — pide un asiento por pasajero (asientos ya tomados
+  deshabilitados) y llama `reubicarVentaHuerfana`. `web/src/api/viajes.ts` gana
+  los dos clientes + tipos.
+
+Tests: `tests/ventas/reubicar-venta-huerfana.test.ts` (+4): familia pagada
+(precio mantenido, pagos traspasados una vez, boletos viejos `reasignado`/
+`activo=false`, venta vieja cancelada, asientos liberados), familia sin pagar
+(tarifa vigente ×N), rechazo si las asignaciones no cubren todos los boletos,
+rechazo por asiento ocupado. Verificación: typecheck src+web verde, web build
+verde, `tests/ventas`+`fleet`+`api/viajes` 159/159; `npm test` completo
+**515 pass / 70 fail** (los mismos preexistentes, 0 regresiones; 508 baseline
++ 3 de `0061` + 4 de `0062`).
 
 ---
 
