@@ -215,10 +215,12 @@ escritura que viaja de local a nube y vuelve a otra réplica; y un respaldo rest
 > sello HLC: candado global, deriva sin tope, `hlc_observar` sin cablear) se cerraron con
 > las migraciones 0039–0041 y `bootstrap.ts` (ver `docs/historial.md` § Sesión 36).
 >
-> **Único arrastre**, movido a F4 por ser transversal al módulo de venta: el `it.todo`
-> "catch-up de pull antes de vender fuera de cupo" (`tests/sync/engine.test.ts`) —el motor
-> ya expone `modo` y `ultimaSyncExitosa`; falta que `src/ventas/` consulte esa señal y
-> bloquee el override de asiento cuando el nodo lleva mucho sin bajar.
+> **Único arrastre — ✅ CERRADO (migración `0063`, 2026-09-10).** El `it.todo` "catch-up de
+> pull antes de vender fuera de cupo" (`tests/sync/engine.test.ts`): mientras el nodo está
+> degradado (>72 h sin sync, `core.sync_degradado`), `core.registrar_venta` /
+> `core.adquirir_lease` / `core.asientos_ofrecibles` restringen la venta al cupo propio
+> aunque el cliente diga tener conexión. Sale del bloqueo cuando el motor vuelve a
+> sincronizar. Pruebas: `tests/ventas/catchup-cupo.test.ts`.
 
 > **Punto de no retorno del stack**: la decisión de TypeScript vs .NET (P5) es reversible
 > hasta el inicio de F1 y no después.
