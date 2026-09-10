@@ -2726,13 +2726,46 @@ vive en la nota de memoria `donaji-rutas-paradas-tarifas`; resumen:
   `tests/fleet/cupo` verdes; `tests/ventas/caducidad-reservas.test.ts` (+3);
   `npm test` 496 pass / 70 fail (los mismos preexistentes, 0 regresiones).
 
-- **Orden de merge Fase 6:** 5e → 6a → 6b (`f-paradas-fase6b`) → 6c.
-- **Pendiente de Fase 6:** solo **6c** — cancelación / reembolso (D9 + D10),
-  **bloqueada** por las respuestas del cliente a N-13 (rol que autoriza;
-  reembolso de un `corresponsal`) y N-14 (traspaso de saldo vs reembolso + cobro
-  al reemitir un huérfano).
+- **Orden de merge Fase 6:** 5e → 6a → 6b (`f-paradas-fase6b`) → 6c-1 → 6c-2.
+- **6a + 6b mergeados** a `main` (`842bfbc`) — merge local de `f-paradas-fase6b`
+  (que traía ambos apilados); conflicto trivial en `05-...md` (fila #G de la
+  tabla de orden de entrega, unión de las dos versiones). De paso, fix de un test
+  arrastrado de 5c: `tests/admin/rutas-paradas.test.ts` "reemplazarRuta exige
+  fecha futura" usaba `new Date()` en UTC (de noche en México ya es "mañana");
+  ahora toma `current_date` de la base.
+
+### Fase 6c-1 — cancelación de boleto / reserva con reembolso (`0059`)
+
+- **Rama `f-paradas-fase6c-1`** (sobre `main` post-merge de 6a+6b), migr. `0059`.
+  Pusheada a `origin`, PR a mano en
+  `github.com/fitodark/Travel-Agency-Ruflo/pull/new/f-paradas-fase6c-1`.
+- **Permiso nuevo `reserva.cancelar`** → `administrador` + `gerente` (N-13 puede
+  sumar `vendedor`: un INSERT más).
+- **`core.cancelar_boleto(boleto, usuario, sucursal, motivo, ahora)`** (D9):
+  ventana hasta 1 h antes de la salida del origen (rechaza si menos); libera el
+  asiento (`asiento_ocupacion.estado='liberado'`), cancela el boleto y la venta
+  (si queda sin boletos vivos); si hubo pago confirmado en **efectivo o
+  transferencia verificada** → `movimiento_caja` egreso `origen_tipo='devolucion'`
+  en el corte abierto de la sucursal; pago **`corresponsal` → RAISE** (N-13,
+  pendiente); deja `nota_auditoria` tipo `cancelacion`.
+- `src/fleet/abordaje.ts` `cancelarBoleto` + `POST /viajes/boleto/:id/cancelar`
+  (`exige({ permiso: 'reserva.cancelar' })`, 422 en error de negocio).
+- Web: botón "Cancelar boleto" en `<ModalDetalleBoleto>` (solo `estado='emitido'`)
+  con confirmación + motivo; muestra el reembolso registrado.
+- **D10 — ✅ ya venía de 5a-2:** `core.datos_manifiesto` marca
+  `estatus_pago='pendiente'` para una transferencia sin verificar y
+  `generar_manifiestos` no bloquea. Se añade un test que lo fija.
+- **Fuera de 6c-1:** 6c-2 (reubicación de huérfanos con manejo del dinero),
+  bloqueada por N-14.
+- **Verificación:** typecheck src + web verde; web build verde;
+  `tests/ventas/cancelar-boleto.test.ts` (+6), `tests/fleet/manifiesto.test.ts`
+  (+1, D10); `npm test` 503 pass / 70 fail (los mismos preexistentes, 0 regresiones).
+
+- **Pendiente de Fase 6:** solo **6c-2** — reubicación de un boleto huérfano
+  (cancelar viejo + reemitir en la ruta nueva con el dinero: traspaso de saldo vs
+  reembolso + cobro, diferencia de tarifa). **Bloqueada** por N-14.
 - **Deploy acumulado:** nube + local en `0052`; faltan las 4 terminales, y
-  `0053` … `0058` sin aplicar en ningún nodo.
+  `0053` … `0059` sin aplicar en ningún nodo.
 - Memoria actualizada: `donaji-rutas-paradas-tarifas`, `MEMORY.md`.
 
 ---
