@@ -3013,6 +3013,42 @@ falla 13/18 en aislamiento, con o sin `0063` en disco — no toca nada de venta/
 
 **El arrastre de F1 queda cerrado — F1 sin pendientes.**
 
+### Verificador de QR del boleto en la SPA (pendiente de F5 cerrado)
+
+`src/printing/qr-text.ts` ya tenía `verifyQrText` (HMAC-SHA256 truncado sobre el
+texto plano del QR); faltaba la verificación en la terminal y la pantalla.
+
+- **`src/fleet/abordaje.ts` `verificarBoletoQr(db, { qr, sucursalId, ahora })`**:
+  resuelve el secreto de la agencia (`config_ticket.hmac_qr_secreto` vía
+  `core.sucursal` → `v_config_ticket_vigente`), valida la firma con `verifyQrText`
+  y **cruza el folio del QR con `core.boleto` local** (sin filtro de estado — hay
+  que poder decir "cancelado", no "no existe"): estado del boleto, estado y fecha
+  de la salida (`es_hoy` con la zona horaria de la sucursal), estado de abordaje.
+  Devuelve `veredicto` = `ok` / `revisar` / `rechazar` + `nota`:
+  - `rechazar`: firma inválida · boleto cancelado / reasignado / en conflicto de
+    sobreventa.
+  - `revisar`: sin firma o sin secreto configurado · firma válida pero el boleto no
+    está en esta terminal (desfase de sync) · QR no coincide (folio/asiento) ·
+    salida no programada/en_ruta · no es hoy · ya abordó.
+  - `ok`: auténtico y vigente.
+- **`POST /viajes/boleto/verificar`** — body `{ qr }`, sin permiso especial (es un
+  chequeo de abordaje), todo con la base local (offline).
+- **SPA — pantalla "Verificar boleto" (`/verificar`)**, nueva en `NAV_OPERACION`:
+  `web/src/paginas/Verificar.tsx`. El operador escanea (el lector teclea + Enter) o
+  pega el texto; tarjeta de veredicto con color (verde/ámbar/rojo) + datos del
+  boleto y de la salida. Con veredicto `ok` y abordaje pendiente, un botón
+  **"Registrar a bordo"** llama a `registrarAbordaje` ahí mismo.
+- `web/src/api/viajes.ts` `verificarBoletoQr` + tipo `VeredictoQr`. Icono `verificar`.
+
+**Sin migración** — solo `src/fleet/abordaje.ts`, `src/api/rutas/viajes.ts` y `web/`.
+Tests: `tests/fleet/verificar-qr.test.ts` (+7): firma válida + vigente ⇒ ok; firma
+alterada ⇒ rechazar; sin firma ⇒ revisar; cancelado ⇒ rechazar; ya abordó ⇒
+revisar; folio ajeno ⇒ revisar (boleto null); asiento que no coincide ⇒ revisar.
+Verificación: typecheck src+web verde, web build verde,
+`tests/fleet`+`ventas`+`printing`+`api/viajes` **245/245**.
+
+Doc: `03-auth-impresion-config.md` §2.4 actualizado.
+
 ---
 
 Los cinco criterios de aceptación verdes contra Supabase real
