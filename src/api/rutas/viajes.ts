@@ -17,7 +17,7 @@ import {
 import {
   boletosReubicables, buscarBoletoPorFolio, cancelarBoleto, checklistAbordaje, corregirAbordaje,
   detalleBoleto, finalizarSalida, marcarEnRuta, registrarAbordaje, reimprimirBoleto,
-  reubicarHuerfano, reubicarVentaHuerfana,
+  reubicarHuerfano, reubicarVentaHuerfana, verificarBoletoQr,
 } from '../../fleet/abordaje.js';
 import { exige } from '../autenticar.js';
 import { noEncontrado } from '../errores.js';
@@ -74,6 +74,27 @@ export async function rutasViajes(app: FastifyInstance): Promise<void> {
       const b = await buscarBoletoPorFolio(app.db, folio);
       if (!b) throw noEncontrado('No hay ningún boleto con ese folio.');
       return b;
+    },
+  );
+
+  // Verificación de un boleto escaneado (QR de texto plano, 03 §2.4): valida el
+  // HMAC contra el secreto de la agencia y cruza el folio con la base local.
+  // Todo offline. Cualquier usuario autenticado (es un chequeo de abordaje).
+  app.post(
+    '/boleto/verificar',
+    {
+      schema: {
+        body: {
+          type: 'object', required: ['qr'],
+          properties: { qr: { type: 'string', minLength: 1, maxLength: 800 } },
+        },
+      },
+    },
+    async (req) => {
+      const { qr } = req.body as { qr: string };
+      return verificarBoletoQr(app.db, {
+        qr, sucursalId: req.sesion.sucursalId!, ahora: app.ahora(),
+      });
     },
   );
 

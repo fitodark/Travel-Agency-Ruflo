@@ -10,6 +10,7 @@
  */
 
 import type { Consultable } from '../db/consulta.js';
+import { verifyQrText } from '../printing/qr-text.js';
 
 export async function registrarAbordaje(
   db: Consultable,
@@ -173,6 +174,163 @@ export async function buscarBoletoPorFolio(
       conductor: r.conductor,
     },
   };
+}
+
+export interface VeredictoQr {
+  /** Autenticidad del texto del QR (HMAC). */
+  firma: 'valida' | 'invalida' | 'sin_firma' | 'sin_secreto';
+  /** Detalle técnico de `verifyQrText` (para diagnóstico). */
+  motivo: string | null;
+  /** Campos parseados del QR — siempre, aunque la firma no valide. */
+  campos: Record<string, string>;
+  /** El boleto cruzado por folio contra la base local; `null` si no está aquí. */
+  boleto: {
+    boletoId: string;
+    folio: string;
+    pasajeroNombre: string;
+    asientoNum: number;
+    tramos: string;
+    estado: string;
+    origen: string;
+    destino: string;
+    salida: { salidaId: string; fechaOperacion: string; estado: string; esHoy: boolean };
+    estadoAbordaje: EstadoAbordaje;
+    conflicto: boolean;
+  } | null;
+  /** El folio y el asiento del QR coinciden con el boleto de la base. */
+  coincide: boolean;
+  /** Resumen para el operador. */
+  veredicto: 'ok' | 'revisar' | 'rechazar';
+  nota: string;
+}
+
+/**
+ * Verifica un boleto escaneado (QR de texto plano, 03 §2.4), sin red: valida el
+ * HMAC contra el secreto de la agencia y cruza el folio con la base local para
+ * decir si el boleto está vigente y aún no ha abordado. Todo offline — la clave y
+ * los boletos ya están replicados en el nodo.
+ */
+export async function verificarBoletoQr(
+  db: Consultable,
+  args: { qr: string; sucursalId: string; ahora?: Date },
+): Promise<VeredictoQr> {
+  const ahora = args.ahora ?? new Date();
+
+  const { rows: cfg } = await db.query<{ hmac_qr_secreto: string | null }>(
+    `SELECT ct.hmac_qr_secreto
+       FROM core.sucursal s
+       LEFT JOIN core.v_config_ticket_vigente ct ON ct.agencia_id = s.agencia_id
+      WHERE s.id = $1::uuid`,
+    [args.sucursalId],
+  );
+  const key = cfg[0]?.hmac_qr_secreto ?? null;
+
+  const tieneFirma = args.qr.lastIndexOf('|V:') !== -1;
+  const v = verifyQrText(args.qr, key ?? '');
+  const firma: VeredictoQr['firma'] =
+    !tieneFirma ? 'sin_firma'
+      : key === null ? 'sin_secreto'
+        : v.valid ? 'valida' : 'invalida';
+
+  const folioQr = v.fields['F'] ? normalizarFolio(v.fields['F']) : '';
+  let boleto: VeredictoQr['boleto'] = null;
+
+  if (folioQr.length === 6) {
+    const { rows } = await db.query<{
+      boleto_id: string; folio: string; pasajero_nombre: string; asiento_num: number;
+      tramos: string; estado: string; salida_id: string; fecha_operacion: string;
+      salida_estado: string; es_hoy: boolean; origen: string; destino: string;
+      abordo: boolean | null;
+    }>(
+      `SELECT b.id AS boleto_id, b.folio, b.pasajero_nombre, b.asiento_num,
+              b.tramos::text AS tramos, b.estado,
+              s.id AS salida_id, s.fecha_operacion::text AS fecha_operacion,
+              s.estado AS salida_estado,
+              (s.fecha_operacion = timezone(
+                 COALESCE((SELECT zona_horaria FROM core.sucursal WHERE id = $2::uuid),
+                          'America/Mexico_City'),
+                 $3::timestamptz)::date) AS es_hoy,
+              suo.nombre AS origen, sud.nombre AS destino,
+              ab.abordo
+         FROM core.boleto b
+         JOIN core.salida s ON s.id = b.salida_id
+         JOIN core.salida_parada spo ON spo.salida_id = s.id AND spo.orden = lower(b.tramos)
+         JOIN core.punto_ruta suo ON suo.id = spo.punto_id
+         JOIN core.salida_parada spd ON spd.salida_id = s.id AND spd.orden = upper(b.tramos)
+         JOIN core.punto_ruta sud ON sud.id = spd.punto_id
+         LEFT JOIN core.v_boleto_abordaje ab ON ab.boleto_id = b.id
+        WHERE b.folio = $1`,
+      [folioQr, args.sucursalId, ahora],
+    );
+    const r = rows[0];
+    if (r) {
+      boleto = {
+        boletoId: r.boleto_id,
+        folio: r.folio,
+        pasajeroNombre: r.pasajero_nombre,
+        asientoNum: Number(r.asiento_num),
+        tramos: r.tramos,
+        estado: r.estado,
+        origen: r.origen,
+        destino: r.destino,
+        salida: {
+          salidaId: r.salida_id,
+          fechaOperacion: r.fecha_operacion,
+          estado: r.salida_estado,
+          esHoy: r.es_hoy,
+        },
+        estadoAbordaje: r.abordo === true ? 'abordo' : r.abordo === false ? 'no_presento' : 'pendiente',
+        conflicto: r.estado === 'conflicto_sobreventa',
+      };
+    }
+  }
+
+  const coincide =
+    boleto !== null
+    && boleto.folio === folioQr
+    && String(boleto.asientoNum) === (v.fields['A'] ?? '');
+
+  let veredicto: VeredictoQr['veredicto'];
+  let nota: string;
+
+  if (firma === 'invalida') {
+    veredicto = 'rechazar';
+    nota = 'La firma del QR no coincide: el boleto no lo emitió este sistema.';
+  } else if (boleto && (boleto.estado === 'cancelado' || boleto.estado === 'reasignado')) {
+    veredicto = 'rechazar';
+    nota = boleto.estado === 'cancelado'
+      ? 'El boleto está cancelado.'
+      : 'El boleto fue reubicado en otra salida; el pasajero tiene un folio nuevo.';
+  } else if (boleto?.conflicto) {
+    veredicto = 'rechazar';
+    nota = 'El boleto está en conflicto de sobreventa: consulta a administración.';
+  } else if (firma === 'sin_firma') {
+    veredicto = 'revisar';
+    nota = 'El QR no trae firma: no se puede validar su autenticidad. Verifica a mano.';
+  } else if (firma === 'sin_secreto') {
+    veredicto = 'revisar';
+    nota = 'Esta terminal no tiene configurado el secreto del QR: verifica a mano.';
+  } else if (!boleto) {
+    veredicto = 'revisar';
+    nota = 'La firma es válida, pero el boleto no está en esta terminal (puede ser desfase de sincronización).';
+  } else if (!coincide) {
+    veredicto = 'revisar';
+    nota = 'Los datos del QR no coinciden con el boleto registrado. Revisa folio y asiento.';
+  } else if (boleto.salida.estado !== 'programada' && boleto.salida.estado !== 'en_ruta') {
+    veredicto = 'revisar';
+    nota = `La salida está ${boleto.salida.estado}.`;
+  } else if (!boleto.salida.esHoy) {
+    veredicto = 'revisar';
+    nota = `El boleto es para viajar el ${boleto.salida.fechaOperacion}, no hoy.`;
+  } else if (boleto.estadoAbordaje === 'abordo') {
+    veredicto = 'revisar';
+    nota = 'Este boleto ya está registrado a bordo.';
+  } else {
+    veredicto = 'ok';
+    nota = 'Boleto auténtico y vigente.';
+  }
+
+  return { firma, motivo: v.reason ?? null, campos: v.fields, boleto, coincide, veredicto, nota };
 }
 
 export async function checklistAbordaje(

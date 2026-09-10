@@ -95,6 +95,38 @@ export function detalleBoleto(boletoId: string): Promise<DetalleBoleto> {
   return api<DetalleBoleto>(`/viajes/boleto/${encodeURIComponent(boletoId)}/detalle`);
 }
 
+export interface VeredictoQr {
+  firma: 'valida' | 'invalida' | 'sin_firma' | 'sin_secreto';
+  motivo: string | null;
+  campos: Record<string, string>;
+  boleto: {
+    boletoId: string;
+    folio: string;
+    pasajeroNombre: string;
+    asientoNum: number;
+    tramos: string;
+    estado: string;
+    origen: string;
+    destino: string;
+    salida: { salidaId: string; fechaOperacion: string; estado: string; esHoy: boolean };
+    estadoAbordaje: EstadoAbordaje;
+    conflicto: boolean;
+  } | null;
+  coincide: boolean;
+  veredicto: 'ok' | 'revisar' | 'rechazar';
+  nota: string;
+}
+
+/**
+ * Verifica un boleto escaneado (texto del QR): valida el HMAC contra el secreto
+ * de la agencia y cruza el folio con la base local. Todo offline.
+ */
+export function verificarBoletoQr(qr: string): Promise<VeredictoQr> {
+  return api<VeredictoQr>('/viajes/boleto/verificar', {
+    method: 'POST', body: JSON.stringify({ qr }),
+  });
+}
+
 export interface ResultadoReimpresion {
   printJobId: string;
   reimpresiones: number;

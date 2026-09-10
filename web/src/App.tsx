@@ -11,6 +11,7 @@ import { Clientes } from './paginas/Clientes';
 import { Vender } from './paginas/Vender';
 import { Caja } from './paginas/Caja';
 import { Viajes } from './paginas/Viajes';
+import { Verificar } from './paginas/Verificar';
 import { Dashboard } from './paginas/Dashboard';
 import { AdminLayout } from './paginas/admin/AdminLayout';
 import { AdminSucursales } from './paginas/admin/Sucursales';
@@ -62,6 +63,7 @@ export function App() {
         <Route path="/vender" element={<RequiereCorte><Vender /></RequiereCorte>} />
         <Route path="/caja" element={<Caja />} />
         <Route path="/viajes" element={<Viajes />} />
+        <Route path="/verificar" element={<Verificar />} />
         <Route path="/tablero" element={<Dashboard />} />
         <Route path="/sincronizacion" element={<Sincronizacion />} />
         <Route path="/clientes" element={<Clientes />} />

@@ -241,6 +241,15 @@ destino **valide el boleto offline** escaneándolo, sin dejar de ser texto plano
 **Propuesta a validar**: si el cliente lo rechaza, se omite el campo `V:` sin ningún otro
 cambio en el diseño.
 
+**Construido:** `src/printing/qr-text.ts` `buildQrText` / `verifyQrText` (HMAC-SHA256
+truncado, `foldToAscii`). La verificación en la terminal: `core.…` → `verificarBoletoQr`
+(`src/fleet/abordaje.ts`) valida la firma contra `config_ticket.hmac_qr_secreto` de la
+agencia **y** cruza el folio con `core.boleto` local (¿existe? ¿estado? ¿es hoy? ¿ya
+abordó?) → veredicto `ok` / `revisar` / `rechazar`. `POST /viajes/boleto/verificar` (sin
+permiso especial, es un chequeo de abordaje). SPA: pantalla **Verificar boleto**
+(`/verificar`) — el operador escanea o pega el texto del QR; con veredicto `ok` puede
+registrar el abordaje ahí mismo. Todo offline.
+
 ### 2.5 Manifiestos de abordaje
 
 Dos jobs del mismo dato (`template_key='manifiesto'`, variante en `datos`):

@@ -23,6 +23,7 @@ const RUTAS: Record<string, ReactElement> = {
   ticket: <><path d="M4 6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v3a2 2 0 0 0 0 6v3a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-3a2 2 0 0 0 0-6z" {...P} /><path d="M14 4v16" strokeDasharray="1.5 2.5" {...P} /></>,
   tarifas: <><circle cx="12" cy="12" r="8" {...P} /><path d="M15 9a3 3 0 0 0-3-2c-1.7 0-3 1-3 2.3 0 3 6 1.7 6 4.7C15 17.2 13.7 18 12 18a3 3 0 0 1-3-2M12 6v1.5M12 16.5V18" {...P} /></>,
   salir: <><path d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3M10 17l-5-5 5-5M5 12h11" {...P} /></>,
+  verificar: <><path d="M12 3 4 6v5c0 5 3.4 8.3 8 10 4.6-1.7 8-5 8-10V6z" {...P} /><path d="m9 12 2 2 4-4" {...P} /></>,
   panel: <><path d="M9 5 4 12l5 7M20 12H5" {...P} /></>,
 };
 
