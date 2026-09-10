@@ -2971,6 +2971,48 @@ Dos decisiones de producto que respondió el cliente:
 Con N-15, el plan `05-…md` queda **cerrado a nivel de decisiones** (P-1..P-9,
 N-1..N-15). Doc header y §7.3 actualizados. Memoria al día.
 
+### `0063` — catch-up antes de vender fuera de cupo (arrastre de F1 cerrado)
+
+Único arrastre abierto de F1 (`it.todo` en `tests/sync/engine.test.ts`): una
+terminal degradada (>72 h sin sync) cree estar online y puede tomar cualquier
+asiento libre por lease, con una vista vieja de las ventas de las demás
+sucursales → riesgo de sobreventa. El motor ya exponía la señal
+(`sync.salud.ultima_sync_exitosa`); faltaba el enganche en el camino de venta.
+
+`0063` (`CREATE OR REPLACE`, sin ventana coordinada):
+- `core.sync_degradado(sucursal, ahora)` — `ultima_sync_exitosa` más vieja que
+  `umbral_sync_degradado_horas` (72 h). Sin fila o `NULL` (arrancando) ⇒ false
+  (mismo criterio que `reporte.v_salud_sucursal`).
+- `core.asiento_en_cupo(salida, asiento, desde, hasta, sucursal, ahora)` — el
+  predicado del cupo vigente con zona muerta, extraído para no duplicarlo.
+- `core.asientos_ofrecibles` — el paso 2/3 deja de ofrecer asientos fuera de cupo
+  si el nodo está degradado (aunque `conConexion=true`), para que el operador ni
+  los vea.
+- `core.adquirir_lease` — rechaza un lease fuera de cupo si el nodo está degradado
+  ("la terminal lleva demasiado tiempo sin sincronizar…").
+- `core.registrar_venta` — backstop: sin lease, exige cupo si offline **o**
+  degradado.
+
+Inerte para un nodo que sincroniza a diario. Sale del bloqueo cuando el motor
+vuelve a sincronizar y refresca `ultima_sync_exitosa`.
+
+`it.todo` de `engine.test.ts` retirado (apunta al nuevo test).
+
+Tests: `tests/ventas/catchup-cupo.test.ts` (+7): degradado rechaza venta y lease
+fuera de cupo aunque `conConexion=true`; sí vende dentro de cupo; nunca sincronizó
+= no degradado; al día vende fuera de cupo (normal); `asientos_ofrecibles` solo
+ofrece el cupo. **Bug corrido en el review propio:** `core.sync_degradado`
+devolvía `NULL` (no `false`) cuando no había fila en `sync.salud` → `asientos_ofrecibles`
+restringía a cupo por error; se arregló envolviendo el `SELECT` en `COALESCE(…, false)`.
+
+Verificación: typecheck verde; `tests/ventas`+`fleet`+`sync`+`api/viajes` **275/275**
+(cubre todo lo que toca `0063`). `npm test` completo 510/82 — el sobrante sobre el
+baseline (70) es **polución del DB dev que creció hoy** (`tests/auth/login.test.ts`
+falla 13/18 en aislamiento, con o sin `0063` en disco — no toca nada de venta/cupo);
+0 regresiones en lo que `0063` cambia.
+
+**El arrastre de F1 queda cerrado — F1 sin pendientes.**
+
 ---
 
 Los cinco criterios de aceptación verdes contra Supabase real
