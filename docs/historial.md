@@ -2823,6 +2823,38 @@ vive en la nota de memoria `donaji-rutas-paradas-tarifas`; resumen:
   508 pass / 70 fail (mismos preexistentes, 0 regresiones; sin cambios de
   backend/tests).
 - **FASE 6 COMPLETA (backend + SPA).** Residual del plan: solo **N-15**.
+- **6d mergeado** (PR #76, `main` = `990eb5e`).
+
+### Deploy acumulado `0050`–`0060` — estado 10 sep 2026
+
+Al cerrar la Fase 6 se revisó el estado real de cada base (no lo que decía la
+memoria, que estaba desactualizada en "nube+local en `0052`"):
+
+| Nodo | Versión | Estado |
+|---|---|---|
+| **NUBE** (Supabase) | `0060` | ✅ el usuario migró `0053`–`0056` el 9 sep 23:04 y `0057`–`0060` el 10 sep 01:41. `db:migrate:nube --dry` → "nada pendiente", sin drift de checksum. |
+| **Local dev** | `0060` | ✅ aplicado fase por fase durante el desarrollo. El `0057` re-aplicado a mano en dev quedó idéntico al commit. |
+| **4 terminales** (Huajuapan / Acatlán / Acatitla / CDMX) | `0049` | ⛔ pendientes de `0050`→`0060`. |
+
+- **Runbook por terminal** (lo ejecuta el usuario por TeamViewer en ventana de
+  madrugada; `migrate.ts` solo tiene targets `local` / `nube`, no alcanza las
+  terminales desde el repo):
+  `git pull` → `npm ci` → `npm run build` → `npm run db:status` (confirmar `0049`)
+  → `npm run db:migrate` (aplica `0050`…`0060`) → `npm run db:status` (verificar
+  `0060`) → reiniciar el servicio de API / spooler de esa terminal.
+- **Ventana de `0055` abierta / con riesgo:** `0055` hizo `DROP COLUMN
+  core.salida_parada.sucursal_id` en la nube (tabla **clase A**, nube→sucursal)
+  sin que se cumpliera la precondición del plan ("los 5 nodos en `0054` antes de
+  `0055`"). Una `salida_parada` materializada en la nube desde el 9 sep 23:04
+  puede **atascar el pull** de una terminal que sigue en `0049` (allá
+  `sucursal_id` es `NOT NULL`). Se auto-cura en cuanto esa terminal pasa `0055`.
+  → Prioridad: migrar las 4 terminales y, tras cada una, verificar que su sync no
+  quedó "atascado".
+- Con las 4 terminales en `0050`+ queda **desbloqueado F2-D3** (retirar
+  `trg_aa_tramos_ocupacion_compat`, precondición "5 nodos ≥ `0050`") — migración
+  chica futura, no es parte de este deploy.
+- Memoria actualizada: `donaji-rutas-paradas-tarifas` (§ Deploy acumulado),
+  `MEMORY.md`.
 
 ---
 
