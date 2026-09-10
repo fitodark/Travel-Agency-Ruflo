@@ -403,3 +403,53 @@ export async function reimprimirBoleto(
     reimpresiones: Number(rows[0]!.reimpresiones),
   };
 }
+
+export interface ResultadoReubicar {
+  boletoNuevoId: string;
+  folioNuevo: string;
+  ventaNuevaId: string;
+  importe: number;
+  /** true = se mantuvo el precio que el pasajero ya había pagado (N-14). */
+  precioMantenido: boolean;
+  saldoPendiente: number;
+  printJobs: number;
+}
+
+/**
+ * Reubica un boleto huérfano (D12) en una salida de la ruta nueva (N-14). El
+ * boleto viejo queda `reasignado` y su asiento liberado. Si el huérfano ya pagó,
+ * el boleto nuevo se emite al precio pagado y el/los `core.pago` se traspasan;
+ * si no pagó, a la tarifa vigente de la ruta nueva (venta `pendiente`).
+ */
+export async function reubicarHuerfano(
+  db: Consultable,
+  args: {
+    boletoViejoId: string; salidaNuevaId: string;
+    origenOrden: number; destinoOrden: number; asientoNum: number;
+    usuarioId: string; sucursalId: string; ahora?: Date;
+  },
+): Promise<ResultadoReubicar> {
+  const { rows } = await db.query<{
+    boleto_nuevo_id: string; folio_nuevo: string; venta_nueva_id: string;
+    importe: string; precio_mantenido: boolean; saldo_pendiente: string; print_jobs: number;
+  }>(
+    `SELECT boleto_nuevo_id, folio_nuevo, venta_nueva_id, importe,
+            precio_mantenido, saldo_pendiente, print_jobs
+       FROM core.reubicar_huerfano($1::uuid, $2::uuid, $3::int, $4::int, $5::smallint,
+                                   $6::uuid, $7::uuid, $8::timestamptz)`,
+    [
+      args.boletoViejoId, args.salidaNuevaId, args.origenOrden, args.destinoOrden,
+      args.asientoNum, args.usuarioId, args.sucursalId, args.ahora ?? new Date(),
+    ],
+  );
+  const r = rows[0]!;
+  return {
+    boletoNuevoId: r.boleto_nuevo_id,
+    folioNuevo: r.folio_nuevo,
+    ventaNuevaId: r.venta_nueva_id,
+    importe: Number(r.importe),
+    precioMantenido: r.precio_mantenido,
+    saldoPendiente: Number(r.saldo_pendiente),
+    printJobs: Number(r.print_jobs),
+  };
+}

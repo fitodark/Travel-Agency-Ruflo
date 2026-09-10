@@ -132,6 +132,32 @@ export function cancelarBoleto(
   );
 }
 
+export interface ResultadoReubicar {
+  boletoNuevoId: string;
+  folioNuevo: string;
+  ventaNuevaId: string;
+  importe: number;
+  /** true = se mantuvo el precio que el pasajero ya había pagado (N-14). */
+  precioMantenido: boolean;
+  saldoPendiente: number;
+  printJobs: number;
+}
+
+/**
+ * Reubica un boleto huérfano (D12/N-14) en una salida de la ruta nueva: cancela
+ * el viejo y reemite. Si ya pagó, mantiene el precio; si no, cobra la tarifa
+ * vigente de la ruta nueva.
+ */
+export function reubicarBoleto(
+  boletoId: string,
+  d: { salidaNuevaId: string; origenOrden: number; destinoOrden: number; asientoNum: number },
+): Promise<ResultadoReubicar> {
+  return api<ResultadoReubicar>(
+    `/viajes/boleto/${encodeURIComponent(boletoId)}/reubicar`,
+    { method: 'POST', body: JSON.stringify(d) },
+  );
+}
+
 export function registrarAbordaje(
   boletoId: string, abordo: boolean,
 ): Promise<{ eventoId: string }> {

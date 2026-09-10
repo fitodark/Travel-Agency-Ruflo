@@ -439,7 +439,7 @@ reserva la registra la terminal de origen, que aparta el asiento desde el orden 
     (misma copia point-in-time que F0-D2 / D2 arriba).
 - **Bloqueante:** ninguno.
 
-### Fase 6 — Tercer método de pago (`corresponsal`), caducidad y cancelación de reservas  ·  `0057`+
+### Fase 6 — Tercer método de pago (`corresponsal`), caducidad y cancelación de reservas  ·  `0057`–`0060`  ·  ✅ backend completo (falta el asistente SPA de reubicación)
 
 > Migración corrida: `0054` = 5a-2 (manifiesto lista única), `0055` = 5b
 > (`DROP COLUMN salida_parada.sucursal_id`), `0056` = 5c (alta de rutas + F3-D2).
@@ -489,11 +489,20 @@ reserva la registra la terminal de origen, que aparta el asiento desde el orden 
     transferencia sin verificar y `generar_manifiestos` no bloquea); +1 test que lo fija.
   - `tests/ventas/cancelar-boleto.test.ts` (+7), `tests/fleet/manifiesto.test.ts` (+1).
     Deploy sin ventana coordinada.
-- **6c-2 (DESBLOQUEADA — N-14 resuelta) — Reubicación de huérfanos:** cancelar el boleto viejo
-  + reemitir en la ruta nueva (folio nuevo). **Si el huérfano ya pagó** ⇒ el boleto nuevo se
-  emite al **importe pagado** y el/los `pago` se traspasan (`UPDATE pago SET venta_id`), sin
-  mover efectivo. **Si no pagó** ⇒ boleto nuevo a la **tarifa vigente** de la ruta nueva,
-  venta `pendiente` (pago normal después).
+- **✅ 6c-2 — Reubicación de huérfanos (`0060`, rama `f-paradas-fase6c-2`, N-14):**
+  - `core.reubicar_huerfano(boleto_viejo, salida_nueva, origen_orden, destino_orden, asiento,
+    usuario, sucursal, ahora)`: valida la salida nueva (programada, venta abierta, asiento
+    vendible, origen con ascenso); emite el boleto nuevo; **huérfano ya pagado** ⇒ importe =
+    el pagado, `UPDATE core.pago SET venta_id = <nueva>` (traspaso, sin mover efectivo, sin
+    diferencia); **sin pagar** ⇒ importe = `v_tarifa_vigente` de la ruta nueva (RAISE si no
+    hay), venta `pendiente`. Boleto viejo → `estado='reasignado'`, su asiento `liberado`,
+    venta vieja `cancelada`. `nota_auditoria` tipo `reubicacion`.
+  - `src/fleet/abordaje.ts` `reubicarHuerfano` + `POST /viajes/boleto/:id/reubicar`
+    (`exige({ permiso: 'reserva.cancelar' })`, 422 en negocio). Cliente `reubicarBoleto` en
+    `web/src/api/viajes.ts`.
+  - `tests/ventas/reubicar-huerfano.test.ts` (+4). Deploy sin ventana coordinada.
+  - **Follow-up (SPA):** el asistente para el operador — buscar la salida de la ruta nueva,
+    elegir asiento y confirmar la reubicación desde el reporte de huérfanos / Viajes.
 
 ### Orden de entrega
 
@@ -505,7 +514,7 @@ reserva la registra la terminal de origen, que aparta el asiento desde el orden 
 | #D | 3 (`0051`) | — | estricta + categoría de pasajero |
 | #E | 4 (`0052`) | — | — |
 | #F | 5 (`0053` + admin + SPA) | — | 5a `0053` (impresión/manifiesto→punto, reimpresión) ✅ · 5a-2 `0054` (manifiesto lista única) ✅ · 5b `0055` (`DROP COLUMN salida_parada.sucursal_id` + `api.*`) ✅ · 5c `0056` (CRUD puntos, `crearRuta`/`crearHorario` con banderas, reemplazo D5 + huérfanos, F3-D2, F4-D2) ✅ · 5d tarifas por categoría (`crearTarifa` + `Tarifas.tsx`, F3-D3, F4-D3) ✅ · 5e SPA (`Puntos.tsx`, `Horarios.tsx` con puntos+banderas, modal de reemplazo + huérfanos) ✅ |
-| #G | 6 (`0057`+) | — | 6a `0057` (`corresponsal` + D8) ✅ · 6b `0058` (caducidad D9) ✅ · 6c-1 `0059` (cancelación + reembolso N-13 + D10) ✅ · 6c-2 reubicación de huérfanos (N-14) |
+| #G | 6 (`0057`–`0060`) | — | 6a `0057` (`corresponsal` + D8) ✅ · 6b `0058` (caducidad D9) ✅ · 6c-1 `0059` (cancelación + reembolso N-13 + D10) ✅ · 6c-2 `0060` (reubicación de huérfanos N-14) ✅ · falta el asistente SPA de reubicación |
 
 Cada PR: `npm run build && npm test` verde antes de merge. Los tests de sync no deben
 `TRUNCATE sync.*` (deadlock con `hlc_estado`). Migraciones a nube + 4 terminales en la
