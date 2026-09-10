@@ -2797,12 +2797,32 @@ vive en la nota de memoria `donaji-rutas-paradas-tarifas`; resumen:
 - **FASE 6 COMPLETA A NIVEL BACKEND.** N-13 y N-14 resueltas; único residual del
   plan: **N-15** (parada de ascenso sin POS que gana su propio sistema — cambio
   de catálogo futuro, no bloquea nada).
-- **Pendiente:** el **asistente SPA de reubicación** para el operador — buscar la
-  salida de la ruta nueva, elegir asiento y confirmar desde el reporte de
-  huérfanos / Viajes. Follow-up de frontend.
 - **Deploy acumulado:** nube + local en `0052`; faltan las 4 terminales, y
   `0053` … `0060` sin aplicar en ningún nodo.
 - Memoria actualizada: `donaji-rutas-paradas-tarifas`, `MEMORY.md`.
+
+### Fase 6d — asistente SPA de reubicación de huérfanos (solo frontend)
+
+- **Rama `f-paradas-fase6d-spa-reubicar`** (sobre `main`, que ya trae 6c-2 vía
+  PR #75). Sin migración.
+- `<ReubicarBoleto>` dentro de `<ModalDetalleBoleto>` en
+  `web/src/paginas/Viajes.tsx`, junto a "Cancelar boleto" y solo si el boleto
+  está `emitido`. Colapsado = botón `btn-sutil`; expandido = caja con el flujo:
+  1. fecha + origen/destino (selectores de `listarPuntos`, origen filtra
+     `puedeOriginar`);
+  2. `buscarSalidas({ personas: 1, conConexion: false })` → lista de salidas de
+     la ruta nueva (no seleccionables deshabilitadas);
+  3. elegir asiento de `asientosOfrecibles`;
+  4. `reubicarBoleto(boletoId, { salidaNuevaId, origenOrden, destinoOrden, asientoNum })`.
+- El resultado muestra el **folio nuevo** y si se **mantuvo el precio pagado** o
+  se aplicó la **tarifa vigente** de la ruta nueva + saldo pendiente, más los
+  boletos reimpresos. Tras reubicar, el modal recarga el detalle (boleto viejo
+  `reasignado`) y oculta "Cancelar" / "Reubicar"; la **reimpresión** queda
+  deshabilitada para un boleto `reasignado` (además de `cancelado`).
+- **Verificación:** typecheck src + web verde; web build verde; `npm test`
+  508 pass / 70 fail (mismos preexistentes, 0 regresiones; sin cambios de
+  backend/tests).
+- **FASE 6 COMPLETA (backend + SPA).** Residual del plan: solo **N-15**.
 
 ---
 
