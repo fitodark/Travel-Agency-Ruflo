@@ -415,6 +415,36 @@ Se acorta respecto de v0.1: la abstracción de transporte y la PoC ya se hiciero
 **Criterio de salida**: 2 semanas de operación real en la matriz sin pérdida de datos, sin
 sobreventa no resuelta y sin intervención manual en la base de datos.
 
+### Rediseño — Paradas autorizadas y tarifa por parada (post-F8, ~4 semanas) — **CERRADO (backend + SPA)**
+
+> Alcance nuevo, surgido de cuatro sesiones con el cliente sobre el flujo real de rutas. El
+> modelo original trataba cada parada como `core.sucursal` y confiaba el importe al cliente
+> en `core.registrar_venta`; el flujo real tiene paradas de **solo ascenso** o **solo
+> descenso**, **tarifa por parada**, cobro que se queda en otra sucursal (Tamazulapan,
+> `sin_sistema`), descuentos de monto fijo por categoría de pasajero, reemplazo de rutas por
+> vigencia y caducidad/cancelación de reservas. Plan completo y decisiones del cliente
+> (D1–D13, P-1..P-9, N-1..N-15) en [05-paradas-autorizadas-tarifas.md](05-paradas-autorizadas-tarifas.md).
+>
+> **Cerrado el 2026-09-10.** Seis fases, migraciones `0048`–`0060`:
+>
+> | Fase | Migr. | PR(s) | Alcance |
+> |---|---|---|---|
+> | 0 | `0048` | #61 | Catálogo `core.punto_ruta` (`tipo ∈ terminal/parada`), backfill determinista. |
+> | 1 | `0049` | #62 | Banderas `permite_ascenso` / `permite_descenso` por `ruta_parada`; búsqueda / venta / lease con punto ids. |
+> | 2 | `0050` | #63, #64 | Doble rango en el boleto: `tramos` (viaje) y `tramos_ocupacion` (cupo / `EXCLUDE`). |
+> | 3 | `0051` | #65, #66 | Tarifa **estricta** + `categoria_pasajero` (`general`/`inapam`/`menor`); descuento solo terminal-extremo ↔ terminal-extremo. |
+> | 4 | `0052` | #67 | Materialización de `salida_parada` por cada `ruta_parada`; cupo offline solo entre terminales con ascenso. |
+> | 5 | `0053`–`0056` | #68–#73 | Impresión / manifiesto sobre `punto_ruta`; manifiesto "lista única" (D11); `DROP COLUMN salida_parada.sucursal_id`; CRUD de puntos; alta de rutas con banderas; reemplazo por vigencia + reporte de huérfanos; tarifas por categoría; reimpresión de boleto; SPA de administración. |
+> | 6 | `0057`–`0060` | #74–#76 (+ merge local `842bfbc`) | Tercer método de pago `corresponsal` (cobro en sucursal `sin_sistema`, D8/D13); caducidad de reservas sin pagar 1 h antes de la salida (D9); cancelación con reembolso solo en la sucursal de cobro (N-13); reubicación de boletos huérfanos manteniendo el precio ya pagado (N-14) + asistente SPA. |
+>
+> **Residual del plan:** solo **N-15** — una parada de ascenso sin POS que gane su propio
+> sistema (cambio de catálogo futuro, no bloquea nada).
+>
+> **Deploy:** nube y entorno de desarrollo en `0060`. **Faltan las 4 terminales físicas**
+> (`0050`→`0060`, por TeamViewer en ventana de madrugada — R7). La ventana de `0055`
+> (`DROP COLUMN` de una tabla clase A) quedó abierta antes de tiempo; ver
+> [05-paradas-autorizadas-tarifas.md](05-paradas-autorizadas-tarifas.md) § "Estado del deploy".
+
 ### Resumen
 
 | Fase | Semanas | Acumulado |
@@ -430,11 +460,18 @@ sobreventa no resuelta y sin intervención manual en la base de datos.
 | F8 Dashboard y reportes | 2 | 23 |
 | F2b Consola de administración | 2.5–3 | 25.5–26 |
 | F9 Endurecimiento y despliegue | 2–3 | **28–29** |
+| Rediseño Paradas autorizadas y tarifa por parada | ~4 | 32–33 |
 
 F2b se listó fuera de orden a propósito: se planeó en F2, se descubrió sin hacer
 tras F8, y se ejecuta cuando aparece en el listado —antes de F9— para que el
 piloto pruebe la operación con usuarios y sucursales dados de alta desde la
 consola, no sembrados a mano.
+
+El rediseño de **paradas autorizadas** no estaba en el alcance original: apareció al
+detallar con el cliente el flujo real de rutas (paradas de solo ascenso/descenso, tarifa
+por parada, cobro descentralizado). Se ejecutó tras F8 como seis fases incrementales sobre
+el motor ya cerrado. Backend + SPA cerrados el 2026-09-10; falta solo el despliegue a las 4
+terminales físicas.
 
 **≈ 6–7 meses**, contra los ~4 meses de la propuesta comercial (R8). Con F8 diferido a la
 renta —como la propuesta ya contempla— y paralelización entre F5/F6/F7, la Etapa 1 operativa
