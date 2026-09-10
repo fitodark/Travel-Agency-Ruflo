@@ -33,6 +33,7 @@ export async function rutasCatalogos(app: FastifyInstance): Promise<void> {
   app.get('/puntos', { preHandler: exige() }, async () => {
     const { rows } = await app.db.query(
       `SELECT pr.id, pr.nombre, pr.tipo, pr.municipio, pr.referencia,
+              pr.sucursal_id AS "sucursalId",
               EXISTS (
                 SELECT 1 FROM core.ruta_parada rp
                  WHERE rp.punto_id = pr.id AND rp.permite_ascenso AND rp.activo

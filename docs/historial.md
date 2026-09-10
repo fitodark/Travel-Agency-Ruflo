@@ -3075,6 +3075,130 @@ deja de arrastrar el "baseline de 70".
 
 ---
 
+## Sesión 65 — 2026-09-10 · Reset de datos QA + cancelar venta desde el wizard
+
+**Objetivo**: dejar la nube en "primera carga limpia" para que QA cargue la
+operación desde cero, y darle al vendedor una salida cuando el pasajero se
+arrepiente.
+
+- **Reset de datos en la nube** (Supabase *Travel Agency Ruflo*, vía MCP, misma
+  lógica que `barrerDominio`): barrido total del dominio operativo + catálogo —
+  las 2 rutas (`HJP - CDMX`, `CDMX - HJPN`) y en cascada 10 horarios / 910
+  salidas / 3640 `salida_parada` / 2730 `cupo_offline` / 6 tarifas / 7 boletos /
+  6 ventas-pagos / 7 movimientos / 2 cortes / 10 conductores / print jobs +
+  ocupaciones + su `sync.cambio_log`. Sucursales **V/W/X/Y** ("Terminal 1-4", sin
+  usuarios) **borradas de raíz** (con su `folio_secuencia`); `core.sucursal`
+  queda solo con las de código 1-4, activas. **Los 6 usuarios de QA y sus 9
+  asignaciones activas, intactos.** `punto_ruta` en 0 — los terminales de 1-4 los
+  recrea el trigger de compat al re-cargar rutas.
+- **Cancelar venta en el wizard** (`web/src/paginas/Vender.tsx`): botón
+  `btn-peligro` "Cancelar venta" visible en los pasos 2-6. `cancelarVenta()`
+  reinicia todo el estado del wizard (búsqueda, salida, asientos, pasajeros,
+  pago) y vuelve al paso 1. Hoy la selección de asientos del paso 3 es solo
+  estado local —no hay lease en servidor— así que limpiarla ya los devuelve al
+  cupo; la venta nunca se hace `POST`, así que no toca el corte de caja. Si en el
+  futuro el mapa de asientos cablea `adquirir/liberarLease`, `cancelarVenta` es
+  el punto donde hay que soltar esos leases. `tsc --noEmit` limpio.
+- **2º reset parcial de la nube** (mismo día): QA ya había cargado flota, puntos y
+  rutas, y pidió limpiar **solo cortes / boletos / rutas / horarios / tarifas**,
+  dejando **conductores (10) y unidades (10)**. Barridas `ruta`(3) / `ruta_parada`
+  / `tarifa`(8) / `horario`(20) / `horario_parada` / `salida`(1820) /
+  `salida_parada`(16380) / `cupo_offline` + ventas-caja (`boleto` / `venta` /
+  `pago` / `movimiento_caja` / `corte_caja`(1) / `print_job` /
+  `asiento_ocupacion`) + su `sync.cambio_log`. **Conservado** `core.punto_ruta`(10)
+  — QA lo construyó "según la necesidad de la agencia"; por N-15 cada parada creó
+  su `core.sucursal`, así que la nube quedó con **11 sucursales** (1-4 + códigos
+  auto-creados 0/5/6/7/8/9/A). Ningún trigger corre en DELETE.
+- **Los DELETE no se replican** (`trg_cambio_log` es solo INSERT/UPDATE), así que
+  el nodo local seguía mostrando boletos/rutas viejos en la SPA. Nuevo
+  `scripts/reset-operacion-qa.ts` (`npm run reset:operacion [-- --target local|nube|ambos]`)
+  reproduce ese mismo barrido parcial en la base que se le indique, conservando
+  flota + `punto_ruta` + sucursales + usuarios. QA lo corre contra `local` para
+  alinear el nodo.
+
+---
+
+## Sesión 66 — 2026-09-10 · Paso 6 del wizard: categoría de descuento + efectivo recibido/cambio
+
+**Objetivo**: en el paso 6 (Pago) el cajero elige la categoría de tarifa
+(el precio baja a la configurada) y, si el pago es en efectivo, registra con
+cuánto pagó el pasajero y el cambio.
+
+- **Categoría movida al paso 6.** El selector de categoría por asiento
+  (`general` / `inapam` / `menor`) sale del paso 4 y se muestra al inicio del
+  paso 6 cuando la ruta tiene tarifa de descuento para ese tramo
+  (`catsDisponibles`). El total se recalcula ahí antes de cobrar. El paso 4
+  queda solo con nombres + teléfono; el resumen del paso 5 muestra tarifa
+  general. **Sin cambio de backend**: `core.registrar_venta` (0051/0063) ya
+  valida `pasajero.importe` contra `core.tarifa` por categoría y exige el
+  descuento solo terminal-extremo↔terminal-extremo (D4).
+- **Efectivo recibido + cambio — migración `0064`.** `core.pago` gana
+  `efectivo_recibido` y `efectivo_cambio` (`numeric(12,2)`, nullable, CHECK que
+  solo permite valores en pagos `efectivo` con `recibido >= monto` y
+  `cambio = recibido - monto`). `core.registrar_venta` se re-emite
+  (`CREATE OR REPLACE`, **misma firma** — el dato viaja en el jsonb `p_pago`),
+  valida y **calcula el cambio** (no confía en el cliente). **No toca el corte**:
+  el `movimiento_caja` de ingreso (0025) sigue tomando `pago.monto`. **No se
+  imprime** (D7 — `snapshot_boleto` intacto). Full-stack: `PagoInput`
+  (`src/ventas/venta.ts`, `web/src/api/ventas.ts`), `pagoSchema`
+  (`src/api/rutas/ventas.ts`), y en `Vender.tsx` el campo "Paga con" (obligatorio
+  en efectivo, bloquea el cobro si no cubre el total) + "Cambio: $X".
+  `core.registrar_pago` NO se tocó (ninguna UI lo alcanza; la columna nullable no
+  le estorba). +5 pruebas en `tests/ventas/venta.test.ts`.
+- **Rot de pruebas saneado de paso** (lo destapó `npm test`, no es de esta
+  feature): `tests/auth/revocacion.test.ts` tenía un ancla de reloj absoluta
+  (`2026-09-10T16:00Z`) que PR #81 no cubrió → ahora relativa. `tests/db/fixture.ts`
+  fijaba los códigos de sucursal `'A'`/`'B'` y chocaba con las sucursales que QA
+  creó por N-15 → ahora toma códigos libres como las fixtures de fleet/caja/auth.
+
+### Segunda ronda de feedback de QA (mismo día)
+
+- **Categoría de descuento — REVERTIDA al paso 4.** QA aclaró que el selector
+  por asiento estaba bien en el paso 4; se quitó del paso 6. Se agregó
+  `categoria` al tipo `BoletoEmitido` de la SPA y se muestra en la pantalla de
+  confirmación.
+- **Navegación hacia atrás en el wizard**: botones "← volver" en los pasos 3→2,
+  4→3, 5→4, 6→5 (el 2 ya tenía "cambiar búsqueda").
+- **Transferencia rehecha — migración `0065`** (respuestas de QA: imprime ya +
+  "finalizada-transferencia"; confirma quien vendió O gerente/admin; suma al
+  corte abierto en ese momento):
+  - `core.venta.estado` gana `'finalizada_transferencia'`. Una transferencia
+    íntegra al registrar ⇒ ese estado + **imprime el boleto** (el pasajero
+    aborda). `core.registrar_venta` re-emitida (misma firma).
+  - `core.verificar_transferencia`: la confirma **quien vendió O un usuario con
+    el permiso nuevo `pago.transferencia.confirmar`** (gerente + admin). Suma al
+    **corte abierto AHORA** de `sucursal_cobro_id` (`corte_abierto`, RAISE si no
+    hay); la venta pasa a `liquidada`.
+  - **El corte separa efectivo de transferencia**: `core.v_corte_saldo` gana
+    `ingresos_efectivo` / `ingresos_transferencia` / `efectivo_calculado`.
+    `core.cerrar_corte` (DROP+CREATE) y `core.f_cortes_visibles` (DROP+CREATE):
+    la `diferencia` se mide contra el **efectivo esperado**, no el total; la
+    transferencia se reporta aparte (suma al corte, no es efectivo físico).
+  - `core.pagos_transferencia_por_verificar(sucursal)` — cola del encargado.
+  - Full-stack: `src/ventas/venta.ts` (`transferenciasPorVerificar`, tipo estado),
+    `src/caja/corte.ts` (efectivo/transferencia en los 3 tipos), `src/api/rutas/caja.ts`
+    (`GET /caja/transferencias-por-verificar`), `web/src/api/{caja,ventas}.ts`,
+    `Vender.tsx` (pantalla "finalizada-transferencia"), `Caja.tsx` (panel
+    "Transferencias por verificar" + confirmar; el corte muestra efectivo esperado
+    vs transferencias). +7 pruebas (venta + movimiento); se actualizaron las de
+    `corte.test.ts` (shape nuevo) y `venta.test.ts` (la transferencia ahora imprime).
+- **Origen por defecto en el wizard**: al entrar a Vender, el campo "Origen"
+  (paso 1) queda preseleccionado con el punto terminal de la sucursal de la
+  sesión (esta terminal). Un vendedor de una sola sucursal la trae ya elegida;
+  un multi-sucursal eligió al entrar; si esa terminal no origina ninguna ruta
+  activa, queda vacío y decide el usuario. `/catalogos/puntos` gana `sucursalId`;
+  `Vender.tsx` usa `useSesion()` + un `useEffect` que solo rellena si está vacío.
+- **Deploy**: `0064` + `0065` aplicadas a **local** y a la **nube** (verificado:
+  `venta_estado_check` con `finalizada_transferencia`, columnas de `core.pago`,
+  permiso `pago.transferencia.confirmar` ×2, columnas de `v_corte_saldo`,
+  `pagos_transferencia_por_verificar`). Faltan las 4 terminales físicas.
+- **`npm test`: 605 pass / 1 fail.** El único rojo es `tests/fleet/puntos.test.ts`
+  (4 sucursales activas sin punto terminal en el DB local de dev — arrastre de la
+  config de QA + los resets de la nube de esta sesión; se cura con `npm run seed:qa`).
+  `tests/sync/f1-criterios.test.ts` volvió a verde solo.
+
+---
+
 Los cinco criterios de aceptación verdes contra Supabase real
 (`tests/sync/f1-criterios.test.ts`). Contrato de pruebas del motor cerrado
 (`salud.ts` Ses. 4, arbitraje/reasignación en F4, checksum dirigido de

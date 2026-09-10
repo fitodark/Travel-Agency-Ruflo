@@ -82,9 +82,48 @@ run('movimientos de caja (PostgreSQL real)', () => {
     );
     await verificarTransferencia(db, rows[0]!.id, c.usuarioId, c.ahora);
 
-    expect((await saldoCorte(db, c.corteId))!.ingresos, 'verificada, sí suma').toBe(450);
+    const s = (await saldoCorte(db, c.corteId))!;
+    expect(s.ingresos, 'verificada, sí suma al total').toBe(450);
+    // 0065: suma al corte como transferencia, NO al efectivo físico.
+    expect(s.ingresosTransferencia).toBe(450);
+    expect(s.ingresosEfectivo).toBe(0);
+    expect(s.efectivoCalculado, 'el efectivo esperado no cambia por la transferencia')
+      .toBe(s.saldoInicial);
     const movs = await movimientosDeCorte(db, c.corteId, 'gerente');
     expect(movs.filter((m) => m.origenTipo === 'pago_boleto')).toHaveLength(1);
+  });
+
+  it('0065: al cerrar, la diferencia se mide contra el efectivo, no contra el total', async () => {
+    const c = await prep();
+    // Una venta en efectivo y otra por transferencia verificada, ambas a la
+    // tarifa del tramo completo (450) que siembra el fixture.
+    await registrarVenta(db, {
+      salidaId: c.fx.salidaId, sucursalVentaId: c.fx.sucursales[0]!, usuarioId: c.usuarioId,
+      contactoTelefono: '953 000 0000', origenOrden: 0, destinoOrden: 3,
+      pasajeros: [{ asientoNum: 5, nombre: 'Efe', importe: 450 }],
+      pago: { metodo: 'efectivo', monto: 450, corteCajaId: c.corteId },
+      ahora: c.ahora,
+    });
+    const t = await registrarVenta(db, {
+      salidaId: c.fx.salidaId, sucursalVentaId: c.fx.sucursales[0]!, usuarioId: c.usuarioId,
+      contactoTelefono: '953 000 0000', origenOrden: 0, destinoOrden: 3,
+      pasajeros: [{ asientoNum: 6, nombre: 'Tra', importe: 450 }],
+      pago: { metodo: 'transferencia', monto: 450, corteCajaId: c.corteId },
+      ahora: c.ahora,
+    });
+    const { rows } = await db.query<{ id: string }>(
+      `SELECT id FROM core.pago WHERE venta_id = $1`, [t.ventaId],
+    );
+    await verificarTransferencia(db, rows[0]!.id, c.usuarioId, c.ahora);
+
+    // Corte 500 inicial + 450 efectivo = 950 esperado en caja. Se declara 950.
+    const cierre = await cerrarCorte(db, {
+      corteId: c.corteId, usuarioCierreId: c.usuarioId, saldoDeclarado: 950, ahora: c.ahora,
+    });
+    expect(cierre.efectivoCalculado).toBe(950);
+    expect(cierre.transferencia).toBe(450);
+    expect(cierre.saldoCalculado, 'el total sí incluye la transferencia').toBe(1400);
+    expect(cierre.diferencia, 'declarado 950 vs efectivo esperado 950').toBe(0);
   });
 
   it('una reservación cobrada en destino suma al corte de la sucursal que cobra (C5)', async () => {

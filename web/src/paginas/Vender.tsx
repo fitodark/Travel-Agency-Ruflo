@@ -1,7 +1,8 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { ErrorApi } from '../api/cliente';
 import { listarPuntos, listarSucursales } from '../api/catalogos';
+import { useSesion } from '../auth/sesion';
 import {
   buscarSalidas, registrarVenta,
   type CategoriaPasajero, type ResultadoVenta, type SalidaDisponible,
@@ -42,7 +43,20 @@ function Pasos({ actual }: { actual: Paso }) {
 }
 
 export function Vender() {
+  const { sesion } = useSesion();
   const puntos = useQuery({ queryKey: ['puntos'], queryFn: listarPuntos });
+
+  // La sucursal de la sesión (esta terminal) es el origen por defecto: un
+  // vendedor de una sola sucursal la trae ya elegida; un multi-sucursal eligió
+  // al entrar. Si esa terminal no origina ninguna ruta activa, queda vacío y el
+  // usuario decide.
+  const origenPorDefecto = useMemo(
+    () =>
+      (puntos.data ?? []).find(
+        (p) => p.sucursalId === sesion?.sucursalId && p.puedeOriginar,
+      )?.id ?? '',
+    [puntos.data, sesion?.sucursalId],
+  );
 
   const [paso, setPaso] = useState<Paso>(1);
   const [fecha, setFecha] = useState(hoy);
@@ -60,6 +74,9 @@ export function Vender() {
   const [metodo, setMetodo] = useState<'efectivo' | 'transferencia' | 'corresponsal' | 'sin_pago'>('efectivo');
   const [referencia, setReferencia] = useState('');
   const [sucursalCobroId, setSucursalCobroId] = useState('');
+  // Paso 6, pago en efectivo: con cuánto paga el cliente. String para admitir el
+  // campo vacío mientras teclea.
+  const [efectivoRecibido, setEfectivoRecibido] = useState('');
 
   // D8: las sucursales sin sistema (Tamazulapan) son las únicas donde puede
   // cobrarse un pago `corresponsal`.
@@ -80,6 +97,20 @@ export function Vender() {
     () => asientos.reduce((s, a) => s + importeDe(a), 0),
     [asientos, categorias, salida],
   );
+
+  // Preselecciona el origen con la sucursal de la sesión en cuanto cargan los
+  // puntos (o al cambiar de sucursal). Solo si el campo está vacío: no pisa una
+  // elección del usuario.
+  useEffect(() => {
+    if (origenPorDefecto) setOrigen((o) => o || origenPorDefecto);
+  }, [origenPorDefecto]);
+
+  // Efectivo (paso 6): monto recibido y cambio. `recibido` es null si el campo
+  // está vacío o no es un número; el cobro se bloquea hasta que cubra el total.
+  const recibido = efectivoRecibido.trim() === '' ? null : Number(efectivoRecibido);
+  const recibidoValido = recibido != null && Number.isFinite(recibido) && recibido >= total;
+  const cambio = recibidoValido ? recibido - total : 0;
+  const efectivoIncompleto = metodo === 'efectivo' && !recibidoValido;
 
   const busqueda = useMutation({
     mutationFn: () =>
@@ -112,6 +143,7 @@ export function Vender() {
           : {
               pago: {
                 metodo, monto: total,
+                ...(metodo === 'efectivo' && recibidoValido ? { efectivoRecibido: recibido } : {}),
                 ...(metodo === 'transferencia' && referencia ? { referencia } : {}),
                 ...(metodo === 'corresponsal' ? { sucursalCobroId } : {}),
               },
@@ -139,6 +171,25 @@ export function Vender() {
     setMetodo('efectivo');
     setSucursalCobroId('');
     setReferencia('');
+    setEfectivoRecibido('');
+  };
+
+  // Cancelar la venta en curso desde cualquier paso del wizard: el pasajero
+  // puede arrepentirse hasta en el pago. Suelta los asientos elegidos —hoy la
+  // selección del paso 3 es solo estado local, no hay lease en servidor que
+  // liberar, así que limpiarla los devuelve al cupo— y vuelve al paso 1. Como la
+  // venta nunca se registró, nada entra al corte de caja.
+  const cancelarVenta = () => {
+    reiniciar();
+    setFecha(hoy);
+    setOrigen(origenPorDefecto);
+    setDestino('');
+    setPersonas(1);
+    setEsReservacion(false);
+    setConConexion(true);
+    setContacto('');
+    busqueda.reset();
+    venta.reset();
   };
 
   const toggleAsiento = (n: number) => {
@@ -300,13 +351,18 @@ export function Vender() {
               </button>
             ))}
           </div>
-          <button
-            disabled={asientos.length !== personas}
-            onClick={() => setPaso(4)}
-            className="btn-primario"
-          >
-            Continuar ({asientos.length}/{personas})
-          </button>
+          <div className="flex items-center gap-3">
+            <button
+              disabled={asientos.length !== personas}
+              onClick={() => setPaso(4)}
+              className="btn-primario"
+            >
+              Continuar ({asientos.length}/{personas})
+            </button>
+            <button onClick={() => setPaso(2)} className="text-sm text-slate-500 underline">
+              ← volver a horarios
+            </button>
+          </div>
         </div>
       )}
 
@@ -324,7 +380,7 @@ export function Vender() {
               </label>
               {catsDisponibles.length > 1 && (
                 <label className="block text-sm">
-                  Categoría
+                  Categoría (descuento)
                   <select
                     value={categorias[a] ?? 'general'}
                     onChange={(e) =>
@@ -342,6 +398,12 @@ export function Vender() {
               )}
             </div>
           ))}
+          {catsDisponibles.length > 1 && (
+            <p className="text-xs text-slate-400">
+              El descuento (INAPAM / menor) solo aplica de la terminal de origen a la de
+              destino; para otros tramos solo hay tarifa general.
+            </p>
+          )}
           <label className="block text-sm">
             Teléfono de contacto (obligatorio)
             <input
@@ -350,13 +412,18 @@ export function Vender() {
               className="campo mt-1"
             />
           </label>
-          <button
-            disabled={asientos.some((a) => !nombres[a]?.trim()) || !contacto.trim()}
-            onClick={() => setPaso(5)}
-            className="btn-primario"
-          >
-            Continuar
-          </button>
+          <div className="flex items-center gap-3">
+            <button
+              disabled={asientos.some((a) => !nombres[a]?.trim()) || !contacto.trim()}
+              onClick={() => setPaso(5)}
+              className="btn-primario"
+            >
+              Continuar
+            </button>
+            <button onClick={() => setPaso(3)} className="text-sm text-slate-500 underline">
+              ← volver a asientos
+            </button>
+          </div>
         </div>
       )}
 
@@ -383,17 +450,26 @@ export function Vender() {
             <span>Total</span>
             <span>${total}</span>
           </div>
-          <button
-            onClick={() => setPaso(6)}
-            className="btn-primario"
-          >
-            Confirmar y pagar
-          </button>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setPaso(6)}
+              className="btn-primario"
+            >
+              Confirmar y pagar
+            </button>
+            <button onClick={() => setPaso(4)} className="text-sm text-slate-500 underline">
+              ← volver a pasajeros
+            </button>
+          </div>
         </div>
       )}
 
       {paso === 6 && (
         <div className="space-y-4 tarjeta p-4 text-sm">
+          <div className="flex justify-between font-semibold border-b pb-2">
+            <span>Total a cobrar</span>
+            <span>${total}</span>
+          </div>
           <div className="space-y-2">
             {(['efectivo', 'transferencia'] as const).map((m) => (
               <label key={m} className="flex items-center gap-2">
@@ -452,32 +528,95 @@ export function Vender() {
               </select>
             </label>
           )}
+          {metodo === 'efectivo' && (
+            <div className="space-y-1">
+              <label className="block">
+                Paga con (efectivo recibido)
+                <input
+                  type="number"
+                  min={total}
+                  step="1"
+                  inputMode="decimal"
+                  value={efectivoRecibido}
+                  onChange={(e) => setEfectivoRecibido(e.target.value)}
+                  className="campo mt-1"
+                />
+              </label>
+              {efectivoRecibido.trim() !== '' && !recibidoValido && (
+                <p className="text-xs text-red-600">
+                  El efectivo recibido debe cubrir el total (${total}).
+                </p>
+              )}
+              {recibidoValido && (
+                <p className="text-xs text-slate-500">Cambio: ${cambio}</p>
+              )}
+            </div>
+          )}
           <p className="text-slate-500">
             {metodo === 'sin_pago'
               ? 'Sin cobro ahora.'
               : metodo === 'corresponsal'
                 ? `Se registra el cobro de $${total} hecho en la corresponsal (no entra al efectivo del corte).`
-                : `Se cobra $${total} en ${metodo}.`}
+                : metodo === 'efectivo' && recibidoValido
+                  ? `Se cobra $${total} en efectivo · paga con $${recibido} · cambio $${cambio}.`
+                  : `Se cobra $${total} en ${metodo}.`}
           </p>
-          <button
-            onClick={() => venta.mutate()}
-            disabled={venta.isPending || (metodo === 'corresponsal' && !sucursalCobroId)}
-            className="btn-primario"
-          >
-            {venta.isPending ? 'Registrando…' : 'Registrar venta'}
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => venta.mutate()}
+              disabled={
+                venta.isPending
+                || (metodo === 'corresponsal' && !sucursalCobroId)
+                || efectivoIncompleto
+              }
+              className="btn-primario"
+            >
+              {venta.isPending ? 'Registrando…' : 'Registrar venta'}
+            </button>
+            <button
+              onClick={() => setPaso(5)}
+              disabled={venta.isPending}
+              className="text-sm text-slate-500 underline"
+            >
+              ← volver al resumen
+            </button>
+          </div>
+        </div>
+      )}
+
+      {typeof paso === 'number' && paso > 1 && (
+        <div className="mt-4 border-t pt-4">
+          <button type="button" onClick={cancelarVenta} className="btn-peligro">
+            Cancelar venta
           </button>
+          <p className="mt-1 text-xs text-slate-400">
+            Libera los asientos seleccionados y vuelve al paso 1. Al no concretarse
+            la venta, no se registra nada en el corte de caja.
+          </p>
         </div>
       )}
 
       {paso === 'listo' && resultado && (
         <div className="space-y-3 rounded border border-green-300 bg-green-50 p-4 text-sm">
           <div className="font-semibold">
-            Venta {resultado.estado} · {resultado.printJobs} ticket(s) encolado(s)
+            {resultado.estado === 'finalizada_transferencia'
+              ? 'Venta finalizada · transferencia'
+              : `Venta ${resultado.estado}`}
+            {' · '}{resultado.printJobs} ticket(s) encolado(s)
           </div>
+          {resultado.estado === 'finalizada_transferencia' && (
+            <p className="text-slate-600">
+              El pasajero debe enviar el comprobante al encargado para confirmar el pago.
+              El monto entrará al corte al confirmarlo (Caja → «Transferencias por verificar»).
+            </p>
+          )}
           <ul className="divide-y">
             {resultado.boletos.map((b) => (
               <li key={b.boletoId} className="flex justify-between py-1">
-                <span>Folio {b.folio} · asiento {b.asientoNum} · {b.pasajero}</span>
+                <span>
+                  Folio {b.folio} · asiento {b.asientoNum} · {b.pasajero}
+                  {b.categoria !== 'general' && ` · ${b.categoria}`}
+                </span>
                 <span>${b.importe}</span>
               </li>
             ))}
@@ -485,6 +624,11 @@ export function Vender() {
           <div className="text-slate-600">
             Total ${resultado.importeTotal} · pagado ${resultado.pagado} · saldo ${resultado.saldoPendiente}
           </div>
+          {metodo === 'efectivo' && recibidoValido && (
+            <div className="text-slate-600">
+              Pagó con ${recibido} · cambio ${cambio}
+            </div>
+          )}
           <button onClick={reiniciar} className="btn-primario">
             Nueva venta
           </button>

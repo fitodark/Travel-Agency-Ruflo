@@ -18,6 +18,7 @@ import {
 import {
   anularMovimiento, movimientosDeCorte, registrarEgreso, type Rol,
 } from '../../caja/movimiento.js';
+import { transferenciasPorVerificar } from '../../ventas/venta.js';
 import { exige } from '../autenticar.js';
 import { prohibido } from '../errores.js';
 
@@ -120,6 +121,13 @@ export async function rutasCaja(app: FastifyInstance): Promise<void> {
       if (!(await corteVisiblePor(app.db, id, alcanceDe(req)))) throw prohibido();
       return movimientosDeCorte(app.db, id, req.sesion.rol as Rol);
     },
+  );
+
+  // Cola del encargado (0065): transferencias registradas en mi sucursal cuyo
+  // comprobante aún no se confirma. La confirmación es `POST /ventas/pagos/:id/verificar`
+  // (quien vendió o un gerente/admin); suma al corte abierto en ese momento.
+  app.get('/transferencias-por-verificar', async (req) =>
+    transferenciasPorVerificar(app.db, req.sesion.sucursalId!),
   );
 
   // Apartado "cobrado en corresponsal" del corte (D8): pagos que se cobraron en

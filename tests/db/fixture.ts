@@ -26,6 +26,21 @@ async function scalar(client: Client, sql: string, params: unknown[] = []): Prom
   return rows[0]!.id;
 }
 
+// `core.sucursal.codigo` es char(1) del alfabeto sin ambiguos (sin I, L, O, U).
+// Se toman los que estén LIBRES en la base (mismo patrón que las fixtures de
+// fleet/caja/auth): un `codigo` fijo choca contra cualquier sucursal real que ya
+// exista en la base de dev.
+const COD = 'ABCDEFGHJKMNPQRSTVWXYZ23456789';
+
+async function codigosLibres(client: Client, cuantos: number): Promise<string[]> {
+  const { rows } = await client.query<{ c: string }>(
+    `SELECT c FROM unnest(string_to_array($1, NULL)) c
+      WHERE c NOT IN (SELECT codigo FROM core.sucursal) ORDER BY c LIMIT $2`,
+    [COD, cuantos],
+  );
+  return rows.map((r) => r.c);
+}
+
 /** Crea la cadena mínima. Debe llamarse dentro de una transacción abierta. */
 export async function seedFixture(client: Client): Promise<Fixture> {
   const agenciaId = await scalar(
@@ -43,9 +58,9 @@ export async function seedFixture(client: Client): Promise<Fixture> {
 
   // `codigo` es char(1) a propósito: es el prefijo que particiona el espacio de folios
   // entre sucursales para que dos terminales offline no generen el mismo folio.
-  // Alfabeto sin caracteres ambiguos (sin I, L, O, U) -> hasta 32 sucursales.
-  const sucursal1Id = await sucursal('A', 'Terminal Origen');
-  const sucursal2Id = await sucursal('B', 'Terminal Intermedia');
+  const [cod1, cod2] = await codigosLibres(client, 2);
+  const sucursal1Id = await sucursal(cod1!, 'Terminal Origen');
+  const sucursal2Id = await sucursal(cod2!, 'Terminal Intermedia');
 
   const usuarioId = await scalar(
     client,
