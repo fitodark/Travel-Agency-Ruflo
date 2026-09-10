@@ -46,6 +46,7 @@ export async function boletosHuerfanos(
   return rows.map((r) => ({ ...r, asiento: Number(r.asiento), importe: Number(r.importe) }));
 }
 
+
 export interface ArgsReemplazo {
   rutaViejaId: string;
   nombre: string;

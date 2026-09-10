@@ -16,7 +16,7 @@ import {
 } from '../../fleet/manifiesto.js';
 import {
   buscarBoletoPorFolio, cancelarBoleto, checklistAbordaje, corregirAbordaje, detalleBoleto,
-  finalizarSalida, marcarEnRuta, registrarAbordaje, reimprimirBoleto,
+  finalizarSalida, marcarEnRuta, registrarAbordaje, reimprimirBoleto, reubicarHuerfano,
 } from '../../fleet/abordaje.js';
 import { exige } from '../autenticar.js';
 import { noEncontrado } from '../errores.js';
@@ -139,6 +139,50 @@ export async function rutasViajes(app: FastifyInstance): Promise<void> {
       } catch (err) {
         if (err instanceof Error && !(err as { code?: string }).code) {
           return reply.status(422).send({ error: 'cancelacion_invalida', mensaje: err.message });
+        }
+        throw err;
+      }
+    },
+  );
+
+  // Reubicación de un boleto huérfano (D12/N-14): cancela el viejo y reemite en
+  // una salida de la ruta nueva. Si ya pagó, mantiene el precio (traspasa el
+  // pago); si no, cobra la tarifa vigente de la ruta nueva.
+  app.post(
+    '/boleto/:id/reubicar',
+    {
+      preHandler: exige({ permiso: 'reserva.cancelar' }),
+      schema: {
+        params: idParam,
+        body: {
+          type: 'object',
+          required: ['salidaNuevaId', 'origenOrden', 'destinoOrden', 'asientoNum'],
+          properties: {
+            salidaNuevaId: { type: 'string', format: 'uuid' },
+            origenOrden: { type: 'integer', minimum: 0 },
+            destinoOrden: { type: 'integer', minimum: 1 },
+            asientoNum: { type: 'integer', minimum: 1 },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      const { id } = req.params as { id: string };
+      const b = req.body as {
+        salidaNuevaId: string; origenOrden: number; destinoOrden: number; asientoNum: number;
+      };
+      try {
+        const r = await reubicarHuerfano(app.db, {
+          boletoViejoId: id,
+          usuarioId: req.sesion.usuarioId,
+          sucursalId: req.sesion.sucursalId!,
+          ...b,
+          ahora: app.ahora(),
+        });
+        return reply.status(201).send(r);
+      } catch (err) {
+        if (err instanceof Error && !(err as { code?: string }).code) {
+          return reply.status(422).send({ error: 'reubicacion_invalida', mensaje: err.message });
         }
         throw err;
       }
