@@ -3049,6 +3049,30 @@ Verificación: typecheck src+web verde, web build verde,
 
 Doc: `03-auth-impresion-config.md` §2.4 actualizado.
 
+### Limpieza del DB dev — los "70 fallos preexistentes" eran rot de las pruebas
+
+El baseline arrastraba ~70 fallos etiquetados como "polución del DB dev"
+(auth / caja / catalogos / clientes / admin / config / dashboard-auditoria). Al
+diagnosticarlos:
+
+- **~66 fallos = anclas de reloj vencidas.** 9 tests fijaban `AHORA` en una fecha
+  absoluta (`2026-09-01` / `2026-09-10`); los fixtures siembran usuarios/config con
+  `effective_from = now()` (hora **real**). Cuando la fecha real pasó la ancla, esos
+  registros parecían "no vigentes" al reloj del test → `usuario_no_vigente` en
+  cascada. **Fix (rama `test-anclas-de-reloj`):** ancla relativa
+  `new Date(Date.now() + 30 * 86_400_000)` — siempre por delante del `now()` de
+  siembra. Todos usaban `AHORA` solo para aritmética relativa, nunca para asertar
+  una fecha de calendario.
+- **2 fallos = un gasto de QA.** `core.movimiento_caja` `gasto_insumo` "papeleria y
+  cafe" ($75), dejado en el DB dev desde el 1 sep, que
+  `tests/dashboard/auditoria.test.ts` sumaba con rango `2020-01-01`..`2100-01-01`.
+  Borrado del DB dev (una fila, sin dependientes).
+- `npx tsx scripts/limpiar-dev.ts` corrido (solo resetea estado de runtime del
+  motor; no era eso).
+
+**`npm test` completo ahora: 599 pass / 0 fail / 0 skip / 0 todo.** El proyecto
+deja de arrastrar el "baseline de 70".
+
 ---
 
 Los cinco criterios de aceptación verdes contra Supabase real
