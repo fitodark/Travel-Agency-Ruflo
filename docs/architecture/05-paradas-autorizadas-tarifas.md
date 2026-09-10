@@ -1,13 +1,12 @@
 # 05 · Paradas autorizadas y tarifa por parada — Plan de implementación
 
-> **Estado: BORRADOR — P-1..P-9 y N-1..N-12 RESPONDIDAS (2026-09-07). N-13/N-14 RESUELTAS (2026-09-09), solo N-15 residual.**
+> **Estado: P-1..P-9 y N-1..N-12 RESPONDIDAS (2026-09-07). N-13/N-14 RESUELTAS (2026-09-09). N-15 RESUELTA (2026-09-10). Plan cerrado a nivel de decisiones.**
 > Fecha de apertura: 2026-09-03 · Blueprint v0.2
 >
-> Este plan se construyó a partir de cuatro sesiones con el cliente sobre el flujo real
-> de rutas. Las **decisiones fijadas** (§2, D1..D13) ya incorporan las respuestas a
-> P-1..P-9 y N-1..N-12. Queda una duda residual (§7.3, N-15) que solo
-> afinan la Fase 6 y no bloquean el modelo de datos. QA pidió que no se retrabaje:
-> las Fases 0-5 se pueden construir sin más insumos del cliente.
+> Este plan se construyó a partir de cinco sesiones con el cliente sobre el flujo real
+> de rutas. Las **decisiones fijadas** (§2, D1..D13) incorporan las respuestas a
+> P-1..P-9 y N-1..N-15. Fases 0–6 completas (backend + SPA); falta solo el deploy a
+> las 4 terminales físicas (§ "Estado del deploy").
 >
 > Memoria de trabajo asociada: `donaji-rutas-paradas-tarifas`.
 
@@ -679,13 +678,13 @@ chica futura, fuera de este deploy.
 | **N-11** | Reubicación = **cancelar y volver a emitir** (folio nuevo). | D12, Fase 5 |
 | **N-12** | "Viaje redondo" = **dos boletos separados**, cada uno con su tarifa. La **edad del menor** queda a **criterio del vendedor** (sin validación del sistema). | D4, Fase 3 |
 
-### 7.3 Dudas de detalle residuales (N-13..N-15) — Fase 6
+### 7.3 Dudas de detalle residuales (N-13..N-15) — Fase 6 · **todas resueltas**
 
 | ID | Respuesta / estado | Toca |
 |---|---|---|
 | **N-13 — RESUELTA (cliente, 2026-09-09)** | El reembolso **solo existe en la sucursal donde se cobró**. Pago `corresponsal` (cobrado en sucursal `sin_sistema`, p. ej. Tamazulapan): el sistema **NO** registra ninguna línea en el corte del origen — el efectivo nunca entró. La cancelación **procede** (libera el asiento), y el reembolso se hace **a mano en esa sucursal**: Tamazulapan notifica la cancelación y Tamazulapan devuelve. Si el pasajero pide el reembolso en Huajuapan **no se puede** — se cancela igual, pero la devolución es en Tamazulapan. Escenario raro pero se contempla (conciliación manual). *Rol: no se especificó → se asume `administrador` + `gerente` (recomendación no objetada).* | D9, 6c-1 ✅ |
 | **N-14 — RESUELTA (cliente, 2026-09-09)** | Reubicación de un huérfano = conciliación con el pasajero + reemitir en la ruta nueva. **Si ya pagó** ⇒ se **mantiene el precio pagado** aunque la tarifa nueva difiera (el pago se traspasa al folio nuevo, sin mover efectivo, sin cobrar/devolver diferencia). **Si no pagó** ⇒ se le cobra el **monto vigente** de la tarifa de la ruta nueva. | D12, 6c-2 |
-| **N-15** | Cuando una parada de ascenso sin POS **gana su propio sistema**: ¿pasa a `punto_ruta.tipo = 'terminal'` con su `core.sucursal` (y empieza a tener cupo propio), o sigue siendo `parada` con POS? *(no bloquea nada — cambio de catálogo futuro)* | D1/D2 |
+| **N-15 — RESUELTA (cliente, 2026-09-10)** | Cuando una parada de ascenso "sin POS" **gana su propio sistema** (POS = nodo con PC + app + `core.sucursal` + corte de caja + folios + bloque de cupo offline; **no** es la impresora). **Pasa a `punto_ruta.tipo = 'terminal'` con su `core.sucursal`** — es una operación de catálogo, sin cambio de esquema: se le crea la sucursal, su `punto_ruta` se marca `tipo='terminal'`, y desde la **siguiente materialización** `repartir_cupo_offline` le asigna un bloque disjunto `[su_orden, destino)` (las salidas ya materializadas conservan su reparto). Para **Tamazulapan** (hoy `core.sucursal.sin_sistema=true`, ni en `punto_ruta`): se pone `sin_sistema=false` y se agrega como `punto_ruta` terminal a las rutas que paran ahí. **P1 (cliente):** al volverse terminal es una **sucursal completa** — aparece en la consola de admin, en los cortes y en el tablero, y **debe tener su propio corte de caja**. **P2 (cliente):** el estrechamiento del cupo offline por bloques (R17) es **aceptable** — la estrategia es que el cupo se consulte **siempre online** (lease) cuando hay conexión, así el bloque offline chico no limita la operación normal; requisito duro: **vender el boleto e imprimir el ticket nunca se bloquea**. | D1/D2/D6, R17 |
 
 ### Respuestas del cliente ya recibidas (sesión 2026-09-02)
 
