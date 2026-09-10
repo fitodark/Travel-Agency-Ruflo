@@ -524,14 +524,18 @@ sin ventana coordinada). Ordenados por severidad.
   `'cancelado'`— lo dejaban pasar. **Fix:** `UPDATE core.boleto SET estado='reasignado',
   activo=false` (esos lectores ya filtran `AND b.activo`). `abordaje.ts` `detalleBoleto` dejó
   de filtrar `b.activo` para que la modal siga mostrando el boleto tras reubicarlo.
-- **F6-D2 (bug, alto) — ✅ RESUELTO en `0061`** (rechazo). `core.boletos_huerfanos` devuelve
-  un renglón por boleto; una familia de 3 asientos en una venta son 3 huérfanos de la MISMA
-  venta. `reubicar_huerfano` movía **todos** los `core.pago` y cancelaba la venta vieja en la
-  1ª reubicación → los otros boletos quedaban en venta cancelada sin pago y se les cobraba de
-  nuevo. **Fix:** `reubicar_huerfano` rechaza una venta con más de un boleto `emitido` vivo,
-  con mensaje que apunta al flujo manual (cancelar + reemitir la venta completa, D12).
-  *Pendiente futuro:* reubicación de venta completa manteniendo el precio N-14 para familias
-  (nueva función `reubicar_venta_huerfana` con N asignaciones de asiento en una llamada).
+- **F6-D2 (bug, alto) — ✅ RESUELTO en `0061` (rechazo) + `0062` (soporte real).**
+  `core.boletos_huerfanos` devuelve un renglón por boleto; una familia de 3 asientos en una
+  venta son 3 huérfanos de la MISMA venta. `reubicar_huerfano` movía **todos** los
+  `core.pago` y cancelaba la venta vieja en la 1ª reubicación → los otros boletos quedaban en
+  venta cancelada sin pago y se les cobraba de nuevo. **`0061`:** `reubicar_huerfano` rechaza
+  una venta con más de un boleto `emitido` vivo. **`0062`:** `core.reubicar_venta_huerfana(
+  venta_vieja, salida_nueva, asignaciones jsonb, usuario, sucursal, ahora)` reubica la venta
+  **entera** en una operación — una venta nueva con todos los boletos al precio pagado
+  (traspasa el pago una vez) o a la tarifa vigente si no había pago; las asignaciones deben
+  cubrir exactamente los boletos vivos. `POST /viajes/venta/:id/reubicar` + `GET
+  /viajes/venta/:id/reubicables`; el wizard `<ReubicarBoleto>` conmuta al modo multi-boleto
+  (un asiento por pasajero, mismo tramo) cuando la venta tiene >1 boleto.
 - **F6-D3 (bug, medio) — ✅ RESUELTO en `0061`.** Doble reembolso al cancelar boleto por
   boleto una venta multi-boleto con abono parcial: `core.cancelar_boleto` (`0059`) calculaba
   `LEAST(boleto.importe, pagado)` sin descontar reembolsos previos ni desactivar el pago

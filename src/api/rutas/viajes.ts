@@ -15,8 +15,9 @@ import {
   datosManifiesto, generarManifiestos, salidasDelDia, type CopiaManifiesto,
 } from '../../fleet/manifiesto.js';
 import {
-  buscarBoletoPorFolio, cancelarBoleto, checklistAbordaje, corregirAbordaje, detalleBoleto,
-  finalizarSalida, marcarEnRuta, registrarAbordaje, reimprimirBoleto, reubicarHuerfano,
+  boletosReubicables, buscarBoletoPorFolio, cancelarBoleto, checklistAbordaje, corregirAbordaje,
+  detalleBoleto, finalizarSalida, marcarEnRuta, registrarAbordaje, reimprimirBoleto,
+  reubicarHuerfano, reubicarVentaHuerfana,
 } from '../../fleet/abordaje.js';
 import { exige } from '../autenticar.js';
 import { noEncontrado } from '../errores.js';
@@ -177,6 +178,78 @@ export async function rutasViajes(app: FastifyInstance): Promise<void> {
           usuarioId: req.sesion.usuarioId,
           sucursalId: req.sesion.sucursalId!,
           ...b,
+          ahora: app.ahora(),
+        });
+        return reply.status(201).send(r);
+      } catch (err) {
+        if (err instanceof Error && !(err as { code?: string }).code) {
+          return reply.status(422).send({ error: 'reubicacion_invalida', mensaje: err.message });
+        }
+        throw err;
+      }
+    },
+  );
+
+  // Boletos vivos de una venta huérfana — para reubicar la venta completa
+  // (familia multi-boleto) en una sola operación (D12/N-14, F6-D2).
+  app.get(
+    '/venta/:id/reubicables',
+    { preHandler: exige({ permiso: 'reserva.cancelar' }), schema: { params: idParam } },
+    async (req) => {
+      const { id } = req.params as { id: string };
+      return boletosReubicables(app.db, id);
+    },
+  );
+
+  // Reubicación de una venta huérfana completa: una venta nueva con todos los
+  // boletos. Todos viajan el mismo tramo (el elegido en la salida nueva); si el
+  // pasajero ya pagó, cada boleto mantiene su precio.
+  app.post(
+    '/venta/:id/reubicar',
+    {
+      preHandler: exige({ permiso: 'reserva.cancelar' }),
+      schema: {
+        params: idParam,
+        body: {
+          type: 'object',
+          required: ['salidaNuevaId', 'origenOrden', 'destinoOrden', 'asientos'],
+          properties: {
+            salidaNuevaId: { type: 'string', format: 'uuid' },
+            origenOrden: { type: 'integer', minimum: 0 },
+            destinoOrden: { type: 'integer', minimum: 1 },
+            asientos: {
+              type: 'array', minItems: 1,
+              items: {
+                type: 'object',
+                required: ['boletoViejoId', 'asientoNum'],
+                properties: {
+                  boletoViejoId: { type: 'string', format: 'uuid' },
+                  asientoNum: { type: 'integer', minimum: 1 },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      const { id } = req.params as { id: string };
+      const b = req.body as {
+        salidaNuevaId: string; origenOrden: number; destinoOrden: number;
+        asientos: Array<{ boletoViejoId: string; asientoNum: number }>;
+      };
+      try {
+        const r = await reubicarVentaHuerfana(app.db, {
+          ventaViejaId: id,
+          salidaNuevaId: b.salidaNuevaId,
+          asignaciones: b.asientos.map((a) => ({
+            boletoViejoId: a.boletoViejoId,
+            origenOrden: b.origenOrden,
+            destinoOrden: b.destinoOrden,
+            asientoNum: a.asientoNum,
+          })),
+          usuarioId: req.sesion.usuarioId,
+          sucursalId: req.sesion.sucursalId!,
           ahora: app.ahora(),
         });
         return reply.status(201).send(r);

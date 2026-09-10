@@ -158,6 +158,46 @@ export function reubicarBoleto(
   );
 }
 
+export interface BoletoReubicable {
+  boletoId: string;
+  folio: string;
+  pasajeroNombre: string;
+  asientoNum: number;
+}
+
+/** Boletos vivos de una venta huérfana, para reubicarla completa (familia multi-boleto). */
+export function boletosReubicables(ventaId: string): Promise<BoletoReubicable[]> {
+  return api<BoletoReubicable[]>(`/viajes/venta/${encodeURIComponent(ventaId)}/reubicables`);
+}
+
+export interface ResultadoReubicarVenta {
+  ventaNuevaId: string;
+  importeTotal: number;
+  pagado: number;
+  saldoPendiente: number;
+  precioMantenido: boolean;
+  boletos: Array<{ boletoId: string; folio: string; asientoNum: number; pasajero: string; importe: number }>;
+  printJobs: number;
+}
+
+/**
+ * Reubica una venta huérfana completa (D12/N-14, F6-D2): una venta nueva con todos
+ * los boletos. Todos viajan el tramo elegido en la salida nueva; si ya pagaron, se
+ * mantiene el precio.
+ */
+export function reubicarVentaHuerfana(
+  ventaId: string,
+  d: {
+    salidaNuevaId: string; origenOrden: number; destinoOrden: number;
+    asientos: Array<{ boletoViejoId: string; asientoNum: number }>;
+  },
+): Promise<ResultadoReubicarVenta> {
+  return api<ResultadoReubicarVenta>(
+    `/viajes/venta/${encodeURIComponent(ventaId)}/reubicar`,
+    { method: 'POST', body: JSON.stringify(d) },
+  );
+}
+
 export function registrarAbordaje(
   boletoId: string, abordo: boolean,
 ): Promise<{ eventoId: string }> {
