@@ -1,9 +1,12 @@
 import { useState, type FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ErrorApi } from '../api/cliente';
+import { listarPuntos } from '../api/catalogos';
+import { buscarSalidas, type SalidaDisponible } from '../api/ventas';
 import {
   buscarBoletoPorFolio, cancelarBoleto, checklist, detalleBoleto, finalizarViaje,
-  generarManifiestos, marcarEnRuta, registrarAbordaje, reimprimirBoleto, salidasDelDia,
+  generarManifiestos, marcarEnRuta, registrarAbordaje, reimprimirBoleto, reubicarBoleto,
+  salidasDelDia,
   type BoletoPorFolio, type ManifiestosEncolados, type SalidaDelDia,
 } from '../api/viajes';
 import { Modal } from '../componentes/ui';
@@ -377,6 +380,18 @@ function ModalDetalleBoleto({
       void detalle.refetch();
     },
   });
+  const reubicar = useMutation({
+    mutationFn: (d: {
+      salidaNuevaId: string; origenOrden: number; destinoOrden: number; asientoNum: number;
+    }) => reubicarBoleto(boletoId, d),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['viajes'] });
+      void detalle.refetch();
+    },
+  });
+
+  const puedeMover =
+    detalle.data?.estado === 'emitido' && !cancelar.isSuccess && !reubicar.isSuccess;
 
   return (
     <Modal titulo="Detalle del boleto" onCerrar={onCerrar}>
@@ -455,15 +470,24 @@ function ModalDetalleBoleto({
             <button
               type="button"
               onClick={() => reimprimir.mutate()}
-              disabled={reimprimir.isPending || reimprimir.isSuccess || detalle.data.estado === 'cancelado'}
+              disabled={
+                reimprimir.isPending || reimprimir.isSuccess
+                || detalle.data.estado === 'cancelado' || detalle.data.estado === 'reasignado'
+              }
               className="btn"
             >
               {reimprimir.isPending ? 'Reimprimiendo…' : 'Reimprimir boleto'}
             </button>
-            {detalle.data.estado === 'emitido' && !cancelar.isSuccess && (
+            {puedeMover && (
               <CancelarBoleto
                 pending={cancelar.isPending}
                 onConfirmar={(m) => cancelar.mutate(m)}
+              />
+            )}
+            {puedeMover && (
+              <ReubicarBoleto
+                pending={reubicar.isPending}
+                onConfirmar={(d) => reubicar.mutate(d)}
               />
             )}
           </div>
@@ -491,6 +515,25 @@ function ModalDetalleBoleto({
           {cancelar.isError && (
             <p className="text-xs text-red-600">
               {cancelar.error instanceof ErrorApi ? cancelar.error.message : 'No se pudo cancelar.'}
+            </p>
+          )}
+          {reubicar.isSuccess && (
+            <p className="text-xs text-green-700">
+              Reubicado. Nuevo folio{' '}
+              <span className="font-mono">{reubicar.data.folioNuevo}</span>.{' '}
+              {reubicar.data.precioMantenido
+                ? `Se mantuvo el precio ya pagado (${mxn(reubicar.data.importe)}).`
+                : `Tarifa vigente de la ruta nueva: ${mxn(reubicar.data.importe)}${
+                    reubicar.data.saldoPendiente > 0
+                      ? ` · saldo pendiente ${mxn(reubicar.data.saldoPendiente)}.`
+                      : '.'
+                  }`}
+              {reubicar.data.printJobs > 0 && ` ${reubicar.data.printJobs} boleto(s) reimpreso(s).`}
+            </p>
+          )}
+          {reubicar.isError && (
+            <p className="text-xs text-red-600">
+              {reubicar.error instanceof ErrorApi ? reubicar.error.message : 'No se pudo reubicar.'}
             </p>
           )}
         </div>
@@ -530,6 +573,182 @@ function CancelarBoleto({ pending, onConfirmar }: { pending: boolean; onConfirma
           No
         </button>
       </div>
+    </div>
+  );
+}
+
+interface DatosReubicar {
+  salidaNuevaId: string;
+  origenOrden: number;
+  destinoOrden: number;
+  asientoNum: number;
+}
+
+/**
+ * Asistente para reubicar un boleto huérfano (D12/N-14): el operador busca una
+ * salida de la ruta nueva por fecha + origen/destino, elige el asiento y
+ * confirma. El backend cancela el boleto viejo y reemite; si el pasajero ya
+ * pagó mantiene el precio, si no cobra la tarifa vigente de la ruta nueva.
+ */
+function ReubicarBoleto(
+  { pending, onConfirmar }: { pending: boolean; onConfirmar: (d: DatosReubicar) => void },
+) {
+  const [abierto, setAbierto] = useState(false);
+  const [fecha, setFecha] = useState(hoyIso());
+  const [origen, setOrigen] = useState('');
+  const [destino, setDestino] = useState('');
+  const [salida, setSalida] = useState<SalidaDisponible | null>(null);
+  const [asiento, setAsiento] = useState<number | null>(null);
+
+  const puntos = useQuery({ queryKey: ['puntos'], queryFn: listarPuntos });
+  const busqueda = useMutation({
+    mutationFn: () => buscarSalidas({ fecha, origen, destino, personas: 1, conConexion: false }),
+    onSuccess: () => { setSalida(null); setAsiento(null); },
+  });
+
+  if (!abierto) {
+    return (
+      <button type="button" className="btn-sutil text-brand-700" onClick={() => setAbierto(true)}>
+        Reubicar a otra ruta
+      </button>
+    );
+  }
+
+  return (
+    <div className="w-full space-y-3 rounded-lg border border-brand-200 bg-brand-50/50 p-3 text-sm">
+      <p className="text-slate-600">
+        Reubica al pasajero en una salida de la ruta nueva. Si ya pagó, se mantiene el precio;
+        si no, se cobra la tarifa vigente de la ruta nueva.
+      </p>
+
+      <div className="grid grid-cols-2 gap-2">
+        <label className="block">
+          Fecha
+          <input
+            type="date"
+            value={fecha}
+            onChange={(e) => setFecha(e.target.value)}
+            className="campo mt-1"
+          />
+        </label>
+        <div />
+        <label className="block">
+          Origen
+          <select value={origen} onChange={(e) => setOrigen(e.target.value)} className="campo mt-1">
+            <option value="">—</option>
+            {puntos.data?.filter((p) => p.puedeOriginar).map((p) => (
+              <option key={p.id} value={p.id}>{p.nombre}</option>
+            ))}
+          </select>
+        </label>
+        <label className="block">
+          Destino
+          <select value={destino} onChange={(e) => setDestino(e.target.value)} className="campo mt-1">
+            <option value="">—</option>
+            {puntos.data?.filter((p) => p.id !== origen).map((p) => (
+              <option key={p.id} value={p.id}>{p.nombre}</option>
+            ))}
+          </select>
+        </label>
+      </div>
+
+      <div className="flex gap-2">
+        <button
+          type="button"
+          className="btn"
+          disabled={!origen || !destino || busqueda.isPending}
+          onClick={() => busqueda.mutate()}
+        >
+          {busqueda.isPending ? 'Buscando…' : 'Buscar salidas'}
+        </button>
+        <button
+          type="button"
+          className="rounded border px-3 py-1.5"
+          onClick={() => setAbierto(false)}
+        >
+          Cerrar
+        </button>
+      </div>
+
+      {busqueda.isError && (
+        <p className="text-xs text-red-600">
+          {busqueda.error instanceof ErrorApi ? busqueda.error.message : 'No se pudo buscar.'}
+        </p>
+      )}
+      {busqueda.data?.length === 0 && (
+        <p className="text-xs text-slate-500">No hay salidas para ese tramo y fecha.</p>
+      )}
+
+      {busqueda.data && busqueda.data.length > 0 && !salida && (
+        <ul className="space-y-1">
+          {busqueda.data.map((s) => (
+            <li key={s.salidaId}>
+              <button
+                type="button"
+                disabled={!s.seleccionable}
+                onClick={() => { setSalida(s); setAsiento(null); }}
+                className={`w-full rounded border p-2 text-left text-xs ${
+                  s.seleccionable ? 'bg-white hover:bg-slate-50' : 'bg-slate-100 text-slate-400'
+                }`}
+              >
+                <div className="flex justify-between">
+                  <span className="font-medium">{fechaHora(s.horaSalidaOrigen)}</span>
+                  <span>{s.importe === null ? 'sin tarifa' : mxn(s.importe)}</span>
+                </div>
+                <div className="text-slate-500">
+                  {[s.origenNombre, ...s.escalas, s.destinoNombre].join(' → ')} · {s.disponibles} disp.
+                </div>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {salida && (
+        <div className="space-y-2">
+          <div className="flex items-center justify-between text-xs text-slate-500">
+            <span>
+              {fechaHora(salida.horaSalidaOrigen)} · {salida.origenNombre} → {salida.destinoNombre}
+            </span>
+            <button
+              type="button"
+              className="underline"
+              onClick={() => { setSalida(null); setAsiento(null); }}
+            >
+              cambiar salida
+            </button>
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {salida.asientosOfrecibles.map((n) => (
+              <button
+                key={n}
+                type="button"
+                onClick={() => setAsiento(n)}
+                className={`h-9 w-9 rounded border text-xs ${
+                  asiento === n
+                    ? 'border-brand-600 bg-brand-600 text-white'
+                    : 'bg-white hover:bg-brand-50'
+                }`}
+              >
+                {n}
+              </button>
+            ))}
+          </div>
+          <button
+            type="button"
+            className="btn-primario"
+            disabled={asiento === null || pending}
+            onClick={() => onConfirmar({
+              salidaNuevaId: salida.salidaId,
+              origenOrden: salida.origenOrden,
+              destinoOrden: salida.destinoOrden,
+              asientoNum: asiento!,
+            })}
+          >
+            {pending ? 'Reubicando…' : `Reubicar${asiento !== null ? ` al asiento ${asiento}` : ''}`}
+          </button>
+        </div>
+      )}
     </div>
   );
 }
