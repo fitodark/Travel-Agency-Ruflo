@@ -37,18 +37,20 @@ export interface SucursalAdmin {
   effectiveFrom: string | null;
   effectiveUntil: string | null;
   tieneHotp: boolean;
+  /** D13: sin PC/caja en el sistema; solo cobra `corresponsal` en otra sucursal. */
+  sinSistema: boolean;
 }
 
 export const listarSucursales = (): Promise<SucursalAdmin[]> => api('/admin/sucursales');
 
 export const crearSucursal = (
-  d: { nombre: string; direccionCompleta: string; telefonoPrincipal: string; celular?: string; zonaHoraria?: string; codigo?: string } & Propagacion,
+  d: { nombre: string; direccionCompleta: string; telefonoPrincipal: string; celular?: string; zonaHoraria?: string; codigo?: string; sinSistema?: boolean } & Propagacion,
 ): Promise<{ codigo: string }> =>
   api('/admin/sucursales', { method: 'POST', body: JSON.stringify(d) });
 
 export const editarSucursal = (
   id: string,
-  d: Partial<{ nombre: string; direccionCompleta: string; telefonoPrincipal: string; celular: string; zonaHoraria: string }> & Propagacion,
+  d: Partial<{ nombre: string; direccionCompleta: string; telefonoPrincipal: string; celular: string; zonaHoraria: string; sinSistema: boolean }> & Propagacion,
 ): Promise<unknown> => api(`/admin/sucursales/${id}`, { method: 'PATCH', body: JSON.stringify(d) });
 
 export const bajaSucursal = (id: string): Promise<unknown> =>

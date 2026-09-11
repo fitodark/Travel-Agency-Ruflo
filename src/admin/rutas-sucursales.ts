@@ -50,6 +50,7 @@ export function rutasSucursales(app: FastifyInstance, { db, ahora }: OpcionesRut
   app.post<{ Body: CamposPropagacion & {
     agenciaId?: string; nombre: string; direccionCompleta: string;
     telefonoPrincipal: string; celular?: string; codigo?: string; zonaHoraria?: string;
+    sinSistema?: boolean;
   } }>(
     '/sucursales',
     {
@@ -65,6 +66,7 @@ export function rutasSucursales(app: FastifyInstance, { db, ahora }: OpcionesRut
             celular: { type: 'string' },
             codigo: { type: 'string', minLength: 1, maxLength: 1 },
             zonaHoraria: { type: 'string' },
+            sinSistema: { type: 'boolean' },
             ...propagacion,
           },
         },
@@ -81,6 +83,7 @@ export function rutasSucursales(app: FastifyInstance, { db, ahora }: OpcionesRut
           ...(b.celular !== undefined ? { celular: b.celular } : {}),
           ...(b.codigo ? { codigo: b.codigo } : {}),
           ...(b.zonaHoraria ? { zonaHoraria: b.zonaHoraria } : {}),
+          ...(b.sinSistema !== undefined ? { sinSistema: b.sinSistema } : {}),
         }, opsDe(b, ahora));
         return reply.status(201).send({ ...r, escritoPor: req.admin.email });
       } catch (err) {
@@ -94,7 +97,7 @@ export function rutasSucursales(app: FastifyInstance, { db, ahora }: OpcionesRut
 
   app.patch<{ Params: { id: string }; Body: CamposPropagacion & {
     nombre?: string; direccionCompleta?: string; telefonoPrincipal?: string;
-    celular?: string; zonaHoraria?: string;
+    celular?: string; zonaHoraria?: string; sinSistema?: boolean;
   } }>(
     '/sucursales/:id',
     {
@@ -108,6 +111,7 @@ export function rutasSucursales(app: FastifyInstance, { db, ahora }: OpcionesRut
             telefonoPrincipal: { type: 'string', minLength: 1 },
             celular: { type: 'string' },
             zonaHoraria: { type: 'string' },
+            sinSistema: { type: 'boolean' },
             ...propagacion,
           },
         },
@@ -122,6 +126,7 @@ export function rutasSucursales(app: FastifyInstance, { db, ahora }: OpcionesRut
           ...(b.telefonoPrincipal !== undefined ? { telefonoPrincipal: b.telefonoPrincipal } : {}),
           ...(b.celular !== undefined ? { celular: b.celular } : {}),
           ...(b.zonaHoraria !== undefined ? { zonaHoraria: b.zonaHoraria } : {}),
+          ...(b.sinSistema !== undefined ? { sinSistema: b.sinSistema } : {}),
         }, opsDe(b, ahora));
         return reply.send({ ...r, escritoPor: req.admin.email });
       } catch (err) {

@@ -35,6 +35,8 @@ export interface DatosSucursalNueva {
   /** Un carácter de `ALFABETO_CODIGO`. Si se omite, se asigna el siguiente libre. */
   codigo?: string;
   zonaHoraria?: string;
+  /** D13: sin PC/caja en el sistema (corte manual externo). Solo cobra `corresponsal`. */
+  sinSistema?: boolean;
 }
 
 export interface CambiosSucursal {
@@ -44,6 +46,7 @@ export interface CambiosSucursal {
   /** Segundo teléfono (celular). Cadena vacía o `null` lo borra. */
   celular?: string | null;
   zonaHoraria?: string;
+  sinSistema?: boolean;
 }
 
 export interface SucursalResumen {
@@ -59,6 +62,8 @@ export interface SucursalResumen {
   effectiveUntil: string | null;
   /** ¿Ya tiene semilla HOTP para la revocación offline? */
   tieneHotp: boolean;
+  /** D13: sin PC/caja en el sistema; solo figura como `pago.sucursal_cobro_id` de un `corresponsal`. */
+  sinSistema: boolean;
 }
 
 interface OpcionesEscritura {
@@ -82,10 +87,10 @@ export async function listarSucursales(db: Consultable): Promise<SucursalResumen
   const { rows } = await db.query<{
     id: string; nombre: string; codigo: string; direccion_completa: string;
     telefono_principal: string; celular: string | null; zona_horaria: string; activo: boolean;
-    effective_from: Date; effective_until: Date | null; tiene_hotp: boolean;
+    effective_from: Date; effective_until: Date | null; tiene_hotp: boolean; sin_sistema: boolean;
   }>(
     `SELECT s.id, s.nombre, s.codigo, s.direccion_completa, s.telefono_principal,
-            s.celular, s.zona_horaria, s.activo, s.effective_from, s.effective_until,
+            s.celular, s.zona_horaria, s.activo, s.effective_from, s.effective_until, s.sin_sistema,
             EXISTS (SELECT 1 FROM auth_local.revocacion_hotp h
                      WHERE h.sucursal_id = s.id AND h.activo) AS tiene_hotp
        FROM core.sucursal s
@@ -103,6 +108,7 @@ export async function listarSucursales(db: Consultable): Promise<SucursalResumen
     effectiveFrom: r.effective_from.toISOString(),
     effectiveUntil: r.effective_until ? r.effective_until.toISOString() : null,
     tieneHotp: r.tiene_hotp,
+    sinSistema: r.sin_sistema,
   }));
 }
 
@@ -160,6 +166,7 @@ export async function crearSucursal(
       celular,
       codigo,
       zona_horaria: zona,
+      sin_sistema: datos.sinSistema ?? false,
     },
     ...pasarModo(opts),
   });
@@ -195,6 +202,7 @@ export async function editarSucursal(
     await validarZona(db, cambios.zonaHoraria);
     fila['zona_horaria'] = cambios.zonaHoraria;
   }
+  if (cambios.sinSistema !== undefined) fila['sin_sistema'] = cambios.sinSistema;
 
   const r = await escribirConfig(db, { tabla: 'core.sucursal', fila, ...pasarModo(opts) });
   return { id: r.id, effectiveFrom: r.vigenciaDesde.toISOString() };
