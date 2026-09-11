@@ -40,6 +40,7 @@ export function AdminSucursales() {
               <th className="px-4 py-2.5">Teléfono</th><th className="px-4 py-2.5">Celular</th>
               <th className="px-4 py-2.5">Zona</th><th className="px-4 py-2.5">Vigencia</th>
               <th className="px-4 py-2.5">Estado</th><th className="px-4 py-2.5">HOTP</th>
+              <th className="px-4 py-2.5">Sin sistema</th>
               <th className="px-4 py-2.5"></th>
             </tr>
           </thead>
@@ -60,6 +61,11 @@ export function AdminSucursales() {
                     : <span className="chip-baja">baja</span>}
                 </td>
                 <td className="px-4 py-3">{s.tieneHotp ? 'sí' : <span className="text-red-600">falta</span>}</td>
+                <td className="px-4 py-3">
+                  {s.sinSistema
+                    ? <span className="chip-baja">sin sistema</span>
+                    : <span className="text-slate-400">—</span>}
+                </td>
                 <td className="px-4 py-3 whitespace-nowrap text-sm">
                   <button className="btn-sutil mr-3" onClick={() => setEditando(s)}>editar</button>
                   {s.activo && (
@@ -77,7 +83,7 @@ export function AdminSucursales() {
               </tr>
             ))}
             {lista.data?.length === 0 && (
-              <tr><td colSpan={9} className="px-3 py-6 text-center text-slate-400">Sin sucursales.</td></tr>
+              <tr><td colSpan={10} className="px-3 py-6 text-center text-slate-400">Sin sucursales.</td></tr>
             )}
           </tbody>
         </table>
@@ -104,14 +110,15 @@ function AccionFila(
 
 function NuevaSucursal({ onCreada, onError }: { onCreada: () => void; onError: (m: string) => void }) {
   const modo = useModo();
-  const [f, setF] = useState({ nombre: '', direccionCompleta: '', telefonoPrincipal: '', celular: '', zonaHoraria: 'America/Mexico_City', codigo: '' });
+  const [f, setF] = useState({ nombre: '', direccionCompleta: '', telefonoPrincipal: '', celular: '', zonaHoraria: 'America/Mexico_City', codigo: '', sinSistema: false });
   const set = (k: keyof typeof f) => (e: { target: { value: string } }) => setF({ ...f, [k]: e.target.value });
   const m = useMutation({
     mutationFn: () => crearSucursal({
       nombre: f.nombre, direccionCompleta: f.direccionCompleta, telefonoPrincipal: f.telefonoPrincipal,
-      celular: f.celular, zonaHoraria: f.zonaHoraria, ...(f.codigo ? { codigo: f.codigo } : {}), ...modo.valor(),
+      celular: f.celular, zonaHoraria: f.zonaHoraria, sinSistema: f.sinSistema,
+      ...(f.codigo ? { codigo: f.codigo } : {}), ...modo.valor(),
     }),
-    onSuccess: () => { setF({ ...f, nombre: '', direccionCompleta: '', telefonoPrincipal: '', celular: '', codigo: '' }); onCreada(); },
+    onSuccess: () => { setF({ ...f, nombre: '', direccionCompleta: '', telefonoPrincipal: '', celular: '', codigo: '', sinSistema: false }); onCreada(); },
     onError: (e) => onError(msg(e)),
   });
   const enviar = (e: FormEvent) => { e.preventDefault(); m.mutate(); };
@@ -126,6 +133,14 @@ function NuevaSucursal({ onCreada, onError }: { onCreada: () => void; onError: (
         <label>Celular (opcional)<input value={f.celular} onChange={set('celular')} className="campo mt-1" /></label>
         <label>Zona horaria<input value={f.zonaHoraria} onChange={set('zonaHoraria')} className="campo mt-1" /></label>
         <label>Código (opcional)<input maxLength={1} placeholder="auto" value={f.codigo} onChange={set('codigo')} className="campo mt-1" /></label>
+        <label className="flex items-center gap-2 sm:col-span-2">
+          <input
+            type="checkbox"
+            checked={f.sinSistema}
+            onChange={(e) => setF({ ...f, sinSistema: e.target.checked })}
+          />
+          Sin sistema (corte manual externo — solo cobra "corresponsal", no es punto de ruta)
+        </label>
         <div className="sm:col-span-2">{modo.nodo}</div>
         <button type="submit" disabled={m.isPending} className="btn-primario justify-self-start">
           {m.isPending ? 'Creando…' : 'Crear'}
@@ -143,7 +158,7 @@ function EditarSucursal(
   const [f, setF] = useState({
     nombre: s.nombre, direccionCompleta: s.direccionCompleta ?? '',
     telefonoPrincipal: s.telefonoPrincipal ?? '', celular: s.celular ?? '',
-    zonaHoraria: s.zonaHoraria,
+    zonaHoraria: s.zonaHoraria, sinSistema: s.sinSistema,
   });
   const set = (k: keyof typeof f) => (e: { target: { value: string } }) => setF({ ...f, [k]: e.target.value });
   const m = useMutation({
@@ -163,6 +178,14 @@ function EditarSucursal(
       <label>Teléfono<input value={f.telefonoPrincipal} onChange={set('telefonoPrincipal')} className="campo mt-1" /></label>
       <label>Celular<input value={f.celular} onChange={set('celular')} className="campo mt-1" placeholder="—" /></label>
       <label>Zona horaria<input value={f.zonaHoraria} onChange={set('zonaHoraria')} className="campo mt-1" /></label>
+      <label className="flex items-center gap-2 sm:col-span-2">
+        <input
+          type="checkbox"
+          checked={f.sinSistema}
+          onChange={(e) => setF({ ...f, sinSistema: e.target.checked })}
+        />
+        Sin sistema (corte manual externo — solo cobra "corresponsal", no es punto de ruta)
+      </label>
       <div className="sm:col-span-2">{modo.nodo}</div>
       <div className="sm:col-span-2 flex gap-2">
         <button type="submit" disabled={m.isPending} className="btn-primario">Guardar</button>

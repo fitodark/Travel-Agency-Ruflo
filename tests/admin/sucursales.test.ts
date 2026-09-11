@@ -143,6 +143,23 @@ run('consola · sucursales (PostgreSQL real)', () => {
     expect(Buffer.compare(antes!, despues!)).not.toBe(0);
   });
 
+  it('sinSistema es false por default y editarSucursal lo cambia (D13)', async () => {
+    const { id } = await crearSucursal(db, datos(), { ahora });
+    let lista = await listarSucursales(db);
+    expect(lista.find((s) => s.id === id)!.sinSistema).toBe(false);
+
+    await editarSucursal(db, id, { sinSistema: true },
+      { modo: 'inmediato', confirmarInmediato: true, ahora });
+    lista = await listarSucursales(db);
+    expect(lista.find((s) => s.id === id)!.sinSistema).toBe(true);
+  });
+
+  it('crearSucursal admite sinSistema desde el alta', async () => {
+    const { id } = await crearSucursal(db, datos(undefined, { sinSistema: true }), { ahora });
+    const lista = await listarSucursales(db);
+    expect(lista.find((s) => s.id === id)!.sinSistema).toBe(true);
+  });
+
   it('listarSucursales incluye las inactivas y marca si tienen HOTP', async () => {
     const { id } = await crearSucursal(db, datos(), { ahora });
     await darDeBajaSucursal(db, id, { modo: 'inmediato', confirmarInmediato: true, ahora });
