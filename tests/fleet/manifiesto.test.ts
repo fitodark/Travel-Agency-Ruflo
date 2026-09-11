@@ -59,17 +59,29 @@ run('viajes efectuados · manifiestos (PostgreSQL real)', () => {
   });
 
   // -------------------------------------------------------------------------
-  it('lista las salidas del día, filtrando por sucursal', async () => {
-    const { fx } = await prep();
-    const lista = await salidasDelDia(db, {
+  it('lista SOLO los viajes que salen de la sucursal activa (0066)', async () => {
+    const { fx } = await prep();   // 4 paradas: sucursales[0] origen … [3] destino
+    const laMia = await salidasDelDia(db, {
       fecha: fx.fechaOperacion, sucursalId: fx.sucursales[0]!,
     });
-    const mia = lista.find((s) => s.salidaId === fx.salidaId);
+    const mia = laMia.find((s) => s.salidaId === fx.salidaId);
     expect(mia).toBeDefined();
     expect(mia!.origen).not.toBe(mia!.destino);
     expect(mia!.estado).toBe('programada');
 
-    // Una sucursal que no está en la ruta no ve esta salida.
+    // Una terminal INTERMEDIA (el viaje solo pasa por ella) NO lo ve.
+    const intermedia = await salidasDelDia(db, {
+      fecha: fx.fechaOperacion, sucursalId: fx.sucursales[1]!,
+    });
+    expect(intermedia.find((s) => s.salidaId === fx.salidaId)).toBeUndefined();
+
+    // La terminal de DESTINO tampoco.
+    const destino = await salidasDelDia(db, {
+      fecha: fx.fechaOperacion, sucursalId: fx.sucursales[3]!,
+    });
+    expect(destino.find((s) => s.salidaId === fx.salidaId)).toBeUndefined();
+
+    // Una sucursal que ni siquiera está en la ruta, obviamente tampoco.
     const otra = await seedSalida(db, { paradas: 2, diasAdelante: 12 });
     const ajena = await salidasDelDia(db, {
       fecha: fx.fechaOperacion, sucursalId: otra.sucursales[0]!,
