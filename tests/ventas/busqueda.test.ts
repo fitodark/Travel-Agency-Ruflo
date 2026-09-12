@@ -292,6 +292,67 @@ run('búsqueda de salidas (PostgreSQL real)', () => {
     expect(conTarifa[0]!.tarifas).toEqual({ general: 480 });
   });
 
+  // -------------------------------------------------------------------------
+  // Mapa de asientos (D-7) — para el mapa visual del paso 3
+  // -------------------------------------------------------------------------
+  it('devuelve el layout de la unidad (fila/col) congelado en la salida', async () => {
+    const fx = await seedSalida(db, { paradas: 4 });
+    const [s] = await buscarSalidas(db, {
+      fecha: fx.fechaOperacion,
+      sucursalOrigenId: fx.puntos[0]!,
+      sucursalDestinoId: fx.puntos[3]!,
+      nPersonas: 1,
+      sucursalVendedoraId: fx.sucursales[0]!,
+    });
+
+    expect(s!.mapa).toBeDefined();
+    expect(s!.mapa.asientos).toHaveLength(18);
+    const asiento1 = s!.mapa.asientos.find((a) => a.num === 1);
+    expect(asiento1).toMatchObject({ fila: 0, col: 3 });
+  });
+
+  it('devuelve la hora de llegada al destino y el tipo de unidad (paso 2)', async () => {
+    const fx = await seedSalida(db, { paradas: 4 });
+    const [s] = await buscarSalidas(db, {
+      fecha: fx.fechaOperacion,
+      sucursalOrigenId: fx.puntos[0]!,
+      sucursalDestinoId: fx.puntos[3]!,
+      nPersonas: 1,
+      sucursalVendedoraId: fx.sucursales[0]!,
+    });
+
+    expect(s!.horaLlegadaDestino).not.toBeNull();
+    expect(s!.horaLlegadaDestino!.getTime()).toBeGreaterThan(s!.horaSalidaOrigen.getTime());
+    expect(s!.unidadNombre).toMatch(/sprinter/i);
+    // La fixture no asigna unidad física al horario: dato operativo ausente.
+    expect(s!.unidadNumeroEconomico).toBeNull();
+  });
+
+  it('destino en una parada autorizada sin horario capturado: hora de llegada null (0052, D6)', async () => {
+    // `seedRuta` da de alta las `n` paradas de la ruta como terminales con
+    // horario propio (fixture de conveniencia); una parada no-terminal real
+    // (`punto_ruta.tipo = 'parada'`) nunca tiene fila en `horario_parada`, así
+    // que su `salida_parada.hora_paso_programada` queda NULL (0052). Se simula
+    // igual aquí: se borra el horario de la parada de destino después de
+    // materializar, sin tocar el tipo de punto (alcance de esta prueba).
+    const fx = await seedSalida(db, { paradas: 4 });
+    await db.query(
+      `UPDATE core.salida_parada SET hora_paso_programada = NULL, cierre_venta_en = NULL
+        WHERE salida_id = $1 AND orden = 3`,
+      [fx.salidaId],
+    );
+
+    const [s] = await buscarSalidas(db, {
+      fecha: fx.fechaOperacion,
+      sucursalOrigenId: fx.puntos[0]!,
+      sucursalDestinoId: fx.puntos[3]!,
+      nPersonas: 1,
+      sucursalVendedoraId: fx.sucursales[0]!,
+    });
+
+    expect(s!.horaLlegadaDestino).toBeNull();
+  });
+
   it('no devuelve nada si el destino va antes que el origen en la ruta', async () => {
     const fx = await seedSalida(db, { paradas: 4 });
     const r = await buscarSalidas(db, {

@@ -1,10 +1,28 @@
 import { api } from './cliente';
 
+/** Layout de la unidad congelado en la salida (D-7), para el mapa del paso 3. */
+export interface MapaAsientosSalida {
+  filas: number;
+  columnas: number;
+  /** Columna (0-based) después de la cual va el pasillo. */
+  pasillo_despues_columna: number;
+  accesos?: Array<{ fila: number; lado: 'izquierdo' | 'derecho'; etiqueta: string }>;
+  asientos: Array<{
+    num: number;
+    fila: number;
+    col: number;
+    tipo?: string;
+    vendible?: boolean;
+  }>;
+}
+
 export interface SalidaDisponible {
   salidaId: string;
   horarioId: string;
   fechaOperacion: string;
   horaSalidaOrigen: string;
+  /** `null` si el destino es una parada autorizada sin horario capturado. */
+  horaLlegadaDestino: string | null;
   origenOrden: number;
   destinoOrden: number;
   estado: string;
@@ -20,6 +38,12 @@ export interface SalidaDisponible {
   escalas: string[];
   /** Tarifa vigente por categoría de pasajero: `{ general, inapam?, menor? }` (D4). */
   tarifas: Partial<Record<'general' | 'inapam' | 'menor', number>>;
+  /** Layout de la unidad (D-7), para el mapa visual del paso 3. */
+  mapa: MapaAsientosSalida;
+  /** `core.tipo_unidad.nombre` — p. ej. "Mercedes Benz Sprinter 18 plazas". */
+  unidadNombre: string;
+  /** `null` si la salida aún no tiene una unidad física asignada. */
+  unidadNumeroEconomico: string | null;
 }
 
 export type CategoriaPasajero = 'general' | 'inapam' | 'menor';
