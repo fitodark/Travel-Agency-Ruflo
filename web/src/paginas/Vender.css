@@ -1,0 +1,11 @@
+/* Tipografía del wizard de venta (mockup "Wizard Reservaciones",
+   knowledge/seat-map/): Barlow para cuerpo, Barlow Condensed para títulos de
+   paso. El resto de la SPA sigue en system-ui — no es un cambio global. */
+.wizard-fonts {
+  font-family: 'Barlow', system-ui, sans-serif;
+}
+.wizard-fonts h1,
+.wizard-fonts h2,
+.wizard-fonts h3 {
+  font-family: 'Barlow Condensed', 'Barlow', system-ui, sans-serif;
+}

@@ -1,0 +1,286 @@
+/* ==========================================================================
+   Mapa de asientos ilustrado — Sprinter 18 plazas (vertical / horizontal)
+   Exportado de "Wizard Reservaciones" (paso 3) · design system Industry
+   Sin dependencias. Framework-agnóstico.
+
+   Orientaciones:
+     .sprintermap--v  vista de planta, frente arriba
+     .sprintermap--h  giro de 90° en contra de las manecillas del reloj:
+                      frente a la izquierda y lugar del chofer abajo
+   ========================================================================== */
+
+.sprintermap {
+  /* Tokens locales — sustitúyelos por los de tu design system */
+  --sp-bg: #f2f2f3;
+  --sp-ink: #1d1f20;
+  --sp-accent: #5980a6;
+  --sp-accent-300: #b7c8d9;
+  --sp-accent-400: #8ba7c2;
+  --sp-accent-500: #5980a6;
+  --sp-accent-600: #4a6e91;
+  --sp-accent-700: #3d5f82;
+  --sp-accent-900: #24425f;
+  --sp-divider: rgba(29, 31, 32, 0.16);
+
+  --sp-shell: #e9eaeb;              /* carrocería */
+  --sp-seat: 52px;                  /* lado largo del asiento */
+  --sp-seat-short: 46px;            /* lado corto del asiento */
+  --sp-gap: 14px;                   /* separación entre filas y asientos */
+  --sp-occupied-top: #e6e6e7;
+  --sp-occupied-bottom: #cfd0d1;
+
+  position: relative;
+  border: 1px solid var(--sp-divider);
+  padding: 22px 22px 18px;
+  color: var(--sp-ink);
+  background: transparent;
+  font-family: "Barlow", system-ui, sans-serif;
+}
+
+/* Marcas de registro "+" (estilo blueprint). Opcionales. */
+.sprintermap__corner { position: absolute; width: 9px; height: 9px; color: var(--sp-accent); }
+.sprintermap__corner::before,
+.sprintermap__corner::after { content: ""; position: absolute; background: currentColor; }
+.sprintermap__corner::before { left: 0; top: 4px; width: 9px; height: 1px; }
+.sprintermap__corner::after { top: 0; left: 4px; width: 1px; height: 9px; }
+.sprintermap__corner--tl { top: -5px; left: -5px; }
+.sprintermap__corner--tr { top: -5px; right: -5px; }
+.sprintermap__corner--bl { bottom: -5px; left: -5px; }
+.sprintermap__corner--br { bottom: -5px; right: -5px; }
+
+/* ------------------------------------------------------------- cabecera -- */
+.sprintermap__head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(29, 31, 32, 0.45);
+}
+
+/* --------------------------------------------------------------- unidad -- */
+.sprintermap__scroll {
+  display: flex;
+  justify-content: center;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 6px 0 38px;              /* reserva el espacio de la etiqueta ACCESO */
+}
+.sprintermap__body {
+  display: flex;
+  padding: 8px;
+  background: var(--sp-shell);
+  border: 1px solid rgba(29, 31, 32, 0.16);
+}
+.sprintermap--v .sprintermap__body { flex-direction: column; border-radius: 56px 56px 14px 14px; }
+.sprintermap--h .sprintermap__body { flex-direction: row-reverse; border-radius: 14px 56px 56px 14px; }
+
+/* Cabina (morro) */
+.sprintermap__nose {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  background: var(--sp-accent-300);
+  color: var(--sp-accent-900);
+  font-size: 9px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+.sprintermap--v .sprintermap__nose { height: 34px; border-radius: 48px 48px 8px 8px; }
+.sprintermap--h .sprintermap__nose { width: 34px; border-radius: 8px 48px 48px 8px; }
+.sprintermap--h .sprintermap__nose span { writing-mode: vertical-rl; }
+
+/* Salón */
+.sprintermap__cabin {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-gap);
+}
+.sprintermap--v .sprintermap__cabin { padding: 18px 16px; }
+.sprintermap--h .sprintermap__cabin { padding: 16px 20px; }
+
+.sprintermap__row {
+  display: flex;
+  gap: var(--sp-gap);
+  justify-content: center;
+}
+
+/* Puerta de acceso con sombreado hacia el interior */
+.sprintermap__door {
+  position: absolute;
+  border-radius: 4px;
+  background: var(--sp-accent-400);
+  opacity: 0.75;
+}
+.sprintermap--v .sprintermap__door {
+  right: -6px; top: 76px; width: 6px; height: 126px;
+  box-shadow: -10px 0 22px -6px rgba(89, 128, 166, 0.45);
+}
+.sprintermap--h .sprintermap__door {
+  left: 76px; bottom: -6px; height: 6px; width: 126px;
+  box-shadow: 0 -10px 22px -6px rgba(89, 128, 166, 0.45);
+}
+.sprintermap__doorLabel {
+  position: absolute;
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--sp-accent-700);
+}
+.sprintermap--v .sprintermap__doorLabel { right: -74px; top: 100px; writing-mode: vertical-rl; }
+.sprintermap--h .sprintermap__doorLabel { left: 104px; bottom: -24px; }
+
+/* -------------------------------------------------------------- asientos -- */
+.sprintermap__seat,
+.sprintermap__driver,
+.sprintermap__spacer {
+  position: relative;
+  box-sizing: border-box;
+  flex: none;
+  padding: 0;
+  font-family: "Barlow Condensed", "Barlow", system-ui, sans-serif;
+  font-size: 16px;
+  line-height: 1;
+}
+.sprintermap--v .sprintermap__seat,
+.sprintermap--v .sprintermap__driver,
+.sprintermap--v .sprintermap__spacer { width: var(--sp-seat-short); height: var(--sp-seat); }
+.sprintermap--h .sprintermap__seat,
+.sprintermap--h .sprintermap__driver,
+.sprintermap--h .sprintermap__spacer { width: var(--sp-seat); height: var(--sp-seat-short); }
+
+/* Hueco de pasillo: conserva la retícula */
+.sprintermap__spacer { border: 0; background: transparent; pointer-events: none; }
+
+/* Lugar del conductor */
+.sprintermap__driver {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px dashed rgba(29, 31, 32, 0.32);
+  border-radius: 8px;
+  background: transparent;
+  color: rgba(29, 31, 32, 0.45);
+  font-family: "Barlow", system-ui, sans-serif;
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: default;
+}
+
+/* Asiento: respaldo claro arriba y cojín en acento abajo */
+.sprintermap__seat {
+  display: flex;
+  border: 1px solid var(--sp-accent-500);
+  cursor: pointer;
+  transition: filter 0.12s ease, background 0.12s ease;
+}
+.sprintermap--v .sprintermap__seat {
+  align-items: flex-start;
+  justify-content: center;
+  border-radius: 14px 14px 7px 7px;
+  background: linear-gradient(#fff 50%, var(--sp-accent-300) 50%);
+  color: var(--sp-ink);
+}
+.sprintermap--h .sprintermap__seat {
+  align-items: center;
+  justify-content: flex-start;
+  border-radius: 14px 7px 7px 14px;
+  background: linear-gradient(90deg, #fff 50%, var(--sp-accent-300) 50%);
+  color: var(--sp-ink);
+}
+.sprintermap__seat:hover:not(:disabled) { filter: brightness(0.97); }
+.sprintermap__seat:focus-visible { outline: 2px solid var(--sp-accent); outline-offset: 2px; }
+
+/* Número */
+.sprintermap__num { font-weight: 600; letter-spacing: 0.02em; }
+.sprintermap--v .sprintermap__num { padding-top: 7px; }
+.sprintermap--h .sprintermap__num { padding-left: 9px; }
+
+/* Descansabrazos */
+.sprintermap__arm { position: absolute; border-radius: 3px; background: var(--sp-accent-600); }
+.sprintermap--v .sprintermap__arm { top: 14px; width: 5px; height: 24px; }
+.sprintermap--v .sprintermap__arm--a { left: -4px; }
+.sprintermap--v .sprintermap__arm--b { right: -4px; }
+.sprintermap--h .sprintermap__arm { left: 14px; width: 24px; height: 5px; }
+.sprintermap--h .sprintermap__arm--a { top: -4px; }
+.sprintermap--h .sprintermap__arm--b { bottom: -4px; }
+
+/* Seleccionado */
+.sprintermap--v .sprintermap__seat--selected {
+  border-color: var(--sp-accent-900);
+  background: linear-gradient(var(--sp-accent-700) 50%, var(--sp-accent-900) 50%);
+  color: #fff;
+}
+.sprintermap--h .sprintermap__seat--selected {
+  border-color: var(--sp-accent-900);
+  background: linear-gradient(90deg, var(--sp-accent-700) 50%, var(--sp-accent-900) 50%);
+  color: #fff;
+}
+.sprintermap__seat--selected .sprintermap__arm { background: var(--sp-accent-900); }
+
+/* Ocupado: no seleccionable */
+.sprintermap--v .sprintermap__seat--occupied,
+.sprintermap--v .sprintermap__seat:disabled {
+  border-color: rgba(29, 31, 32, 0.18);
+  background: linear-gradient(var(--sp-occupied-top) 50%, var(--sp-occupied-bottom) 50%);
+  color: rgba(29, 31, 32, 0.38);
+  cursor: not-allowed;
+}
+.sprintermap--h .sprintermap__seat--occupied,
+.sprintermap--h .sprintermap__seat:disabled {
+  border-color: rgba(29, 31, 32, 0.18);
+  background: linear-gradient(90deg, var(--sp-occupied-top) 50%, var(--sp-occupied-bottom) 50%);
+  color: rgba(29, 31, 32, 0.38);
+  cursor: not-allowed;
+}
+.sprintermap__seat--occupied .sprintermap__arm { background: #c4c5c6; }
+
+/* Desfase de los asientos individuales del pasillo (criterio de QA):
+   se reduce fila con fila hasta alinear en 11/12 - 13.
+   El data-attribute lo pone el render a partir de OFFSETS. */
+.sprintermap--v [data-offset="18"] { transform: translateY(18px); }
+.sprintermap--v [data-offset="12"] { transform: translateY(12px); }
+.sprintermap--v [data-offset="6"]  { transform: translateY(6px); }
+.sprintermap--h [data-offset="18"] { transform: translateX(18px); }
+.sprintermap--h [data-offset="12"] { transform: translateX(12px); }
+.sprintermap--h [data-offset="6"]  { transform: translateX(6px); }
+
+/* --------------------------------------------------------------- leyenda -- */
+.sprintermap__legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 22px;
+  justify-content: center;
+  margin-top: 20px;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.sprintermap__legendItem { display: flex; align-items: center; gap: 8px; }
+.sprintermap__swatch {
+  width: 22px; height: 16px; display: block; box-sizing: border-box;
+  border-radius: 6px 6px 3px 3px; border: 1px solid var(--sp-accent-500);
+  background: linear-gradient(#fff 50%, var(--sp-accent-300) 50%);
+}
+.sprintermap__swatch--selected {
+  border-color: var(--sp-accent-900);
+  background: linear-gradient(var(--sp-accent-700) 50%, var(--sp-accent-900) 50%);
+}
+.sprintermap__swatch--occupied {
+  border-color: rgba(29, 31, 32, 0.18);
+  background: linear-gradient(var(--sp-occupied-top) 50%, var(--sp-occupied-bottom) 50%);
+}
+
+/* ------------------------------------------------------------ responsive -- */
+@media (max-width: 520px) {
+  .sprintermap { padding: 16px 12px 14px; --sp-seat: 46px; --sp-seat-short: 40px; --sp-gap: 11px; }
+  .sprintermap--v .sprintermap__doorLabel { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sprintermap__seat { transition: none; }
+}

@@ -1,0 +1,206 @@
+/* ==========================================================================
+   Mapa de asientos — clases y valores tomados de knowledge/seat-map/
+   (export de diseño, Ses. 69). Colores mapeados a los tokens de marca de la
+   SPA (`tailwind.config.ts`); JSX/datos en MapaAsientos.tsx.
+   ========================================================================== */
+
+.seatmap {
+  --sm-bg: #f6f5f2; /* lienzo */
+  --sm-ink: #1c2523; /* tinta */
+  --sm-accent: #279488; /* brand-500 */
+  --sm-accent-ink: #1b766e; /* brand-600 */
+  --sm-divider: rgba(28, 37, 35, 0.16);
+  --sm-seat-size: 52px;
+  --sm-seat-gap: 12px;
+  --sm-seat-radius: 4px;
+  --sm-font-heading: 'Barlow Condensed', 'Barlow', system-ui, sans-serif;
+  --sm-font-body: 'Barlow', system-ui, sans-serif;
+
+  position: relative;
+  border: 1px solid var(--sm-divider);
+  padding: 26px 26px 20px;
+  background: transparent;
+  color: var(--sm-ink);
+  font-family: var(--sm-font-body);
+}
+
+.seatmap__corner {
+  position: absolute;
+  width: 9px;
+  height: 9px;
+  color: var(--sm-accent);
+}
+.seatmap__corner::before,
+.seatmap__corner::after {
+  content: '';
+  position: absolute;
+  background: currentColor;
+}
+.seatmap__corner::before { left: 0; top: 4px; width: 9px; height: 1px; }
+.seatmap__corner::after  { top: 0; left: 4px; width: 1px; height: 9px; }
+.seatmap__corner--tl { top: -5px; left: -5px; }
+.seatmap__corner--tr { top: -5px; right: -5px; }
+.seatmap__corner--bl { bottom: -5px; left: -5px; }
+.seatmap__corner--br { bottom: -5px; right: -5px; }
+
+.seatmap__head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(28, 37, 35, 0.45);
+}
+
+.seatmap__cabinWrap {
+  display: flex;
+  justify-content: center;
+}
+.seatmap__cabin {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sm-seat-gap);
+  padding: 22px 24px 26px;
+  border: 1px solid rgba(28, 37, 35, 0.28);
+  border-radius: 38px 38px 10px 10px;
+}
+.seatmap__row {
+  position: relative;
+  display: flex;
+  gap: var(--sm-seat-gap);
+  justify-content: center;
+}
+
+/* Puerta de acceso: se posiciona relativa a SU renglón (no a un offset fijo
+   en px de todo el gabinete), para que escale sola con cualquier capacidad
+   o con el tamaño de asiento del breakpoint móvil. */
+.seatmap__door {
+  position: absolute;
+  right: -13px;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  background: var(--sm-accent);
+  opacity: 0.5;
+}
+.seatmap__doorLabel {
+  position: absolute;
+  right: -78px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--sm-accent-ink);
+  writing-mode: vertical-rl;
+  white-space: nowrap;
+}
+
+.seatmap__seat,
+.seatmap__spacer,
+.seatmap__driver {
+  width: var(--sm-seat-size);
+  height: var(--sm-seat-size);
+  flex: none;
+  border-radius: var(--sm-seat-radius);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  font-family: var(--sm-font-heading);
+  font-size: 17px;
+  box-sizing: border-box;
+}
+
+.seatmap__spacer {
+  border: 0;
+  background: transparent;
+  pointer-events: none;
+}
+
+.seatmap__driver {
+  border: 1px dashed rgba(28, 37, 35, 0.32);
+  background: transparent;
+  color: rgba(28, 37, 35, 0.45);
+  font-family: var(--sm-font-body);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: default;
+}
+
+.seatmap__seat {
+  border: 1px solid rgba(28, 37, 35, 0.35);
+  background: transparent;
+  color: var(--sm-ink);
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+}
+.seatmap__seat:hover:not(:disabled) {
+  border-color: var(--sm-accent);
+  background: rgba(39, 148, 136, 0.12);
+}
+.seatmap__seat:active:not(:disabled) {
+  background: rgba(39, 148, 136, 0.24);
+}
+.seatmap__seat:focus-visible {
+  outline: 2px solid var(--sm-accent);
+  outline-offset: 2px;
+}
+
+.seatmap__seat--selected {
+  border-color: var(--sm-accent);
+  background: var(--sm-accent);
+  color: var(--sm-bg);
+}
+.seatmap__seat--selected:hover:not(:disabled) {
+  background: var(--sm-accent-ink);
+  border-color: var(--sm-accent-ink);
+  color: var(--sm-bg);
+}
+
+.seatmap__seat--occupied,
+.seatmap__seat:disabled {
+  border-color: transparent;
+  background: rgba(28, 37, 35, 0.22);
+  color: rgba(28, 37, 35, 0.4);
+  cursor: not-allowed;
+}
+
+.seatmap__legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 22px;
+  justify-content: center;
+  margin-top: 22px;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.seatmap__legendItem {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.seatmap__swatch {
+  width: 16px;
+  height: 16px;
+  display: block;
+  border-radius: 2px;
+}
+.seatmap__swatch--selected { background: var(--sm-accent); }
+.seatmap__swatch--occupied { background: rgba(28, 37, 35, 0.22); }
+.seatmap__swatch--free     { border: 1px solid rgba(28, 37, 35, 0.35); }
+
+@media (max-width: 480px) {
+  .seatmap { padding: 18px 12px 16px; }
+  .seatmap { --sm-seat-size: 44px; --sm-seat-gap: 9px; }
+  .seatmap__doorLabel { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .seatmap__seat { transition: none; }
+}
