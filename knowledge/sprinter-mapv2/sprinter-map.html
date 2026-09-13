@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mapa de asientos ilustrado — Sprinter 18</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="sprinter-map.css">
+<style>
+  body { margin: 0; background: #f2f2f3; font-family: "Barlow", system-ui, sans-serif; padding: 32px 20px; }
+  .demo { max-width: 760px; margin: 0 auto; }
+  .demo h1 { font-family: "Barlow Condensed", sans-serif; font-size: 34px; margin: 0 0 4px; letter-spacing: -0.02em; }
+  .demo p { font-size: 13px; color: rgba(29,31,32,.6); margin: 0 0 16px; }
+  .ctrl { display: flex; flex-direction: column; gap: 4px; max-width: 320px; margin-bottom: 16px; }
+  .ctrl label { font-size: 10px; letter-spacing: .14em; text-transform: uppercase; color: rgba(29,31,32,.45); }
+  .ctrl select { min-height: 42px; font: inherit; font-size: 14px; padding: 0 10px; border: 1px solid rgba(29,31,32,.16); border-radius: 4px; background: #e9e9ea; }
+  #salida { font-size: 13px; margin-top: 14px; }
+</style>
+</head>
+<body>
+<div class="demo">
+  <h1>Mapa de asientos</h1>
+  <p>Selecciona hasta 2 asientos. Toca un asiento seleccionado para liberarlo.</p>
+
+  <div class="ctrl">
+    <label for="orientacion">Vista del mapa</label>
+    <select id="orientacion">
+      <option value="v">Sprinter 18 — vertical</option>
+      <option value="h">Sprinter 18 — horizontal</option>
+    </select>
+  </div>
+
+  <!-- ============ COMPONENTE ============ -->
+  <section class="sprintermap sprintermap--v" id="mapa" aria-label="Mapa de asientos de la unidad">
+    <i class="sprintermap__corner sprintermap__corner--tl"></i>
+    <i class="sprintermap__corner sprintermap__corner--tr"></i>
+    <i class="sprintermap__corner sprintermap__corner--bl"></i>
+    <i class="sprintermap__corner sprintermap__corner--br"></i>
+
+    <div class="sprintermap__head">
+      <span id="frente">Frente / cabina</span>
+      <span>Suburban 18 plazas — vista de planta</span>
+    </div>
+
+    <div class="sprintermap__scroll">
+      <div class="sprintermap__body">
+        <div class="sprintermap__nose"><span>Cabina</span></div>
+        <div class="sprintermap__cabin">
+          <!-- .sprintermap__row se generan en runtime -->
+          <div class="sprintermap__door" aria-hidden="true"></div>
+          <div class="sprintermap__doorLabel" aria-hidden="true">Acceso</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="sprintermap__legend">
+      <span class="sprintermap__legendItem"><i class="sprintermap__swatch"></i>Disponible</span>
+      <span class="sprintermap__legendItem"><i class="sprintermap__swatch sprintermap__swatch--selected"></i>Seleccionado</span>
+      <span class="sprintermap__legendItem"><i class="sprintermap__swatch sprintermap__swatch--occupied"></i>Ocupado</span>
+    </div>
+  </section>
+  <!-- ========== /COMPONENTE ========== -->
+
+  <div id="salida">Asientos seleccionados: <strong>—</strong></div>
+</div>
+
+<script type="module">
+  import { createSprinterMap } from './sprinter-map.js';
+  const out = document.querySelector('#salida strong');
+  const mapa = createSprinterMap(document.getElementById('mapa'), {
+    capacidad: 18,
+    orientacion: 'v',
+    ocupados: [3, 4, 9, 16, 17],
+    maxSeleccion: 2,
+    onChange: (sel) => { out.textContent = sel.length ? sel.map(n => String(n).padStart(2,'0')).join(' · ') : '—'; },
+  });
+  document.getElementById('orientacion').addEventListener('change', (e) => {
+    mapa.setOrientacion(e.target.value);
+    document.getElementById('frente').textContent = e.target.value === 'h' ? 'Frente ←' : 'Frente / cabina';
+  });
+</script>
+</body>
+</html>

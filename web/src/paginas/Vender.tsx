@@ -3,6 +3,7 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { ErrorApi } from '../api/cliente';
 import { listarPuntos, listarSucursales } from '../api/catalogos';
 import { MapaAsientos } from '../componentes/MapaAsientos';
+import { MapaAsientosV2 } from '../componentes/MapaAsientosV2';
 import { ResumenViaje } from '../componentes/venta/ResumenViaje';
 import { useSesion } from '../auth/sesion';
 import {
@@ -17,6 +18,7 @@ const CATEGORIAS: { valor: CategoriaPasajero; etiqueta: string }[] = [
 ];
 import { fecha as soloFecha, hora } from '../lib/fechas';
 import { formatoAsiento } from '../lib/asientos';
+import './Vender.css';
 
 type Paso = 1 | 2 | 3 | 4 | 5 | 6 | 'listo';
 
@@ -92,6 +94,10 @@ export function Vender() {
 
   const [salida, setSalida] = useState<SalidaDisponible | null>(null);
   const [asientos, setAsientos] = useState<number[]>([]);
+  // Comparativo temporal para QA/cliente (Ses. 70): dos mapas de asientos en
+  // el paso 3, mientras se decide cuál usar. Quitar el selector cuando se
+  // decida — ver knowledge/seat-map/ vs. knowledge/sprinter-mapv2/.
+  const [vistaMapa, setVistaMapa] = useState<'v1' | 'v2'>('v1');
   const [nombres, setNombres] = useState<Record<number, string>>({});
   const [categorias, setCategorias] = useState<Record<number, CategoriaPasajero>>({});
   const [metodo, setMetodo] = useState<'efectivo' | 'transferencia' | 'corresponsal' | 'sin_pago'>('efectivo');
@@ -256,7 +262,7 @@ export function Vender() {
   const precioUnitarioLabel = `Precio unitario × ${CATEGORIAS.find((c) => c.valor === categoriaUnica)?.etiqueta ?? 'General'}`;
 
   return (
-    <div className="mx-auto w-full lg:w-[80%]">
+    <div className="wizard-fonts mx-auto w-full lg:w-[80%]">
       <Pasos actual={paso} />
 
       {esReservacion && typeof paso === 'number' && paso > 1 && (
@@ -463,20 +469,44 @@ export function Vender() {
       {paso === 3 && salida && (
         <div className="grid items-start gap-4 lg:grid-cols-[1fr_320px]">
           <div className="space-y-4 tarjeta p-4">
-            <div>
-              <h2 className="text-xl font-semibold text-slate-900">Mapa de asientos</h2>
-              <p className="mt-1 text-sm text-slate-500">
-                Selecciona {personas} asiento{personas > 1 ? 's' : ''}. Los asientos en gris no
-                están disponibles para esta venta.
-              </p>
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h2 className="text-xl font-semibold text-slate-900">Mapa de asientos</h2>
+                <p className="mt-1 text-sm text-slate-500">
+                  Selecciona {personas} asiento{personas > 1 ? 's' : ''}. Los asientos en gris no
+                  están disponibles para esta venta.
+                </p>
+              </div>
+              {/* Comparativo temporal QA/cliente — ver nota junto a vistaMapa. */}
+              <label className="block text-sm">
+                <span className={ETIQUETA}>Vista del mapa</span>
+                <select
+                  value={vistaMapa}
+                  onChange={(e) => setVistaMapa(e.target.value as 'v1' | 'v2')}
+                  className="campo mt-1 rounded-sm"
+                >
+                  <option value="v1">Mapa actual</option>
+                  <option value="v2">Mapa ilustrado (v2)</option>
+                </select>
+              </label>
             </div>
-            <MapaAsientos
-              mapa={salida.mapa}
-              ofrecibles={salida.asientosOfrecibles}
-              seleccionados={asientos}
-              onToggle={toggleAsiento}
-              unidadNombre={salida.unidadNombre}
-            />
+            {vistaMapa === 'v1' ? (
+              <MapaAsientos
+                mapa={salida.mapa}
+                ofrecibles={salida.asientosOfrecibles}
+                seleccionados={asientos}
+                onToggle={toggleAsiento}
+                unidadNombre={salida.unidadNombre}
+              />
+            ) : (
+              <MapaAsientosV2
+                mapa={salida.mapa}
+                ofrecibles={salida.asientosOfrecibles}
+                seleccionados={asientos}
+                onToggle={toggleAsiento}
+                unidadNombre={salida.unidadNombre}
+              />
+            )}
           </div>
           <ResumenViaje
             salida={salida}

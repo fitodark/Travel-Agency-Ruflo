@@ -309,6 +309,10 @@ run('búsqueda de salidas (PostgreSQL real)', () => {
     expect(s!.mapa.asientos).toHaveLength(18);
     const asiento1 = s!.mapa.asientos.find((a) => a.num === 1);
     expect(asiento1).toMatchObject({ fila: 0, col: 3 });
+    // 0070: el 18 va del lado del pasillo (junto al chofer), no de la ventana —
+    // corregido contra el layout real de knowledge/seat-map/.
+    const asiento18 = s!.mapa.asientos.find((a) => a.num === 18);
+    expect(asiento18).toMatchObject({ fila: 0, col: 2 });
   });
 
   it('el layout de asientos no tiene posiciones duplicadas y respeta el pasillo', async () => {

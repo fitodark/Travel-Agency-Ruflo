@@ -3326,6 +3326,89 @@ contra el mockup):
 
 ---
 
+## Sesión 69 — 2026-09-12 · Mapa de asientos fiel al prototipo (knowledge/seat-map/)
+
+QA volvió a rebotar el mapa de asientos: no coincidía con el prototipo.
+Diseño exportó `knowledge/seat-map/` (README + CSS + JS + JSX + HTML, sin
+build) del mockup "Wizard Reservaciones". Antes de implementar, validé los
+5 archivos contra el seed real y encontré 2 discrepancias de fondo con
+nuestro backend + 3 preguntas de alcance; el cliente/usuario las resolvió:
+
+1. **El asiento 18 va del lado del pasillo, no de la ventana** — el export
+   de diseño (mapa más fiel a la unidad real) difería de
+   `src/db/seed/0001_tipo_unidad_sprinter18.sql` (fuente `knowledge/esquema.JPG`,
+   quedó desactualizada). Se respeta diseño.
+2. **El "pasillo" es un asiento invisible del mismo ancho**, no un carril
+   angosto — así lo pide el prototipo, se respeta tal cual.
+3. La unidad se queda como **"Sprinter"** (no "Suburban", nombre interno del
+   export).
+4. Por ahora **solo se atiende la de 18 plazas** — los layouts de 14/11 del
+   export no se implementan (no existen en `core.tipo_unidad`); queda la
+   puerta abierta a una futura de 20 plazas, pendiente de validar con el
+   cliente, pero **sin hardcodear layouts en el frontend** — el mapa sigue
+   siendo 100% data-driven desde `core.tipo_unidad.mapa` (por diseño desde
+   la Fase 0, ver comentario del seed 0001).
+5. Sí se adopta la tipografía del prototipo (**Barlow** cuerpo / **Barlow
+   Condensed** títulos) en **todo el wizard**, no solo el mapa — el resto de
+   la SPA se queda en `system-ui`.
+
+**Cambios:**
+- **Migración `0070_sprinter18_col_asiento_18.sql`**: corrige `col` del
+  asiento 18 (`0`→`2`) en `core.tipo_unidad.mapa` (rige toda materialización
+  futura) y hace el mismo `jsonb_set` en `core.salida.mapa_snapshot` para las
+  salidas `programada` (aún no salen a ruta) de esa unidad — las
+  `en_ruta`/`finalizada`/`cancelada` quedan congeladas tal como las vio el
+  manifiesto impreso (D7, el mapa se congela al materializar). Es el ÚNICO
+  cambio de datos: el resto del layout de diseño ya coincidía asiento por
+  asiento con el seed. Aplicada a local.
+- **`web/src/componentes/MapaAsientos.tsx`** reescrito: renglones flex (no
+  grid), agrupa `mapa.asientos` por `fila`/`col` y rellena huecos con un
+  espaciador invisible del mismo tamaño que un asiento — el chofer se asume
+  siempre en la columna 0 del primer renglón (frontend-only, no viene del
+  backend). La puerta de acceso (`mapa.accesos[].fila`) se posiciona relativa
+  a SU renglón, no con un offset fijo en px como el export (así escala solo
+  con cualquier capacidad futura o con el breakpoint móvil).
+- **`web/src/componentes/MapaAsientos.css`** (nuevo): clases y valores del
+  export de diseño, colores remapeados a los tokens de marca
+  (`--sm-accent` → `brand-500`, etc.).
+- **Tipografía del wizard**: `web/index.html` suma el `<link>` de Google
+  Fonts (Barlow + Barlow Condensed); `web/src/paginas/Vender.css` (nuevo)
+  aplica Barlow al wizard completo y Barlow Condensed a los `<h2>` de cada
+  paso, con una clase `wizard-fonts` en el contenedor raíz de `Vender.tsx`
+  — no toca el resto de la SPA.
+- `tests/ventas/busqueda.test.ts`: fija la nueva posición del asiento 18
+  (`fila:0, col:2`).
+- Verificado en el navegador: venta real hasta el paso de pasajeros con el
+  asiento 18 seleccionable en su nueva posición, sin errores de consola.
+
+---
+
+## Sesión 70 — 2026-09-12 · Segunda propuesta de mapa (ilustrado) para que QA la presente al cliente
+
+Diseño exportó una segunda propuesta, más ilustrada, del mapa de asientos
+(`knowledge/sprinter-mapv2/`) — el asiento con cojín + descansabrazos y un
+detalle nuevo: los asientos del lado del pasillo (4, 7, 10) van
+deliberadamente **descuadrados** respecto a su pareja (criterio de QA,
+`OFFSETS = {4:18, 7:12, 10:6}` px), alineando de nuevo a partir de 11/12-13.
+Lo validé con medición real en el DOM (`getBoundingClientRect`), no a ojo:
+18px/12px/6px exactos, tal como marca el export.
+
+- **`web/src/componentes/MapaAsientosV2.tsx` + `.css`** (nuevo): mismo
+  criterio que `MapaAsientos.tsx` (Ses. 69) — datos reales de
+  `mapa.asientos`, no la tabla `LAYOUTS` fija del export. El desfase vive en
+  `web/src/lib/asientosOffsets.ts`, es cosmético puro (no toca
+  `core.tipo_unidad.mapa`).
+- **Selector temporal en el paso 3** (`Vender.tsx`, "Vista del mapa"): deja
+  ver el mapa actual o el ilustrado sin perder la selección de asientos al
+  cambiar — es para que QA le presente ambas versiones al cliente y decida.
+  **Se quita cuando decidan** (comentario en el código marcando esto).
+- Alcance recortado a propósito: el export trae una segunda orientación
+  horizontal (giro 90°, chofer abajo) que no se implementó — no se pidió y
+  complicaría la comparación 1:1 con el mapa actual (solo vertical).
+- No hay cambios de backend en esta sesión.
+
+---
+
 Los cinco criterios de aceptación verdes contra Supabase real
 (`tests/sync/f1-criterios.test.ts`). Contrato de pruebas del motor cerrado
 (`salud.ts` Ses. 4, arbitraje/reasignación en F4, checksum dirigido de

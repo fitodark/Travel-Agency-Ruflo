@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mapa de asientos — Suburban</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="seat-map.css">
+<style>
+  body { margin: 0; background: #f2f2f3; font-family: "Barlow", system-ui, sans-serif; padding: 32px 20px; }
+  .demo { max-width: 720px; margin: 0 auto; }
+  .demo h1 { font-family: "Barlow Condensed", sans-serif; font-size: 34px; margin: 0 0 4px; letter-spacing: -0.02em; }
+  .demo p { font-size: 13px; color: rgba(29,31,32,.6); margin: 0 0 18px; }
+  #salida { font-size: 13px; margin-top: 14px; }
+</style>
+</head>
+<body>
+<div class="demo">
+  <h1>Mapa de asientos</h1>
+  <p>Selecciona hasta 2 asientos. Toca un asiento seleccionado para liberarlo.</p>
+
+  <!-- ============ COMPONENTE ============ -->
+  <section class="seatmap" id="mapa" aria-label="Mapa de asientos de la unidad">
+    <i class="seatmap__corner seatmap__corner--tl"></i>
+    <i class="seatmap__corner seatmap__corner--tr"></i>
+    <i class="seatmap__corner seatmap__corner--bl"></i>
+    <i class="seatmap__corner seatmap__corner--br"></i>
+
+    <div class="seatmap__head">
+      <span>Frente / cabina</span>
+      <span>Suburban 18 plazas — vista de planta</span>
+    </div>
+
+    <div class="seatmap__cabinWrap">
+      <div class="seatmap__cabin">
+        <!-- .seatmap__row se generan aquí -->
+        <div class="seatmap__door" aria-hidden="true"></div>
+        <div class="seatmap__doorLabel" aria-hidden="true">Acceso</div>
+      </div>
+    </div>
+
+    <div class="seatmap__legend">
+      <span class="seatmap__legendItem"><i class="seatmap__swatch seatmap__swatch--selected"></i>Seleccionado</span>
+      <span class="seatmap__legendItem"><i class="seatmap__swatch seatmap__swatch--occupied"></i>Ocupado</span>
+      <span class="seatmap__legendItem"><i class="seatmap__swatch seatmap__swatch--free"></i>Disponible</span>
+    </div>
+  </section>
+  <!-- ========== /COMPONENTE ========== -->
+
+  <div id="salida">Asientos seleccionados: <strong>—</strong></div>
+</div>
+
+<script type="module">
+  import { createSeatMap } from './seat-map.js';
+  const out = document.querySelector('#salida strong');
+  createSeatMap(document.getElementById('mapa'), {
+    capacidad: 18,
+    ocupados: [3, 4, 9, 16],
+    maxSeleccion: 2,
+    onChange: (sel) => { out.textContent = sel.length ? sel.map(n => String(n).padStart(2,'0')).join(' · ') : '—'; },
+  });
+</script>
+</body>
+</html>

@@ -1,0 +1,229 @@
+/* ==========================================================================
+   Mapa de asientos ilustrado (v2) — clases y valores de knowledge/sprinter-mapv2/
+   (export de diseño, Ses. 70). Colores mapeados a los tokens de marca de la
+   SPA; solo se implementa la orientación vertical (comparar contra el mapa
+   actual necesita la misma orientación).
+   ========================================================================== */
+
+.sprintermap {
+  --sp-ink: #1c2523; /* tinta */
+  --sp-accent: #279488; /* brand-500 */
+  --sp-accent-300: #78cec1; /* brand-300 — cojín */
+  --sp-accent-400: #45b0a3; /* brand-400 */
+  --sp-accent-500: #279488; /* brand-500 */
+  --sp-accent-600: #1b766e; /* brand-600 — descansabrazos */
+  --sp-accent-700: #195e59; /* brand-700 — seleccionado (arriba) */
+  --sp-accent-900: #173f3d; /* brand-900 — seleccionado (abajo) / texto cabina */
+  --sp-divider: rgba(28, 37, 35, 0.16);
+
+  --sp-shell: #e9eaeb;
+  --sp-seat: 52px;
+  --sp-seat-short: 46px;
+  --sp-gap: 14px;
+  --sp-occupied-top: #e6e6e7;
+  --sp-occupied-bottom: #cfd0d1;
+
+  position: relative;
+  border: 1px solid var(--sp-divider);
+  padding: 22px 22px 18px;
+  color: var(--sp-ink);
+  background: transparent;
+  font-family: 'Barlow', system-ui, sans-serif;
+}
+
+.sprintermap__corner { position: absolute; width: 9px; height: 9px; color: var(--sp-accent); }
+.sprintermap__corner::before,
+.sprintermap__corner::after { content: ''; position: absolute; background: currentColor; }
+.sprintermap__corner::before { left: 0; top: 4px; width: 9px; height: 1px; }
+.sprintermap__corner::after { top: 0; left: 4px; width: 1px; height: 9px; }
+.sprintermap__corner--tl { top: -5px; left: -5px; }
+.sprintermap__corner--tr { top: -5px; right: -5px; }
+.sprintermap__corner--bl { bottom: -5px; left: -5px; }
+.sprintermap__corner--br { bottom: -5px; right: -5px; }
+
+.sprintermap__head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(28, 37, 35, 0.45);
+}
+
+.sprintermap__scroll {
+  display: flex;
+  justify-content: center;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 6px 0 8px;
+}
+.sprintermap__body {
+  display: flex;
+  flex-direction: column;
+  padding: 8px;
+  background: var(--sp-shell);
+  border: 1px solid rgba(28, 37, 35, 0.16);
+  border-radius: 56px 56px 14px 14px;
+}
+
+.sprintermap__nose {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  height: 34px;
+  background: var(--sp-accent-300);
+  color: var(--sp-accent-900);
+  font-size: 9px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  border-radius: 48px 48px 8px 8px;
+}
+
+.sprintermap__cabin {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-gap);
+  padding: 18px 16px;
+}
+
+.sprintermap__row {
+  position: relative;
+  display: flex;
+  gap: var(--sp-gap);
+  justify-content: center;
+}
+
+/* Puerta de acceso: relativa a SU renglón (ver nota en MapaAsientos.css) */
+.sprintermap__door {
+  position: absolute;
+  right: -13px;
+  top: 0;
+  bottom: 0;
+  width: 6px;
+  border-radius: 4px;
+  background: var(--sp-accent-400);
+  opacity: 0.75;
+  box-shadow: -10px 0 22px -6px rgba(39, 148, 136, 0.45);
+}
+.sprintermap__doorLabel {
+  position: absolute;
+  right: -78px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--sp-accent-700);
+  writing-mode: vertical-rl;
+  white-space: nowrap;
+}
+
+.sprintermap__seat,
+.sprintermap__driver,
+.sprintermap__spacer {
+  position: relative;
+  box-sizing: border-box;
+  flex: none;
+  padding: 0;
+  font-family: 'Barlow Condensed', 'Barlow', system-ui, sans-serif;
+  font-size: 16px;
+  line-height: 1;
+  width: var(--sp-seat-short);
+  height: var(--sp-seat);
+}
+
+.sprintermap__spacer { border: 0; background: transparent; pointer-events: none; }
+
+.sprintermap__driver {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px dashed rgba(28, 37, 35, 0.32);
+  border-radius: 8px;
+  background: transparent;
+  color: rgba(28, 37, 35, 0.45);
+  font-family: 'Barlow', system-ui, sans-serif;
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: default;
+}
+
+.sprintermap__seat {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  border: 1px solid var(--sp-accent-500);
+  border-radius: 14px 14px 7px 7px;
+  background: linear-gradient(#fff 50%, var(--sp-accent-300) 50%);
+  color: var(--sp-ink);
+  cursor: pointer;
+  transition: filter 0.12s ease, background 0.12s ease;
+}
+.sprintermap__seat:hover:not(:disabled) { filter: brightness(0.97); }
+.sprintermap__seat:focus-visible { outline: 2px solid var(--sp-accent); outline-offset: 2px; }
+
+.sprintermap__num { font-weight: 600; letter-spacing: 0.02em; padding-top: 7px; }
+
+.sprintermap__arm { position: absolute; top: 14px; width: 5px; height: 24px; border-radius: 3px; background: var(--sp-accent-600); }
+.sprintermap__arm--a { left: -4px; }
+.sprintermap__arm--b { right: -4px; }
+
+.sprintermap__seat--selected {
+  border-color: var(--sp-accent-900);
+  background: linear-gradient(var(--sp-accent-700) 50%, var(--sp-accent-900) 50%);
+  color: #fff;
+}
+.sprintermap__seat--selected .sprintermap__arm { background: var(--sp-accent-900); }
+
+.sprintermap__seat--occupied,
+.sprintermap__seat:disabled {
+  border-color: rgba(28, 37, 35, 0.18);
+  background: linear-gradient(var(--sp-occupied-top) 50%, var(--sp-occupied-bottom) 50%);
+  color: rgba(28, 37, 35, 0.38);
+  cursor: not-allowed;
+}
+.sprintermap__seat--occupied .sprintermap__arm { background: #c4c5c6; }
+
+/* Desfase de los asientos individuales del pasillo (criterio de QA): se
+   reduce fila con fila hasta alinear en 11/12-13. Ver lib/asientosOffsets.ts. */
+[data-offset='18'] { transform: translateY(18px); }
+[data-offset='12'] { transform: translateY(12px); }
+[data-offset='6']  { transform: translateY(6px); }
+
+.sprintermap__legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 22px;
+  justify-content: center;
+  margin-top: 20px;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.sprintermap__legendItem { display: flex; align-items: center; gap: 8px; }
+.sprintermap__swatch {
+  width: 22px; height: 16px; display: block; box-sizing: border-box;
+  border-radius: 6px 6px 3px 3px; border: 1px solid var(--sp-accent-500);
+  background: linear-gradient(#fff 50%, var(--sp-accent-300) 50%);
+}
+.sprintermap__swatch--selected {
+  border-color: var(--sp-accent-900);
+  background: linear-gradient(var(--sp-accent-700) 50%, var(--sp-accent-900) 50%);
+}
+.sprintermap__swatch--occupied {
+  border-color: rgba(28, 37, 35, 0.18);
+  background: linear-gradient(var(--sp-occupied-top) 50%, var(--sp-occupied-bottom) 50%);
+}
+
+@media (max-width: 520px) {
+  .sprintermap { padding: 16px 12px 14px; --sp-seat: 46px; --sp-seat-short: 40px; --sp-gap: 11px; }
+  .sprintermap__doorLabel { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sprintermap__seat { transition: none; }
+}
