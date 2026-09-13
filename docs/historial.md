@@ -3225,6 +3225,107 @@ abrir el checklist de un viaje de otra terminal; el ajuste es solo el listado.
 
 ---
 
+## Sesión 68 — 2026-09-12 · QA valida el wizard: pulido del mapa de asientos + boleto alineado al mockup de diseño
+
+**Retomando la sesión anterior** (PR #85, `f-vender-fidelidad-prototipo`, commit
+`7f0c961` — ya mergeado a `main`, la memoria decía "sin mergear" por error).
+Verifiqué el wizard completo en el navegador (venta real de punta a punta,
+folio 100009) apoyándome en agentes `reviewer`/`tester`. Confirmado con el
+seed real de la Sprinter 18 (`src/db/seed/0001_tipo_unidad_sprinter18.sql`):
+el asiento 18 junto al chofer con hueco antes del pasillo **no es un bug**,
+es el layout real de la unidad — el problema era que la etiqueta "ACCESO"
+que lo explica era casi invisible.
+
+- **3 arreglos de pulido en el wizard** (`web/src/`):
+  - `componentes/MapaAsientos.tsx`: etiqueta "ACCESO" de `text-slate-300` a
+    `text-brand-500` en negrita — ya no se lee como asiento faltante.
+  - **Formato de asiento unificado**: nuevo `lib/asientos.ts`
+    (`formatoAsiento`, mismo patrón que `lib/fechas.ts`) aplicado en
+    `MapaAsientos.tsx`, `Vender.tsx` (pasos 4/5/banner final) y
+    `ResumenViaje.tsx` — antes mostraba "04" en el mapa pero "4" a secas en
+    el resto.
+  - **Teléfono de contacto obligatorio sin indicador**: asterisco en el
+    label + hint "Requerido para continuar" en los 4 métodos de pago
+    (`Vender.tsx`); antes el botón de cobro se deshabilitaba en silencio.
+  - Pruebas nuevas: `tests/ventas/busqueda.test.ts` (geometría del mapa: sin
+    posiciones duplicadas, el pasillo separa asientos reales) y
+    `tests/api/ventas.test.ts` (400 `entrada_invalida` con `contactoTelefono`
+    vacío, antes solo se probaba el 422 de negocio).
+
+- **Boleto térmico alineado al mockup de diseño** (`src/printing/templates/boleto.ts`
+  + `tests/printing/boleto.test.ts` + `tests/printing/spooler.test.ts`), a partir
+  de los dos Artifacts de Claude Design que compartió diseño (specs +
+  mockup visual del boleto impreso, rollo 80mm/72mm imprimible):
+  - Quitó la línea "Atiende: {vendedor}" (no está en el mockup).
+  - "FOLIO {folio}" gigante centrado → fila `Emitido`/`Folio` normal, sin
+    dos puntos en las etiquetas (antes "Emitido:", ahora "Emitido").
+  - "ASIENTO {n}" gigante → fila pareada `PASAJERO`/`ASIENTO` (header) +
+    nombre en mayúsculas / asiento a **2 dígitos** (mismo criterio que
+    `formatoAsiento` de la SPA — `04`, no `4`).
+  - "Fecha y hora:" → "Salida" (nombre del campo del mockup).
+  - Separadores punteados: eran 4, ahora 5 como en el mockup (se corrió el
+    de antes del QR a después del QR, antes del pie de agradecimiento).
+  - Verificado con `npm run printer:poc -- --transport capture` (papel
+    simulado en texto) contra el Artifact — coincide.
+
+**Decisión confirmada el mismo día**: cliente + QA + diseño confirmaron
+revertir D7 — el boleto SÍ imprime la tarifa cobrada.
+- **Migración `0069_snapshot_boleto_categoria.sql`**: `core.snapshot_boleto`
+  suma `categoria` (`b.categoria_pasajero`). Aplicada a local.
+- `boleto.ts`: nueva fila `Tarifa` (General/INAPAM/Menor, mismas etiquetas
+  que `CATEGORIAS` en `Vender.tsx`) en el bloque de datos del viaje.
+- `docs/architecture/05-paradas-autorizadas-tarifas.md`: D7 anotada con la
+  reversión (2026-09-12).
+- Tampoco toqué "Unidad" (el mockup sugiere "tipo · Unidad N"; hoy solo
+  imprime `numero_economico`) — requeriría otra migración, sin conflicto
+  documentado, solo pendiente por alcance.
+
+**4 ajustes más, validando el boleto ya con datos reales de la BD** (no solo
+contra el mockup):
+- **Título**: el header imprimía `origen.nombre` (nombre de la sucursal),
+  no la marca. Ahora es un literal fijo `DONAJI` (mismo valor que el campo
+  fijo del payload del QR en `qr-text.ts`).
+- **IMPORTE sin puntos suspensivos**: quité el relleno de puntos de esa fila
+  (se quedó en "SALDO PENDIENTE", caso no cubierto por el mockup).
+- **QR: tamaño real, no el asumido por el mockup**. Medí el payload real
+  (~145 caracteres, incluye `|` fuera del alfabeto alfanumérico del QR ⇒
+  modo byte) con un encoder real: a corrección de error M genera **versión 8
+  (49×49 módulos)**, no versión 1 (21×21) como asumió el mockup. Con el
+  `moduleSize=6` que ya tenía el código medía ≈3.68cm — por encima del
+  máximo de 2.8cm pedido. Bajé el default a **4 pts/módulo** (el piso que ya
+  marcaba el spec, "nunca menos de 4") ⇒ ≈2.45cm. También quité los
+  `feed(1)` que dejaban un renglón vacío antes y después del QR.
+- **Dirección + teléfono en una sola cadena**: el header dejaba el teléfono
+  en un 3er renglón fijo (`doc.line('Tel. ...')` aparte); el mockup los
+  envuelve juntos. Los uní en una sola cadena a `doc.wrap()` — 2 renglones
+  en el caso típico, 3+ si la dirección es larga, sin truncar. Usé coma
+  como separador, NO el «·» del mockup: ese carácter no existe en las
+  tablas CP437/850/858 y degrada a «?» en el papel real (`encodeText`,
+  confirmado en el papel simulado antes de corregirlo).
+- **Avance antes del corte**: `doc.feed(3).cut()` (en `boleto.ts` Y
+  `manifiesto.ts`) dejaba ≈12mm en blanco antes de cortar — el usuario lo
+  notó como "hasta 8 espacios". La cuchilla física está unos milímetros
+  después del cabezal, así que un corte verdaderamente inmediato arriesga
+  cortar sobre el texto; sin dato documentado de esa distancia en la Enduro
+  real, el usuario eligió reducir a la mitad (`feed(1)`, ≈4mm) para
+  probarlo físicamente antes de ajustar más — **pendiente de confirmación
+  con la impresora física**: si corta limpio se queda así, si corta texto
+  hay que subirlo.
+- 6 pruebas nuevas en `tests/printing/boleto.test.ts` (tarifa, título,
+  importe, QR sin blancos, tamaño de módulo, dirección+teléfono unidos,
+  dirección larga sin truncar el teléfono, sin el carácter «·»).
+
+- `npm test`: sin regresiones nuevas — los 5 fallos de una corrida completa
+  se rastrearon uno por uno: `tests/fleet/puntos.test.ts` (arrastre de datos
+  de QA ya conocido), `tests/fleet/verificar-qr.test.ts` (timeout por
+  contención de recursos corriendo ~600 pruebas juntas, limpio aislado en
+  1.1s), `tests/sync/f1-criterios.test.ts` (el mismo corte de conexión a la
+  nube de siempre) y `tests/printing/spooler.test.ts` (flaky SOLO cuando
+  corre junto con `servicio.test.ts`, que hace `COMMIT` real para probar
+  `NOTIFY` — aislado, 26/26 limpio). `npx tsc --noEmit` limpio.
+
+---
+
 Los cinco criterios de aceptación verdes contra Supabase real
 (`tests/sync/f1-criterios.test.ts`). Contrato de pruebas del motor cerrado
 (`salud.ts` Ses. 4, arbitraje/reasignación en F4, checksum dirigido de
@@ -3239,6 +3340,9 @@ señal y bloquee el override de asiento cuando el nodo lleva mucho sin bajar.
 
 ## Decisiones abiertas para el arquitecto
 
+- **Avance antes del corte de papel (Ses. 68)**: `feed(1)` (antes `feed(3)`) en
+  `boleto.ts`/`manifiesto.ts` — pendiente de confirmar en la Enduro física que
+  no corte sobre el texto.
 - Replicación de `core.asiento_ocupacion` hacia las sucursales (decidir antes de
   F4).
 - P7 (mecanismo de acceso del sistema externo de reportes), P8 (umbrales de

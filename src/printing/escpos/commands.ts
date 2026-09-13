@@ -124,7 +124,7 @@ export interface QrOptions {
 export function qrNative(payload: string, opts: QrOptions = {}): Buffer {
   return Buffer.concat([
     qrModel(opts.model ?? 2),
-    qrModuleSize(opts.moduleSize ?? 6),
+    qrModuleSize(opts.moduleSize ?? 4),
     qrErrorCorrection(opts.errorCorrection ?? 'M'),
     qrStore(Buffer.from(payload, 'latin1')),
     qrPrint(),

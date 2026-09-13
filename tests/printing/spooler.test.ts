@@ -213,7 +213,8 @@ run('spooler de impresión (PostgreSQL real)', () => {
       [venta.ventaId],
     );
     expect(bol!.estado).toBe('impreso');
-    expect(t.papel).toContain('ASIENTO 2');
+    expect(t.papel).toContain('ASIENTO');
+    expect(t.papel).toContain('02');
     expect(t.papel).toContain(bol!.folio.trim());
     expect(t.papel).toContain('Buen viaje');
   });

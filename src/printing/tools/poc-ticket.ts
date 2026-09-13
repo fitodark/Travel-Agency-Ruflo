@@ -42,6 +42,7 @@ const BOLETO: DatosBoleto = {
   folio: '7K3M9A',
   pasajero: 'MARÍA DE LOS ÁNGELES MUÑOZ PEÑA',
   asiento: 12,
+  categoria: 'inapam',
   origen: {
     nombre: 'Terminal Huajuapan',
     direccion: 'Av. Miguel Hidalgo 214, Col. Centro, Huajuapan de León, Oaxaca',

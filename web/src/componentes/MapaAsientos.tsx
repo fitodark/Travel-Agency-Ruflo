@@ -1,4 +1,5 @@
 import type { MapaAsientosSalida } from '../api/ventas';
+import { formatoAsiento } from '../lib/asientos';
 
 /**
  * Mapa visual de asientos del paso 3 de Vender (layout real de la unidad,
@@ -70,7 +71,7 @@ export function MapaAsientos({
                       : 'border-slate-300 bg-white hover:border-brand-400 hover:bg-brand-50'
                 }`}
               >
-                {String(a.num).padStart(2, '0')}
+                {formatoAsiento(a.num)}
               </button>
             );
           })}
@@ -79,7 +80,7 @@ export function MapaAsientos({
             key={acceso.fila}
             aria-hidden
             style={{ gridColumn: spacerCol, gridRow: acceso.fila + 1, writingMode: 'vertical-rl' }}
-            className="flex items-center justify-center text-[10px] font-semibold uppercase tracking-widest text-slate-300"
+            className="flex items-center justify-center text-[10px] font-bold uppercase tracking-widest text-brand-500"
           >
             {acceso.etiqueta}
           </span>

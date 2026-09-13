@@ -311,6 +311,40 @@ run('búsqueda de salidas (PostgreSQL real)', () => {
     expect(asiento1).toMatchObject({ fila: 0, col: 3 });
   });
 
+  it('el layout de asientos no tiene posiciones duplicadas y respeta el pasillo', async () => {
+    const fx = await seedSalida(db, { paradas: 4 });
+    const [s] = await buscarSalidas(db, {
+      fecha: fx.fechaOperacion,
+      sucursalOrigenId: fx.puntos[0]!,
+      sucursalDestinoId: fx.puntos[3]!,
+      nPersonas: 1,
+      sucursalVendedoraId: fx.sucursales[0]!,
+    });
+
+    const { asientos, columnas, filas, pasillo_despues_columna } = s!.mapa;
+
+    // Ningún asiento fuera de la rejilla ni dos asientos en la misma celda —
+    // la fila 0 de la Sprinter 18 (18 y 1) deja huecos a propósito para el
+    // acceso, pero eso no debe traducirse en asientos que se pisen entre sí.
+    const posiciones = new Set<string>();
+    for (const a of asientos) {
+      expect(a.fila).toBeGreaterThanOrEqual(0);
+      expect(a.fila).toBeLessThan(filas);
+      expect(a.col).toBeGreaterThanOrEqual(0);
+      expect(a.col).toBeLessThan(columnas);
+      const clave = `${a.fila}-${a.col}`;
+      expect(posiciones.has(clave)).toBe(false);
+      posiciones.add(clave);
+    }
+
+    // Los números de asiento son únicos (no necesariamente 1..18 contiguos).
+    expect(new Set(asientos.map((a) => a.num)).size).toBe(asientos.length);
+
+    // El pasillo separa columnas reales: hay asientos vendibles de ambos lados.
+    expect(asientos.some((a) => a.col <= pasillo_despues_columna)).toBe(true);
+    expect(asientos.some((a) => a.col > pasillo_despues_columna)).toBe(true);
+  });
+
   it('devuelve la hora de llegada al destino y el tipo de unidad (paso 2)', async () => {
     const fx = await seedSalida(db, { paradas: 4 });
     const [s] = await buscarSalidas(db, {

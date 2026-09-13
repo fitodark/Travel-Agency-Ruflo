@@ -66,6 +66,7 @@ export function snapshotABoleto(datos: unknown): DatosBoleto {
     folio: texto(d['folio']),
     pasajero: texto(d['pasajero']),
     asiento: Number(d['asiento']),
+    categoria: texto(d['categoria']) || 'general',
     origen: {
       nombre: texto(d['origen']),
       direccion: texto(d['origen_direccion']),

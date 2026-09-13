@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import type { SalidaDisponible } from '../../api/ventas';
 import { fechaHora, hora } from '../../lib/fechas';
+import { formatoAsiento } from '../../lib/asientos';
 
 /**
  * Panel lateral persistente de los pasos 3-6 de Vender: datos del viaje, conteo
@@ -58,7 +59,9 @@ export function ResumenViaje({
         <div className="flex justify-between">
           <span>Asientos</span>
           <span className="font-medium text-slate-800">
-            {asientos.length > 0 ? [...asientos].sort((a, b) => a - b).join(' - ') : 'por asignar'}
+            {asientos.length > 0
+              ? [...asientos].sort((a, b) => a - b).map(formatoAsiento).join(' - ')
+              : 'por asignar'}
           </span>
         </div>
       </div>

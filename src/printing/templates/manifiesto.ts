@@ -169,6 +169,8 @@ export function renderManifiesto(m: DatosManifiesto, cfg: ConfigManifiesto = {})
   doc.line(firma);
   doc.line('_'.repeat(Math.min(doc.cols, 32)));
 
-  doc.feed(3).cut();
+  // Ver nota en boleto.ts: `feed(1)` (antes `feed(3)`) deja ≈4mm de holgura
+  // para la cuchilla física — a validar contra la Enduro real.
+  doc.feed(1).cut();
   return doc.build();
 }

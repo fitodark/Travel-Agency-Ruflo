@@ -145,6 +145,21 @@ run('API · /ventas (PostgreSQL real)', () => {
     expect(r.json().mensaje).toMatch(/no se puede vender ni reservar/i);
   });
 
+  it('POST /ventas rechaza contactoTelefono vacío con 400 de schema', async () => {
+    const { fx, token, corteId } = await preparar();
+    const r = await app.inject({
+      method: 'POST', url: '/ventas', headers: bearer(token),
+      payload: {
+        salidaId: fx.salidaId, origenOrden: 0, destinoOrden: 3,
+        contactoTelefono: '',
+        pasajeros: [{ asientoNum: 2, nombre: 'Sin teléfono', importe: 450 }],
+        pago: { metodo: 'efectivo', monto: 450, corteCajaId: corteId },
+      },
+    });
+    expect(r.statusCode).toBe(400);
+    expect(r.json().error).toBe('entrada_invalida');
+  });
+
   it('POST /ventas exige sesión', async () => {
     await preparar();
     const r = await app.inject({

@@ -16,6 +16,7 @@ const CATEGORIAS: { valor: CategoriaPasajero; etiqueta: string }[] = [
   { valor: 'menor', etiqueta: 'Menor' },
 ];
 import { fecha as soloFecha, hora } from '../lib/fechas';
+import { formatoAsiento } from '../lib/asientos';
 
 type Paso = 1 | 2 | 3 | 4 | 5 | 6 | 'listo';
 
@@ -520,7 +521,7 @@ export function Vender() {
                   {' · asiento asignado'}
                 </p>
                 <div className="mt-1 flex h-10 w-10 items-center justify-center rounded-sm border border-brand-600 text-sm font-semibold text-brand-700">
-                  {String(a).padStart(2, '0')}
+                  {formatoAsiento(a)}
                 </div>
               </div>
               <div className="flex flex-wrap gap-3">
@@ -637,7 +638,7 @@ export function Vender() {
                     <td className="py-2 pr-2 text-slate-600">
                       {CATEGORIAS.find((c) => c.valor === (categorias[a] ?? 'general'))?.etiqueta ?? 'General'}
                     </td>
-                    <td className="py-2 pr-2 text-slate-600">{a}</td>
+                    <td className="py-2 pr-2 text-slate-600">{formatoAsiento(a)}</td>
                     <td className="py-2 text-right text-slate-900">${importeDe(a)}</td>
                   </tr>
                 ))}
@@ -705,12 +706,15 @@ export function Vender() {
             <div className="space-y-2">
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                 <label className="block">
-                  <span className={ETIQUETA}>Teléfono de contacto</span>
+                  <span className={ETIQUETA}>Teléfono de contacto *</span>
                   <input
                     value={contacto}
                     onChange={(e) => setContacto(e.target.value)}
                     className="campo mt-1 rounded-sm"
                   />
+                  {!contacto.trim() && (
+                    <p className="mt-1 text-xs text-slate-400">Requerido para continuar</p>
+                  )}
                 </label>
                 <label className="block">
                   <span className={ETIQUETA}>Recibe (efectivo)</span>
@@ -754,12 +758,15 @@ export function Vender() {
           {metodo === 'transferencia' && (
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
               <label className="block">
-                <span className={ETIQUETA}>Teléfono de contacto</span>
+                <span className={ETIQUETA}>Teléfono de contacto *</span>
                 <input
                   value={contacto}
                   onChange={(e) => setContacto(e.target.value)}
                   className="campo mt-1 rounded-sm"
                 />
+                {!contacto.trim() && (
+                  <p className="mt-1 text-xs text-slate-400">Requerido para continuar</p>
+                )}
               </label>
               <label className="block">
                 <span className={ETIQUETA}>Referencia / folio SPEI</span>
@@ -793,12 +800,15 @@ export function Vender() {
               </label>
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <label className="block">
-                  <span className={ETIQUETA}>Teléfono de contacto</span>
+                  <span className={ETIQUETA}>Teléfono de contacto *</span>
                   <input
                     value={contacto}
                     onChange={(e) => setContacto(e.target.value)}
                     className="campo mt-1 rounded-sm"
                   />
+                  {!contacto.trim() && (
+                    <p className="mt-1 text-xs text-slate-400">Requerido para continuar</p>
+                  )}
                 </label>
                 <div>
                   <span className={ETIQUETA}>Estatus</span>
@@ -814,12 +824,15 @@ export function Vender() {
             <div className="space-y-2">
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <label className="block">
-                  <span className={ETIQUETA}>Teléfono de contacto</span>
+                  <span className={ETIQUETA}>Teléfono de contacto *</span>
                   <input
                     value={contacto}
                     onChange={(e) => setContacto(e.target.value)}
                     className="campo mt-1 rounded-sm"
                   />
+                  {!contacto.trim() && (
+                    <p className="mt-1 text-xs text-slate-400">Requerido para continuar</p>
+                  )}
                 </label>
                 <div>
                   <span className={ETIQUETA}>Estatus</span>
@@ -892,7 +905,7 @@ export function Vender() {
             {resultado.boletos.map((b) => (
               <li key={b.boletoId} className="flex justify-between py-1">
                 <span>
-                  Folio {b.folio} · asiento {b.asientoNum} · {b.pasajero}
+                  Folio {b.folio} · asiento {formatoAsiento(b.asientoNum)} · {b.pasajero}
                   {b.categoria !== 'general' && ` · ${b.categoria}`}
                 </span>
                 <span>${b.importe}</span>
