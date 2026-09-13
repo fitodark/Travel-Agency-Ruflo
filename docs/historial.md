@@ -3383,6 +3383,32 @@ nuestro backend + 3 preguntas de alcance; el cliente/usuario las resolvió:
 
 ---
 
+## Sesión 70 — 2026-09-12 · Segunda propuesta de mapa (ilustrado) para que QA la presente al cliente
+
+Diseño exportó una segunda propuesta, más ilustrada, del mapa de asientos
+(`knowledge/sprinter-mapv2/`) — el asiento con cojín + descansabrazos y un
+detalle nuevo: los asientos del lado del pasillo (4, 7, 10) van
+deliberadamente **descuadrados** respecto a su pareja (criterio de QA,
+`OFFSETS = {4:18, 7:12, 10:6}` px), alineando de nuevo a partir de 11/12-13.
+Lo validé con medición real en el DOM (`getBoundingClientRect`), no a ojo:
+18px/12px/6px exactos, tal como marca el export.
+
+- **`web/src/componentes/MapaAsientosV2.tsx` + `.css`** (nuevo): mismo
+  criterio que `MapaAsientos.tsx` (Ses. 69) — datos reales de
+  `mapa.asientos`, no la tabla `LAYOUTS` fija del export. El desfase vive en
+  `web/src/lib/asientosOffsets.ts`, es cosmético puro (no toca
+  `core.tipo_unidad.mapa`).
+- **Selector temporal en el paso 3** (`Vender.tsx`, "Vista del mapa"): deja
+  ver el mapa actual o el ilustrado sin perder la selección de asientos al
+  cambiar — es para que QA le presente ambas versiones al cliente y decida.
+  **Se quita cuando decidan** (comentario en el código marcando esto).
+- Alcance recortado a propósito: el export trae una segunda orientación
+  horizontal (giro 90°, chofer abajo) que no se implementó — no se pidió y
+  complicaría la comparación 1:1 con el mapa actual (solo vertical).
+- No hay cambios de backend en esta sesión.
+
+---
+
 Los cinco criterios de aceptación verdes contra Supabase real
 (`tests/sync/f1-criterios.test.ts`). Contrato de pruebas del motor cerrado
 (`salud.ts` Ses. 4, arbitraje/reasignación en F4, checksum dirigido de
