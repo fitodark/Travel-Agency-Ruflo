@@ -32,6 +32,7 @@ import {
   type ConfigImpresoraRow,
 } from './config.js';
 import { renderBoleto, type ConfigTicket, type DatosBoleto } from './templates/boleto.js';
+import { renderComprobanteReserva, type DatosComprobante } from './templates/comprobante.js';
 import { renderManifiesto, type DatosManifiesto } from './templates/manifiesto.js';
 import type { EscPosTransport } from './transport/types.js';
 
@@ -40,6 +41,7 @@ export const TEMPLATES_SOPORTADOS = [
   'boleto',
   'manifiesto_conductor',
   'manifiesto_terminal',
+  'comprobante_reserva',
 ] as const;
 
 const CODE_PAGES: readonly string[] = ['CP437', 'CP850', 'CP858'];
@@ -87,6 +89,42 @@ export function snapshotABoleto(datos: unknown): DatosBoleto {
 }
 
 /**
+ * El snapshot congelado de `core.snapshot_comprobante_reserva` a la forma que
+ * consume `renderComprobanteReserva`.
+ */
+export function snapshotAComprobante(datos: unknown): DatosComprobante {
+  const d = (datos ?? {}) as Record<string, unknown>;
+  const texto = (v: unknown): string => (v == null ? '' : String(v));
+  const folios = Array.isArray(d['folios']) ? (d['folios'] as unknown[]).map(texto) : [];
+  const pasajeros = Array.isArray(d['pasajeros'])
+    ? (d['pasajeros'] as Array<Record<string, unknown>>).map((p) => ({
+        nombre: texto(p['nombre']),
+        asiento: Number(p['asiento']),
+        importe: Number(p['importe']),
+      }))
+    : [];
+  return {
+    folios,
+    clienteNombre: d['cliente_nombre'] == null ? null : texto(d['cliente_nombre']),
+    clienteTelefono: texto(d['cliente_telefono']),
+    pasajeros,
+    origen: {
+      nombre: texto(d['origen']),
+      direccion: texto(d['origen_direccion']),
+      telefono: texto(d['origen_telefono']),
+    },
+    destino: texto(d['destino']),
+    fechaHoraViaje: texto(d['fecha_hora_viaje']),
+    importeTotal: Number(d['importe_total']),
+    pagado: Number(d['pagado']),
+    saldoPendiente: Number(d['saldo_pendiente']),
+    sucursalCobro: texto(d['sucursal_cobro']),
+    vendedor: texto(d['vendedor']),
+    generadoEn: texto(d['generado_en']),
+  };
+}
+
+/**
  * Renderiza el documento de un `print_job` a bytes ESC/POS.
  */
 export function renderPrintJob(
@@ -106,6 +144,10 @@ export function renderPrintJob(
       return renderManifiesto(datos as DatosManifiesto, {
         cols: ctx.cols,
         codePage: ctx.codePage,
+      });
+    case 'comprobante_reserva':
+      return renderComprobanteReserva(snapshotAComprobante(datos), {
+        ...ctx.ticket, cols: ctx.cols, codePage: ctx.codePage,
       });
     default:
       throw new Error(`El spooler no sabe renderizar la plantilla "${templateKey}"`);

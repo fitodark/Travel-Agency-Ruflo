@@ -2,7 +2,7 @@ import { useState, type FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ErrorApi } from '../api/cliente';
 import { listarPuntos } from '../api/catalogos';
-import { buscarSalidas, type SalidaDisponible } from '../api/ventas';
+import { buscarSalidas, registrarPago, type SalidaDisponible } from '../api/ventas';
 import {
   boletosReubicables, buscarBoletoPorFolio, cancelarBoleto, checklist, detalleBoleto,
   finalizarViaje, generarManifiestos, marcarEnRuta, registrarAbordaje, reimprimirBoleto,
@@ -88,6 +88,10 @@ function BuscarPorFolio(
   const [folio, setFolio] = useState('');
   const [resultado, setResultado] = useState<BoletoPorFolio | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Ses. 71: cobrar el saldo de una reservación con anticipo, en la sucursal
+  // de origen. El backend exige el total (sin nuevo abono parcial); por eso el
+  // monto no es editable aquí.
+  const [metodoCobro, setMetodoCobro] = useState<'efectivo' | 'transferencia'>('efectivo');
 
   const buscar = useMutation({
     mutationFn: () => buscarBoletoPorFolio(folio),
@@ -102,6 +106,14 @@ function BuscarPorFolio(
     mutationFn: (abordo: boolean) => registrarAbordaje(resultado!.boletoId, abordo),
     onSuccess: () => buscar.mutate(),
     onError: (e) => setError(e instanceof ErrorApi ? e.message : 'No se pudo capturar el abordaje.'),
+  });
+
+  const cobrarSaldo = useMutation({
+    mutationFn: () => registrarPago(resultado!.venta.ventaId, {
+      metodo: metodoCobro, monto: resultado!.venta.saldoPendiente,
+    }),
+    onSuccess: () => buscar.mutate(),
+    onError: (e) => setError(e instanceof ErrorApi ? e.message : 'No se pudo cobrar el saldo.'),
   });
 
   const enviar = (e: FormEvent) => { e.preventDefault(); if (folio.trim()) buscar.mutate(); };
@@ -144,31 +156,71 @@ function BuscarPorFolio(
             {resultado.salida.conductor ? ` · ${resultado.salida.conductor}` : ''}
           </div>
 
-          <div className="mt-3 flex flex-wrap items-center gap-2">
-            {(['abordo', 'no_presento'] as const).map((quiere) => {
-              const activo = resultado.estadoAbordaje === quiere;
-              return (
-                <button
-                  key={quiere}
-                  disabled={abordaje.isPending}
-                  onClick={() => abordaje.mutate(quiere === 'abordo')}
-                  className={`rounded px-3 py-1 text-xs ${
-                    activo
-                      ? quiere === 'abordo' ? 'bg-green-600 text-white' : 'bg-slate-600 text-white'
-                      : 'border text-slate-600'
-                  }`}
+          {resultado.venta.saldoPendiente > 0 ? (
+            <div className="mt-3 space-y-2 rounded border border-amber-300 bg-amber-50 p-3">
+              <div className="text-amber-900">
+                <span className="font-semibold">Reservación con saldo pendiente.</span>{' '}
+                Reservó {resultado.venta.clienteNombre ?? '(sin cliente registrado)'}
+                {' '}({resultado.venta.contactoTelefono}).
+              </div>
+              <div className="flex flex-wrap items-center gap-3 text-slate-700">
+                <span>Total {mxn(resultado.venta.importeTotal)}</span>
+                <span>Abonado {mxn(resultado.venta.pagado)}</span>
+                <span className="font-semibold text-amber-900">
+                  Saldo {mxn(resultado.venta.saldoPendiente)}
+                </span>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <select
+                  value={metodoCobro}
+                  onChange={(e) => setMetodoCobro(e.target.value as 'efectivo' | 'transferencia')}
+                  className="campo w-auto text-sm"
                 >
-                  {quiere === 'abordo' ? 'abordó' : 'no se presentó'}
+                  <option value="efectivo">Efectivo</option>
+                  <option value="transferencia">Transferencia</option>
+                </select>
+                <button
+                  type="button"
+                  disabled={cobrarSaldo.isPending}
+                  onClick={() => cobrarSaldo.mutate()}
+                  className="btn-primario px-3 py-1.5 text-sm"
+                >
+                  {cobrarSaldo.isPending
+                    ? 'Cobrando…'
+                    : `Cobrar ${mxn(resultado.venta.saldoPendiente)}`}
                 </button>
-              );
-            })}
-            <button
-              onClick={() => onIrAlViaje(resultado.salida)}
-              className="ml-auto text-xs text-brand-700 underline"
-            >
-              ver viaje completo →
-            </button>
-          </div>
+              </div>
+              <p className="text-xs text-amber-800">
+                Al cubrir el saldo se imprimen los boletos de abordar.
+              </p>
+            </div>
+          ) : (
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              {(['abordo', 'no_presento'] as const).map((quiere) => {
+                const activo = resultado.estadoAbordaje === quiere;
+                return (
+                  <button
+                    key={quiere}
+                    disabled={abordaje.isPending}
+                    onClick={() => abordaje.mutate(quiere === 'abordo')}
+                    className={`rounded px-3 py-1 text-xs ${
+                      activo
+                        ? quiere === 'abordo' ? 'bg-green-600 text-white' : 'bg-slate-600 text-white'
+                        : 'border text-slate-600'
+                    }`}
+                  >
+                    {quiere === 'abordo' ? 'abordó' : 'no se presentó'}
+                  </button>
+                );
+              })}
+              <button
+                onClick={() => onIrAlViaje(resultado.salida)}
+                className="ml-auto text-xs text-brand-700 underline"
+              >
+                ver viaje completo →
+              </button>
+            </div>
+          )}
         </div>
       )}
     </div>

@@ -11,7 +11,7 @@ import { Client } from 'pg';
 import { resolveConnection } from '../../src/db/connection.js';
 import { adquirirLease, leasesVivos } from '../../src/ventas/lease.js';
 import {
-  registrarPago, registrarVenta, saldoDeVenta, verificarTransferencia,
+  buscarReservaPorFolio, registrarPago, registrarVenta, saldoDeVenta, verificarTransferencia,
 } from '../../src/ventas/venta.js';
 import { antesDelCierre, crearUsuario, seedCorte, seedSalida } from './fixture.js';
 
@@ -151,6 +151,93 @@ run('registro de venta (PostgreSQL real)', () => {
     expect(r.saldoPendiente).toBe(600);
     expect(r.estado).toBe('pendiente');
     expect(r.printJobs).toBe(0);
+  });
+
+  // -------------------------------------------------------------------------
+  // Ses. 71: anticipo etiquetado con el cliente, comprobante en vez de boleto.
+  it('abono parcial: encola un comprobante (nunca el boleto), etiquetado con el cliente', async () => {
+    const c = await preparar();
+    const { rows: cli } = await db.query<{ id: string }>(
+      `INSERT INTO core.cliente (nombre, telefono) VALUES ('Juana Pérez', '953 000 1111')
+       RETURNING id`,
+    );
+    const r = await registrarVenta(db, {
+      salidaId: c.salidaId, sucursalVentaId: c.sucursales[0]!, usuarioId: c.usuarioId,
+      contactoTelefono: '953 111 2222', origenOrden: 0, destinoOrden: 3,
+      pasajeros: dosPasajeros, esReservacion: true, clienteId: cli[0]!.id,
+      pago: { metodo: 'efectivo', monto: 300, esAbono: true, corteCajaId: c.corteId },
+      ahora: c.ahora,
+    });
+    expect(r.printJobs, 'no imprime boletos con saldo pendiente').toBe(0);
+    expect(r.comprobanteImpreso).toBe(true);
+
+    const { rows: pj } = await db.query<{ n: string; datos: Record<string, unknown> }>(
+      `SELECT count(*) AS n, min(datos::text)::jsonb AS datos FROM core.print_job
+        WHERE template_key = 'comprobante_reserva' AND venta_id = $1`,
+      [r.ventaId],
+    );
+    expect(Number(pj[0]!.n)).toBe(1);
+    const d = pj[0]!.datos;
+    expect(d['cliente_nombre']).toBe('Juana Pérez');
+    expect(d['cliente_telefono']).toBe('953 111 2222');
+    expect(d['saldo_pendiente']).toBe(600);
+    expect(Array.isArray(d['folios']) && (d['folios'] as unknown[])).toHaveLength(2);
+    expect(Array.isArray(d['pasajeros']) && (d['pasajeros'] as unknown[])).toHaveLength(2);
+  });
+
+  it('`registrarPago` cubre el saldo de un abono: liquida, imprime boletos y no un segundo comprobante', async () => {
+    const c = await preparar();
+    const r = await registrarVenta(db, {
+      salidaId: c.salidaId, sucursalVentaId: c.sucursales[0]!, usuarioId: c.usuarioId,
+      contactoTelefono: '953 111 2222', origenOrden: 0, destinoOrden: 3,
+      pasajeros: dosPasajeros, esReservacion: true,
+      pago: { metodo: 'efectivo', monto: 300, esAbono: true, corteCajaId: c.corteId },
+      ahora: c.ahora,
+    });
+    expect(r.comprobanteImpreso).toBe(true);
+
+    const p = await registrarPago(db, {
+      ventaId: r.ventaId, sucursalCobroId: c.sucursales[0]!, usuarioId: c.usuarioId,
+      metodo: 'efectivo', monto: 600, corteCajaId: c.corteId, ahora: c.ahora,
+    });
+    expect(p.liquidada).toBe(true);
+    expect(p.printJobs).toBe(2);
+    expect(p.comprobanteImpreso, 'ya liquidó: no es otro abono').toBe(false);
+
+    const { rows: pj } = await db.query<{ n: string }>(
+      `SELECT count(*) AS n FROM core.print_job
+        WHERE template_key = 'comprobante_reserva' AND venta_id = $1`,
+      [r.ventaId],
+    );
+    expect(Number(pj[0]!.n), 'un solo comprobante para toda la vida de la venta').toBe(1);
+  });
+
+  it('buscarReservaPorFolio: cualquier folio de la venta trae todos sus pasajeros y el saldo', async () => {
+    const c = await preparar();
+    const { rows: cli } = await db.query<{ id: string }>(
+      `INSERT INTO core.cliente (nombre, telefono) VALUES ('Juana Pérez', '953 000 1111')
+       RETURNING id`,
+    );
+    const r = await registrarVenta(db, {
+      salidaId: c.salidaId, sucursalVentaId: c.sucursales[0]!, usuarioId: c.usuarioId,
+      contactoTelefono: '953 111 2222', origenOrden: 0, destinoOrden: 3,
+      pasajeros: dosPasajeros, esReservacion: true, clienteId: cli[0]!.id,
+      pago: { metodo: 'efectivo', monto: 300, esAbono: true, corteCajaId: c.corteId },
+      ahora: c.ahora,
+    });
+
+    const segundoFolio = r.boletos[1]!.folio;
+    const encontrada = await buscarReservaPorFolio(db, segundoFolio.toLowerCase());
+    expect(encontrada).not.toBeNull();
+    expect(encontrada!.ventaId).toBe(r.ventaId);
+    expect(encontrada!.clienteNombre).toBe('Juana Pérez');
+    expect(encontrada!.saldoPendiente).toBe(600);
+    expect(encontrada!.pasajeros).toHaveLength(2);
+    expect(encontrada!.pasajeros.map((p) => p.folio).sort()).toEqual(
+      r.boletos.map((b) => b.folio).sort(),
+    );
+
+    expect(await buscarReservaPorFolio(db, 'ZZZZZZ')).toBeNull();
   });
 
   it('transferencia íntegra (0065): finaliza e imprime al registrar; confirmar la liquida', async () => {

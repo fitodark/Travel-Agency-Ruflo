@@ -12,6 +12,7 @@
  */
 
 import type { Consultable } from '../db/consulta.js';
+import { normalizarFolio } from '../fleet/abordaje.js';
 
 export interface Pasajero {
   asientoNum: number;
@@ -78,6 +79,8 @@ export interface ResultadoVenta {
   /** Tickets encolados (0 si el saldo no llegó a cero). */
   printJobs: number;
   imprimible: boolean;
+  /** Un abono que no liquida encoló el comprobante de anticipo (0071), no el boleto. */
+  comprobanteImpreso: boolean;
 }
 
 function pasajeroAJson(p: Pasajero): Record<string, unknown> {
@@ -111,6 +114,7 @@ interface FilaVenta {
   boletos: BoletoEmitidoRaw[];
   print_jobs: number;
   imprimible: boolean;
+  comprobante_impreso: boolean;
 }
 
 interface BoletoEmitidoRaw {
@@ -128,7 +132,7 @@ export async function registrarVenta(
 ): Promise<ResultadoVenta> {
   const { rows } = await db.query<FilaVenta>(
     `SELECT venta_id, estado_venta, importe_total, pagado, saldo_pendiente,
-            boletos, print_jobs, imprimible
+            boletos, print_jobs, imprimible, comprobante_impreso
        FROM core.registrar_venta(
          $1::uuid, $2::uuid, $3::uuid, $4::text, $5::int, $6::int, $7::jsonb,
          $8::boolean, $9::uuid, $10::jsonb, $11::boolean, $12::timestamptz)`,
@@ -167,6 +171,7 @@ function normalizar(f: FilaVenta): ResultadoVenta {
     })),
     printJobs: Number(f.print_jobs),
     imprimible: f.imprimible,
+    comprobanteImpreso: f.comprobante_impreso,
   };
 }
 
@@ -189,6 +194,8 @@ export interface ResultadoPago {
   saldoPendiente: number;
   liquidada: boolean;
   printJobs: number;
+  /** Un abono que no liquida encoló el comprobante de anticipo (0071), no el boleto. */
+  comprobanteImpreso: boolean;
 }
 
 export async function registrarPago(
@@ -197,9 +204,9 @@ export async function registrarPago(
 ): Promise<ResultadoPago> {
   const { rows } = await db.query<{
     pago_id: string; pagado: string; saldo_pendiente: string;
-    liquidada: boolean; print_jobs: number;
+    liquidada: boolean; print_jobs: number; comprobante_impreso: boolean;
   }>(
-    `SELECT pago_id, pagado, saldo_pendiente, liquidada, print_jobs
+    `SELECT pago_id, pagado, saldo_pendiente, liquidada, print_jobs, comprobante_impreso
        FROM core.registrar_pago($1::uuid, $2::uuid, $3::uuid, $4::text, $5::numeric,
                                 $6::boolean, $7::text, $8::uuid, $9::timestamptz)`,
     [
@@ -215,6 +222,7 @@ export async function registrarPago(
     saldoPendiente: Number(r.saldo_pendiente),
     liquidada: r.liquidada,
     printJobs: Number(r.print_jobs),
+    comprobanteImpreso: r.comprobante_impreso,
   };
 }
 
@@ -305,5 +313,108 @@ export async function saldoDeVenta(
     importeTotal: Number(r.importe_total),
     pagado: Number(r.pagado),
     saldoPendiente: Number(r.saldo_pendiente),
+  };
+}
+
+export interface PasajeroReserva {
+  boletoId: string;
+  folio: string;
+  asientoNum: number;
+  nombre: string;
+  importe: number;
+  categoria: 'general' | 'inapam' | 'menor';
+}
+
+export interface ReservaPorFolio {
+  ventaId: string;
+  estado: string;
+  esReservacion: boolean;
+  importeTotal: number;
+  pagado: number;
+  saldoPendiente: number;
+  clienteNombre: string | null;
+  contactoTelefono: string;
+  sucursalVenta: string;
+  vendedor: string;
+  salida: { salidaId: string; fechaOperacion: string; estado: string };
+  ruta: { origen: string; destino: string; origenHora: Date; destinoHora: Date };
+  pasajeros: PasajeroReserva[];
+}
+
+/**
+ * Busca la reservación completa (todos sus boletos) a partir del folio de
+ * CUALQUIERA de ellos — el folio identifica la venta, no el asiento (0005).
+ * Para el paso "el cliente se presenta en origen con su comprobante" (Ses. 71):
+ * la modal de Viajes muestra esto y ofrece cobrar el saldo con `registrarPago`.
+ */
+export async function buscarReservaPorFolio(
+  db: Consultable, folioEntrada: string,
+): Promise<ReservaPorFolio | null> {
+  const folio = normalizarFolio(folioEntrada);
+  if (folio.length !== 6) return null;
+
+  const { rows: fr } = await db.query<{ venta_id: string }>(
+    `SELECT venta_id FROM core.boleto WHERE folio = $1`,
+    [folio],
+  );
+  const ventaId = fr[0]?.venta_id;
+  if (!ventaId) return null;
+
+  const { rows: vr } = await db.query<{
+    venta_id: string; estado: string; es_reservacion: boolean; importe_total: string;
+    pagado: string; saldo_pendiente: string; cliente_nombre: string | null;
+    contacto_telefono: string; sucursal_venta: string; vendedor: string;
+    salida_id: string; fecha_operacion: string; salida_estado: string;
+    origen: string; destino: string; origen_hora: Date; destino_hora: Date;
+  }>(
+    `SELECT v.id AS venta_id, v.estado, v.es_reservacion, v.importe_total,
+            vs.pagado, vs.saldo_pendiente,
+            cli.nombre AS cliente_nombre, v.contacto_telefono,
+            sv.nombre AS sucursal_venta, u.nombre AS vendedor,
+            s.id AS salida_id, s.fecha_operacion::text AS fecha_operacion, s.estado AS salida_estado,
+            puo.nombre AS origen, pud.nombre AS destino,
+            spo.hora_paso_programada AS origen_hora, spd.hora_paso_programada AS destino_hora
+       FROM core.venta v
+       JOIN core.v_venta_saldo vs  ON vs.venta_id = v.id
+       JOIN core.usuario u         ON u.id  = v.usuario_id
+       JOIN core.sucursal sv       ON sv.id = v.sucursal_venta_id
+       LEFT JOIN core.cliente cli  ON cli.id = v.cliente_id
+       JOIN core.salida s          ON s.id  = v.salida_id
+       JOIN core.salida_parada spo ON spo.salida_id = s.id AND spo.orden = v.parada_origen_orden
+       JOIN core.punto_ruta puo    ON puo.id = spo.punto_id
+       JOIN core.salida_parada spd ON spd.salida_id = s.id AND spd.orden = v.parada_destino_orden
+       JOIN core.punto_ruta pud    ON pud.id = spd.punto_id
+      WHERE v.id = $1::uuid`,
+    [ventaId],
+  );
+  const v = vr[0];
+  if (!v) return null;
+
+  const { rows: pr } = await db.query<{
+    boleto_id: string; folio: string; asiento_num: number; pasajero_nombre: string;
+    importe: string; categoria_pasajero: 'general' | 'inapam' | 'menor';
+  }>(
+    `SELECT id AS boleto_id, folio, asiento_num, pasajero_nombre, importe, categoria_pasajero
+       FROM core.boleto WHERE venta_id = $1::uuid AND activo ORDER BY asiento_num`,
+    [ventaId],
+  );
+
+  return {
+    ventaId: v.venta_id,
+    estado: v.estado,
+    esReservacion: v.es_reservacion,
+    importeTotal: Number(v.importe_total),
+    pagado: Number(v.pagado),
+    saldoPendiente: Number(v.saldo_pendiente),
+    clienteNombre: v.cliente_nombre,
+    contactoTelefono: v.contacto_telefono,
+    sucursalVenta: v.sucursal_venta,
+    vendedor: v.vendedor,
+    salida: { salidaId: v.salida_id, fechaOperacion: v.fecha_operacion, estado: v.salida_estado },
+    ruta: { origen: v.origen, destino: v.destino, origenHora: v.origen_hora, destinoHora: v.destino_hora },
+    pasajeros: pr.map((p) => ({
+      boletoId: p.boleto_id, folio: p.folio, asientoNum: Number(p.asiento_num),
+      nombre: p.pasajero_nombre, importe: Number(p.importe), categoria: p.categoria_pasajero,
+    })),
   };
 }

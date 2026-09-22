@@ -14,7 +14,7 @@ import type { FastifyInstance } from 'fastify';
 import { buscarSalidas } from '../../ventas/busqueda.js';
 import { adquirirLease, liberarLease } from '../../ventas/lease.js';
 import {
-  registrarPago, registrarVenta, saldoDeVenta, verificarTransferencia,
+  buscarReservaPorFolio, registrarPago, registrarVenta, saldoDeVenta, verificarTransferencia,
 } from '../../ventas/venta.js';
 import { noEncontrado } from '../errores.js';
 import { exige } from '../autenticar.js';
@@ -233,6 +233,26 @@ export async function rutasVentas(app: FastifyInstance): Promise<void> {
     async (req) => {
       const { pagoId } = req.params as { pagoId: string };
       return verificarTransferencia(app.db, pagoId, req.sesion.usuarioId, app.ahora());
+    },
+  );
+
+  // Consultar una reservación por el folio de cualquiera de sus boletos (Ses.
+  // 71): el vendedor de la sucursal de origen la teclea para cobrar el saldo.
+  app.get(
+    '/folio',
+    {
+      schema: {
+        querystring: {
+          type: 'object', required: ['folio'],
+          properties: { folio: { type: 'string', minLength: 1, maxLength: 20 } },
+        },
+      },
+    },
+    async (req) => {
+      const { folio } = req.query as { folio: string };
+      const r = await buscarReservaPorFolio(app.db, folio);
+      if (!r) throw noEncontrado('No hay ninguna reservación con ese folio.');
+      return r;
     },
   );
 

@@ -10,7 +10,8 @@ import 'dotenv/config';
 import { Client } from 'pg';
 import { resolveConnection } from '../../src/db/connection.js';
 import {
-  checklistAbordaje, corregirAbordaje, finalizarSalida, marcarEnRuta, registrarAbordaje,
+  buscarBoletoPorFolio, checklistAbordaje, corregirAbordaje, finalizarSalida, marcarEnRuta,
+  registrarAbordaje,
 } from '../../src/fleet/abordaje.js';
 import { registrarVenta } from '../../src/ventas/venta.js';
 import {
@@ -94,6 +95,37 @@ run('captura de abordaje y estado del viaje (PostgreSQL real)', () => {
       `SELECT count(*) AS n FROM sync.outbox WHERE tabla = 'core.evento_abordaje'`,
     );
     expect(Number(rows[0]!.n)).toBeGreaterThanOrEqual(1);
+  });
+
+  // -------------------------------------------------------------------------
+  // Ses. 71: el folio también trae el saldo de la venta, para que Viajes pueda
+  // ofrecer "cobrar el resto" antes de dejar abordar.
+  it('buscarBoletoPorFolio incluye el saldo de la venta y el cliente que reservó', async () => {
+    const fx = await seedSalida(db, { paradas: 4, diasAdelante: 12 });
+    const usuarioId = await crearUsuario(db);
+    const corteId = await seedCorte(db, fx.sucursales[0]!, usuarioId);
+    const ahora = await antesDelCierre(db, fx.salidaId, 0);
+    const { rows: cli } = await db.query<{ id: string }>(
+      `INSERT INTO core.cliente (nombre, telefono) VALUES ('Juana Perez', '953 000 1111')
+       RETURNING id`,
+    );
+
+    const r = await registrarVenta(db, {
+      salidaId: fx.salidaId, sucursalVentaId: fx.sucursales[0]!, usuarioId,
+      contactoTelefono: '953 111 2222', origenOrden: 0, destinoOrden: 3,
+      pasajeros: [{ asientoNum: 2, nombre: 'Ana Ruiz', importe: 450 }],
+      esReservacion: true, clienteId: cli[0]!.id,
+      pago: { metodo: 'efectivo', monto: 150, esAbono: true, corteCajaId: corteId },
+      ahora,
+    });
+
+    const b = await buscarBoletoPorFolio(db, r.boletos[0]!.folio);
+    expect(b).not.toBeNull();
+    expect(b!.venta.ventaId).toBe(r.ventaId);
+    expect(b!.venta.saldoPendiente).toBe(300);
+    expect(b!.venta.pagado).toBe(150);
+    expect(b!.venta.clienteNombre).toBe('Juana Perez');
+    expect(b!.venta.contactoTelefono).toBe('953 111 2222');
   });
 
   it('rechaza capturar sobre un boleto inexistente', async () => {

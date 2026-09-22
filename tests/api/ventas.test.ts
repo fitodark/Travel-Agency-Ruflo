@@ -127,6 +127,39 @@ run('API · /ventas (PostgreSQL real)', () => {
     expect(p.printJobs).toBe(1);
   });
 
+  it('GET /ventas/folio: el folio de cualquier boleto trae la reservación completa (Ses. 71)', async () => {
+    const { fx, token, corteId } = await preparar();
+    const crear = await app.inject({
+      method: 'POST', url: '/ventas', headers: bearer(token),
+      payload: {
+        salidaId: fx.salidaId, origenOrden: 0, destinoOrden: 3,
+        contactoTelefono: '953 111 2222', esReservacion: true,
+        pasajeros: [
+          { asientoNum: 2, nombre: 'Ana Ruiz', importe: 450 },
+          { asientoNum: 3, nombre: 'Beto Sosa', importe: 450 },
+        ],
+        pago: { metodo: 'efectivo', monto: 300, esAbono: true, corteCajaId: corteId },
+      },
+    });
+    expect(crear.statusCode).toBe(201);
+    const venta = crear.json();
+    expect(venta.comprobanteImpreso).toBe(true);
+
+    const r = await app.inject({
+      method: 'GET', url: `/ventas/folio?folio=${venta.boletos[1].folio}`, headers: bearer(token),
+    });
+    expect(r.statusCode).toBe(200);
+    const d = r.json();
+    expect(d.ventaId).toBe(venta.ventaId);
+    expect(d.saldoPendiente).toBe(600);
+    expect(d.pasajeros).toHaveLength(2);
+
+    const noExiste = await app.inject({
+      method: 'GET', url: '/ventas/folio?folio=ZZZZZZ', headers: bearer(token),
+    });
+    expect(noExiste.statusCode).toBe(404);
+  });
+
   it('un error de regla de negocio se mapea a 422 con el mensaje', async () => {
     const { fx, token, corteId } = await preparar();
     await db.query(`UPDATE core.salida SET estado = 'en_ruta' WHERE id = $1`, [fx.salidaId]);

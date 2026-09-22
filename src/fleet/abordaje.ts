@@ -96,6 +96,20 @@ export interface BoletoPorFolio extends FilaChecklist {
     estado: string;
     conductor: string | null;
   };
+  /**
+   * Estado de pago de la venta completa (Ses. 71): con saldo pendiente, el
+   * boleto no debe abordar todavía — el vendedor cobra el resto aquí mismo, en
+   * la sucursal de origen, con el folio del comprobante de anticipo.
+   */
+  venta: {
+    ventaId: string;
+    esReservacion: boolean;
+    importeTotal: number;
+    pagado: number;
+    saldoPendiente: number;
+    clienteNombre: string | null;
+    contactoTelefono: string;
+  };
 }
 
 /**
@@ -135,14 +149,23 @@ export async function buscarBoletoPorFolio(
     capturado_en: Date | null;
     salida_id: string; fecha_operacion: string; salida_estado: string;
     conductor: string | null; hora_salida: Date; origen: string; destino: string;
+    venta_id: string; es_reservacion: boolean; importe_total: string;
+    pagado: string; saldo_pendiente: string; cliente_nombre: string | null;
+    contacto_telefono: string;
   }>(
     `SELECT c.boleto_id, c.folio, c.asiento_num, c.pasajero_nombre, c.tramos::text AS tramos,
             c.conflicto, c.estado_abordaje, c.capturado_en,
             s.id AS salida_id, s.fecha_operacion::text AS fecha_operacion,
             s.estado AS salida_estado, s.conductor_nombre_snapshot AS conductor,
             spo.hora_paso_programada AS hora_salida,
-            suo.nombre AS origen, sud.nombre AS destino
+            suo.nombre AS origen, sud.nombre AS destino,
+            v.id AS venta_id, v.es_reservacion, v.importe_total,
+            vs.pagado, vs.saldo_pendiente, cli.nombre AS cliente_nombre, v.contacto_telefono
        FROM core.v_checklist_abordaje c
+       JOIN core.boleto b          ON b.id = c.boleto_id
+       JOIN core.venta v           ON v.id = b.venta_id
+       JOIN core.v_venta_saldo vs  ON vs.venta_id = v.id
+       LEFT JOIN core.cliente cli  ON cli.id = v.cliente_id
        JOIN core.salida s ON s.id = c.salida_id
        JOIN core.salida_parada spo ON spo.salida_id = s.id AND spo.orden = 0
        JOIN core.punto_ruta suo ON suo.id = spo.punto_id
@@ -172,6 +195,15 @@ export async function buscarBoletoPorFolio(
       destino: r.destino,
       estado: r.salida_estado,
       conductor: r.conductor,
+    },
+    venta: {
+      ventaId: r.venta_id,
+      esReservacion: r.es_reservacion,
+      importeTotal: Number(r.importe_total),
+      pagado: Number(r.pagado),
+      saldoPendiente: Number(r.saldo_pendiente),
+      clienteNombre: r.cliente_nombre,
+      contactoTelefono: r.contacto_telefono,
     },
   };
 }

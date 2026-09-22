@@ -3409,6 +3409,81 @@ Lo validé con medición real en el DOM (`getBoundingClientRect`), no a ojo:
 
 ---
 
+## Sesión 71 — 2026-09-14/15 · Reservación con anticipo + comprobante
+
+**Objetivo**: regla nueva del PO — en una reservación, además de "sin pago" (ya
+cubierto), el cliente puede dejar un **anticipo** (monto < total), etiquetado
+con **nombre + teléfono de quien reserva** (no necesariamente el pasajero). Con
+anticipo no se imprime el boleto, sino un **comprobante** (ruta, hora,
+pasajeros, asientos, saldo restante) con **folio** consultable después. El
+resto se cobra en la **sucursal de origen**: el vendedor busca el folio en
+Viajes, ve la reserva completa y cobra el **saldo completo** (sin admitir otro
+abono parcial ahí) — ahí se imprimen los boletos de abordar. Sin monto mínimo
+de anticipo (cualquier valor > $0 y < total). El formato del comprobante
+impreso (estilo ESC/POS igual al boleto) lo propuso el equipo — no había
+mockup previo de diseño/cliente para esto.
+
+**Validado contra el modelo antes de escribir código** — la mayoría ya existía
+sin usarse: `core.pago.es_abono` (el wizard nunca lo exponía), `core.cliente`
+(catálogo nombre+teléfono, pensado justo para "quien reserva ≠ quien viaja"),
+el folio de `core.boleto` (ya se genera desde `registrar_venta` incluso en
+reservas sin imprimir, resuelve a `venta_id` y de ahí a todos sus
+boletos/pasajeros), `detalleBoleto` (ya hacía join a `core.cliente` +
+`core.venta`, solo le faltaba el saldo vía `core.v_venta_saldo`) y el buscador
+"Buscar por folio" de `Viajes.tsx` (ya existía para abordaje, se extendió).
+
+**Cambios:**
+- **Migración `0071_comprobante_reserva.sql`**: `core.print_job` gana
+  `template_key = 'comprobante_reserva'` + columna `venta_id` (el comprobante
+  cubre TODOS los boletos de la venta) + CHECK de invariante. Nuevas
+  `core.snapshot_comprobante_reserva` / `core.encolar_comprobante_reserva`
+  (mismo patrón que `snapshot_boleto`/`encolar_impresion_venta`, con dedup).
+  `core.registrar_venta`/`core.registrar_pago` (DROP+CREATE) ganan
+  `comprobante_impreso` en su `RETURNS TABLE`: cuando el pago es abono y la
+  venta no queda liquidada, encolan el comprobante en vez del boleto.
+  **Gotcha real**: la FK nueva de `print_job.venta_id` se agregó sin
+  `DEFERRABLE` al principio y rompió el invariante de la migración 0040 (toda
+  FK de `core` debe ser diferible) — detectado con el `npm test` completo y
+  corregido a `DEFERRABLE INITIALLY IMMEDIATE`.
+- **Backend**: `src/printing/templates/comprobante.ts`
+  (`renderComprobanteReserva`) + case nuevo en `renderPrintJob`/
+  `TEMPLATES_SOPORTADOS` (`src/printing/spooler.ts`), mismo estilo ESC/POS que
+  el boleto, sin QR (el folio se dicta/teclea). `src/ventas/venta.ts`:
+  `buscarReservaPorFolio(db, folio)` + `comprobanteImpreso` en
+  `ResultadoVenta`/`ResultadoPago`. `src/fleet/abordaje.ts`:
+  `buscarBoletoPorFolio` ahora también trae `saldoPendiente`/`pagado`/
+  `clienteNombre`/`contactoTelefono` — antes un vendedor podía marcar "abordó"
+  sin que la venta estuviera liquidada. `GET /ventas/folio?folio=` nuevo
+  (`src/api/rutas/ventas.ts`).
+- **Frontend**: `web/src/paginas/Vender.tsx` (paso 6) — checkbox "Dejar un
+  anticipo" (solo si `esReservacion`), monto editable (0 < monto < total),
+  `web/src/componentes/venta/SelectorCliente.tsx` (nuevo, busca/da de alta en
+  `core.cliente`). `web/src/paginas/Viajes.tsx`: `BuscarPorFolio` — si
+  `saldoPendiente > 0` muestra reserva+cliente+saldo y botón "Cobrar
+  $saldo" (monto fijo, sin editar); si saldo es 0, comportamiento de abordaje
+  sin cambios.
+- Migración 0071 aplicada solo a **local**. Type-check limpio (backend +
+  `web/`). Tests nuevos (`tests/printing/comprobante.test.ts`, casos en
+  `tests/ventas/venta.test.ts`, `tests/api/ventas.test.ts`,
+  `tests/fleet/abordaje.test.ts`) pasan solos y en lotes.
+
+**Pausa de cierre**: nada se commiteó — quedó esperando la retro de QA/PO.
+
+---
+
+## Sesión 72 — 2026-09-21 · Retro aprueba el anticipo + comprobante tal cual
+
+QA/PO revisaron la implementación de la Sesión 71 (reservación con anticipo +
+comprobante) y la **aprobaron sin cambios** — ni de reglas de negocio ni del
+formato del comprobante impreso. Queda pendiente:
+
+- Commit + PR del trabajo de la Sesión 71 (lo lanza el usuario).
+- Aplicar la migración `0071` a la nube (hoy solo está en local).
+- Mostrar el comprobante impreso en papel real una vez cableada la impresora
+  con el template nuevo (nadie lo ha visto físicamente todavía).
+
+---
+
 Los cinco criterios de aceptación verdes contra Supabase real
 (`tests/sync/f1-criterios.test.ts`). Contrato de pruebas del motor cerrado
 (`salud.ts` Ses. 4, arbitraje/reasignación en F4, checksum dirigido de

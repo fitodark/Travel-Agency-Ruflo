@@ -133,6 +133,8 @@ export interface ResultadoVenta {
   boletos: BoletoEmitido[];
   printJobs: number;
   imprimible: boolean;
+  /** Un anticipo que no liquida encoló el comprobante de anticipo, no el boleto. */
+  comprobanteImpreso: boolean;
 }
 
 export function registrarVenta(v: NuevaVenta): Promise<ResultadoVenta> {
@@ -148,6 +150,7 @@ export interface ResultadoPago {
   saldoPendiente: number;
   liquidada: boolean;
   printJobs: number;
+  comprobanteImpreso: boolean;
 }
 
 export function registrarPago(ventaId: string, pago: PagoInput): Promise<ResultadoPago> {

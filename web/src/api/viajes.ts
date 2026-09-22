@@ -34,6 +34,16 @@ export interface BoletoPorFolio extends FilaChecklist {
     estado: string;
     conductor: string | null;
   };
+  /** Estado de pago de la venta completa (Ses. 71): con saldo, no debe abordar. */
+  venta: {
+    ventaId: string;
+    esReservacion: boolean;
+    importeTotal: number;
+    pagado: number;
+    saldoPendiente: number;
+    clienteNombre: string | null;
+    contactoTelefono: string;
+  };
 }
 
 export interface DetalleBoleto {

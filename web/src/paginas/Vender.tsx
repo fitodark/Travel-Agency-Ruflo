@@ -5,6 +5,7 @@ import { listarPuntos, listarSucursales } from '../api/catalogos';
 import { MapaAsientos } from '../componentes/MapaAsientos';
 import { MapaAsientosV2 } from '../componentes/MapaAsientosV2';
 import { ResumenViaje } from '../componentes/venta/ResumenViaje';
+import { SelectorCliente } from '../componentes/venta/SelectorCliente';
 import { useSesion } from '../auth/sesion';
 import {
   buscarSalidas, registrarVenta,
@@ -67,6 +68,80 @@ function Pasos({ actual }: { actual: Paso }) {
   );
 }
 
+/**
+ * Anticipo parcial de una reservación (Ses. 71): monto menor al total,
+ * etiquetado con el cliente que reserva (no necesariamente quien viaja). Se
+ * repite igual dentro del panel de efectivo y del de transferencia.
+ */
+function AbonoParcial({
+  esAbono, setEsAbono, montoAbono, setMontoAbono, montoAbonoNum, abonoValido, total,
+  cliente, setCliente, contacto,
+}: {
+  esAbono: boolean;
+  setEsAbono: (v: boolean) => void;
+  montoAbono: string;
+  setMontoAbono: (v: string) => void;
+  montoAbonoNum: number | null;
+  abonoValido: boolean;
+  total: number;
+  cliente: { id: string; nombre: string } | null;
+  setCliente: (c: { id: string; nombre: string } | null) => void;
+  contacto: string;
+}) {
+  return (
+    <div className="space-y-3 rounded-sm border border-slate-200 p-3">
+      <label className="flex items-center gap-2 text-sm">
+        <input
+          type="checkbox"
+          checked={esAbono}
+          onChange={(e) => {
+            setEsAbono(e.target.checked);
+            if (!e.target.checked) { setMontoAbono(''); setCliente(null); }
+          }}
+        />
+        Dejar un anticipo (el cliente cubre el resto después, en la sucursal de origen)
+      </label>
+      {esAbono && (
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <label className="block">
+            <span className={ETIQUETA}>Monto del anticipo</span>
+            <input
+              type="number"
+              min={0}
+              max={total}
+              step="1"
+              inputMode="decimal"
+              value={montoAbono}
+              onChange={(e) => setMontoAbono(e.target.value)}
+              className="campo mt-1 rounded-sm"
+            />
+            {montoAbono.trim() !== '' && !abonoValido && (
+              <p className="mt-1 text-xs text-red-600">
+                Debe ser mayor a $0 y menor al total (${total}).
+              </p>
+            )}
+          </label>
+          <div>
+            <span className={ETIQUETA}>Saldo restante</span>
+            <p className="campo mt-1 flex items-center rounded-sm bg-slate-50 text-slate-700">
+              {abonoValido && montoAbonoNum != null ? `$${total - montoAbonoNum}` : '—'}
+            </p>
+          </div>
+          <div className="sm:col-span-2">
+            <span className={ETIQUETA}>Cliente que reserva (puede no ser quien viaja)</span>
+            <SelectorCliente
+              clienteId={cliente?.id ?? null}
+              clienteNombre={cliente?.nombre ?? ''}
+              telefonoSugerido={contacto}
+              onSeleccionar={(c) => setCliente(c ? { id: c.id, nombre: c.nombre } : null)}
+            />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function Vender() {
   const { sesion } = useSesion();
   const puntos = useQuery({ queryKey: ['puntos'], queryFn: listarPuntos });
@@ -106,6 +181,11 @@ export function Vender() {
   // Paso 6, pago en efectivo: con cuánto paga el cliente. String para admitir el
   // campo vacío mientras teclea.
   const [efectivoRecibido, setEfectivoRecibido] = useState('');
+  // Paso 6, anticipo de una reservación (Ses. 71): monto menor al total,
+  // etiquetado con el cliente que reserva (no necesariamente quien viaja).
+  const [esAbono, setEsAbono] = useState(false);
+  const [montoAbono, setMontoAbono] = useState('');
+  const [cliente, setCliente] = useState<{ id: string; nombre: string } | null>(null);
 
   // D8: las sucursales sin sistema (Tamazulapan) son las únicas donde puede
   // cobrarse un pago `corresponsal`.
@@ -134,11 +214,21 @@ export function Vender() {
     if (origenPorDefecto) setOrigen((o) => o || origenPorDefecto);
   }, [origenPorDefecto]);
 
+  // Anticipo (paso 6, Ses. 71): monto menor al total; el resto se cubre después
+  // en la sucursal de origen. `montoACobrar` es lo que realmente se cobra hoy
+  // (el anticipo, o el total si no hay anticipo) — de ahí salen el "recibe" en
+  // efectivo y el `monto` que se manda al backend.
+  const montoAbonoNum = montoAbono.trim() === '' ? null : Number(montoAbono);
+  const abonoValido = !esAbono
+    || (montoAbonoNum != null && Number.isFinite(montoAbonoNum) && montoAbonoNum > 0 && montoAbonoNum < total);
+  const montoACobrar = esAbono && abonoValido && montoAbonoNum != null ? montoAbonoNum : total;
+
   // Efectivo (paso 6): monto recibido y cambio. `recibido` es null si el campo
-  // está vacío o no es un número; el cobro se bloquea hasta que cubra el total.
+  // está vacío o no es un número; el cobro se bloquea hasta que cubra lo que
+  // corresponde (el total, o el anticipo si se dejó uno).
   const recibido = efectivoRecibido.trim() === '' ? null : Number(efectivoRecibido);
-  const recibidoValido = recibido != null && Number.isFinite(recibido) && recibido >= total;
-  const cambio = recibidoValido ? recibido - total : 0;
+  const recibidoValido = recibido != null && Number.isFinite(recibido) && recibido >= montoACobrar;
+  const cambio = recibidoValido ? recibido - montoACobrar : 0;
   const efectivoIncompleto = metodo === 'efectivo' && !recibidoValido;
 
   const busqueda = useMutation({
@@ -160,6 +250,7 @@ export function Vender() {
         destinoOrden: salida.destinoOrden,
         contactoTelefono: contacto,
         esReservacion,
+        ...(cliente ? { clienteId: cliente.id } : {}),
         conConexion,
         pasajeros: asientos.map((a) => ({
           asientoNum: a,
@@ -171,7 +262,8 @@ export function Vender() {
           ? {}
           : {
               pago: {
-                metodo, monto: total,
+                metodo, monto: montoACobrar,
+                ...(esAbono && (metodo === 'efectivo' || metodo === 'transferencia') ? { esAbono: true } : {}),
                 ...(metodo === 'efectivo' && recibidoValido ? { efectivoRecibido: recibido } : {}),
                 ...(metodo === 'transferencia' && referencia ? { referencia } : {}),
                 ...(metodo === 'corresponsal' ? { sucursalCobroId } : {}),
@@ -201,6 +293,9 @@ export function Vender() {
     setSucursalCobroId('');
     setReferencia('');
     setEfectivoRecibido('');
+    setEsAbono(false);
+    setMontoAbono('');
+    setCliente(null);
   };
 
   // Cancelar la venta en curso desde cualquier paso del wizard: el pasajero
@@ -240,13 +335,15 @@ export function Vender() {
   const avisoReservacion = esReservacion
     ? 'Venta tipo reservación: los asientos se conservan hasta 30 minutos antes de la salida.'
     : undefined;
-  const textoBotonPago = metodo === 'efectivo'
-    ? 'Registrar cobro'
-    : metodo === 'transferencia'
-      ? 'Registrar transferencia'
-      : metodo === 'corresponsal'
-        ? 'Registrar venta'
-        : 'Apartar sin pago';
+  const textoBotonPago = esAbono && (metodo === 'efectivo' || metodo === 'transferencia')
+    ? 'Registrar anticipo'
+    : metodo === 'efectivo'
+      ? 'Registrar cobro'
+      : metodo === 'transferencia'
+        ? 'Registrar transferencia'
+        : metodo === 'corresponsal'
+          ? 'Registrar venta'
+          : 'Apartar sin pago';
 
   // "Precio unitario" del panel lateral: solo tiene sentido mostrar una sola
   // tarifa cuando todos los asientos elegidos comparten categoría (lo normal).
@@ -699,7 +796,7 @@ export function Vender() {
             <h2 className="text-xl font-semibold text-slate-900">Pago</h2>
             <p className="mt-1 text-sm text-slate-500">
               {esReservacion
-                ? 'Venta tipo reservación: el pago es opcional. Puedes apartar sin cobro para liquidar en terminal, o registrar transferencia de una vez.'
+                ? 'Venta tipo reservación: el pago es opcional. Puedes apartar sin cobro, dejar un anticipo (efectivo o transferencia), o cobrar de una vez.'
                 : 'Registra el cobro en mostrador.'}
             </p>
           </div>
@@ -734,6 +831,14 @@ export function Vender() {
 
           {metodo === 'efectivo' && (
             <div className="space-y-2">
+              {esReservacion && (
+                <AbonoParcial
+                  esAbono={esAbono} setEsAbono={setEsAbono}
+                  montoAbono={montoAbono} setMontoAbono={setMontoAbono}
+                  montoAbonoNum={montoAbonoNum} abonoValido={abonoValido} total={total}
+                  cliente={cliente} setCliente={setCliente} contacto={contacto}
+                />
+              )}
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                 <label className="block">
                   <span className={ETIQUETA}>Teléfono de contacto *</span>
@@ -750,7 +855,7 @@ export function Vender() {
                   <span className={ETIQUETA}>Recibe (efectivo)</span>
                   <input
                     type="number"
-                    min={total}
+                    min={montoACobrar}
                     step="1"
                     inputMode="decimal"
                     value={efectivoRecibido}
@@ -779,37 +884,47 @@ export function Vender() {
               </div>
               {efectivoRecibido.trim() !== '' && !recibidoValido && (
                 <p className="text-xs text-red-600">
-                  El efectivo recibido debe cubrir el total (${total}).
+                  El efectivo recibido debe cubrir {esAbono ? 'el anticipo' : 'el total'} (${montoACobrar}).
                 </p>
               )}
             </div>
           )}
 
           {metodo === 'transferencia' && (
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-              <label className="block">
-                <span className={ETIQUETA}>Teléfono de contacto *</span>
-                <input
-                  value={contacto}
-                  onChange={(e) => setContacto(e.target.value)}
-                  className="campo mt-1 rounded-sm"
+            <div className="space-y-2">
+              {esReservacion && (
+                <AbonoParcial
+                  esAbono={esAbono} setEsAbono={setEsAbono}
+                  montoAbono={montoAbono} setMontoAbono={setMontoAbono}
+                  montoAbonoNum={montoAbonoNum} abonoValido={abonoValido} total={total}
+                  cliente={cliente} setCliente={setCliente} contacto={contacto}
                 />
-                {!contacto.trim() && (
-                  <p className="mt-1 text-xs text-slate-400">Requerido para continuar</p>
-                )}
-              </label>
-              <label className="block">
-                <span className={ETIQUETA}>Referencia / folio SPEI</span>
-                <input
-                  value={referencia}
-                  onChange={(e) => setReferencia(e.target.value)}
-                  className="campo mt-1 rounded-sm"
-                />
-              </label>
-              <div>
-                <span className={ETIQUETA}>Estatus</span>
-                <div className="mt-1 rounded-sm border border-slate-300 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600">
-                  Transferencia
+              )}
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                <label className="block">
+                  <span className={ETIQUETA}>Teléfono de contacto *</span>
+                  <input
+                    value={contacto}
+                    onChange={(e) => setContacto(e.target.value)}
+                    className="campo mt-1 rounded-sm"
+                  />
+                  {!contacto.trim() && (
+                    <p className="mt-1 text-xs text-slate-400">Requerido para continuar</p>
+                  )}
+                </label>
+                <label className="block">
+                  <span className={ETIQUETA}>Referencia / folio SPEI</span>
+                  <input
+                    value={referencia}
+                    onChange={(e) => setReferencia(e.target.value)}
+                    className="campo mt-1 rounded-sm"
+                  />
+                </label>
+                <div>
+                  <span className={ETIQUETA}>Estatus</span>
+                  <div className="mt-1 rounded-sm border border-slate-300 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600">
+                    {esAbono ? 'Anticipo por transferencia' : 'Transferencia'}
+                  </div>
                 </div>
               </div>
             </div>
@@ -889,6 +1004,8 @@ export function Vender() {
                 || !contacto.trim()
                 || (metodo === 'corresponsal' && !sucursalCobroId)
                 || efectivoIncompleto
+                || (esAbono && (metodo === 'efectivo' || metodo === 'transferencia')
+                    && (!abonoValido || montoAbonoNum == null || !cliente))
               }
               className="btn-primario w-full rounded-sm"
             >
@@ -929,6 +1046,14 @@ export function Vender() {
             <p className="text-slate-600">
               El pasajero debe enviar el comprobante al encargado para confirmar el pago.
               El monto entrará al corte al confirmarlo (Caja → «Transferencias por verificar»).
+            </p>
+          )}
+          {resultado.comprobanteImpreso && (
+            <p className="text-slate-600">
+              Anticipo registrado: no se imprimen boletos todavía. Se imprimió un
+              comprobante con el folio para consultar la reservación — entrégaselo
+              al cliente. Los boletos de abordar salen al cubrir el saldo en la
+              sucursal de origen (pantalla Viajes → «Buscar por folio»).
             </p>
           )}
           <ul className="divide-y">
