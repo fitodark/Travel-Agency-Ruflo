@@ -52,11 +52,11 @@ export interface ResumenMaterializacion extends ResultadoMaterializacion {
 }
 
 /**
- * Materializa TODOS los horarios vigentes con conductor asignado.
+ * Materializa TODOS los horarios vigentes con unidad asignada.
  *
- * Un horario sin conductor no se puede materializar (D-7: sin conductor no hay
- * tipo de unidad ni mapa) y se salta en silencio: es un estado de planeación
- * incompleta, no un error del job.
+ * Un horario sin unidad no se puede materializar (0074: sin unidad no hay tipo
+ * de unidad ni mapa — el conductor ya no lo resuelve) y se salta en silencio:
+ * es un estado de planeación incompleta, no un error del job.
  */
 export async function materializarVigentes(
   db: Consultable,
@@ -66,7 +66,7 @@ export async function materializarVigentes(
     `SELECT h.id, r.nombre AS ruta
        FROM core.v_horario_vigente h
        JOIN core.ruta r ON r.id = h.ruta_id
-      WHERE h.conductor_id IS NOT NULL
+      WHERE h.unidad_id IS NOT NULL
       ORDER BY r.nombre, h.hora_salida`,
   );
 

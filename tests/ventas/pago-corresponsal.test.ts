@@ -69,7 +69,6 @@ run('pago corresponsal (PostgreSQL real)', () => {
     const r = await registrarVenta(db, {
       salidaId: fx.salidaId, sucursalVentaId: fx.sucursales[0]!, usuarioId,
       contactoTelefono: '953 111 2222', origenOrden: 0, destinoOrden: 3,
-      esReservacion: true,
       pasajeros,
       pago: { metodo: 'corresponsal', monto: 900, corteCajaId: corteId, sucursalCobroId: cobroId },
     });
@@ -100,7 +99,7 @@ run('pago corresponsal (PostgreSQL real)', () => {
     await registrarVenta(db, {
       salidaId: fx.salidaId, sucursalVentaId: fx.sucursales[0]!, usuarioId,
       contactoTelefono: '953 111 2222', origenOrden: 0, destinoOrden: 3,
-      esReservacion: true, pasajeros: [pasajeros[0]!],
+      pasajeros: [pasajeros[0]!],
       pago: { metodo: 'corresponsal', monto: 450, corteCajaId: corteId, sucursalCobroId: cobroId },
     });
 
@@ -116,7 +115,7 @@ run('pago corresponsal (PostgreSQL real)', () => {
     await expect(registrarVenta(db, {
       salidaId: fx.salidaId, sucursalVentaId: fx.sucursales[0]!, usuarioId,
       contactoTelefono: '953 111 2222', origenOrden: 0, destinoOrden: 3,
-      esReservacion: true, pasajeros: [pasajeros[0]!],
+      pasajeros: [pasajeros[0]!],
       pago: { metodo: 'corresponsal', monto: 450, corteCajaId: corteId, sucursalCobroId: fx.sucursales[1]! },
     })).rejects.toThrow(/sin sistema/i);
   });
@@ -126,7 +125,7 @@ run('pago corresponsal (PostgreSQL real)', () => {
     await expect(registrarVenta(db, {
       salidaId: fx.salidaId, sucursalVentaId: fx.sucursales[0]!, usuarioId,
       contactoTelefono: '953 111 2222', origenOrden: 0, destinoOrden: 3,
-      esReservacion: true, pasajeros,
+      pasajeros,
       pago: { metodo: 'corresponsal', monto: 450, corteCajaId: corteId, sucursalCobroId: cobroId },
     })).rejects.toThrow(/total de la venta/i);
   });

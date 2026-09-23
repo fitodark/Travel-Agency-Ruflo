@@ -136,9 +136,21 @@ run('materialización de salidas (PostgreSQL real)', () => {
   // -------------------------------------------------------------------------
   // Rechazos
   // -------------------------------------------------------------------------
-  it('rechaza un horario sin conductor (D-7: sin él no hay tipo de unidad ni mapa)', async () => {
+  it('rechaza un horario sin unidad (0074: sin ella no hay tipo de unidad ni mapa)', async () => {
+    const fx = await seedRuta(db, { sinUnidad: true });
+    await expect(materializarHorario(db, fx.horarioId)).rejects.toThrow(/unidad/i);
+  });
+
+  it('un horario sin conductor SÍ materializa (0074: el conductor ya no es requisito)', async () => {
     const fx = await seedRuta(db, { sinConductor: true });
-    await expect(materializarHorario(db, fx.horarioId)).rejects.toThrow(/conductor/i);
+    const r = await materializarHorario(db, fx.horarioId, { dias: 0 });
+    expect(r.creadas).toBe(1);
+
+    const { rows } = await db.query<{ conductor: string | null }>(
+      `SELECT conductor_nombre_snapshot AS conductor FROM core.salida WHERE horario_id = $1`,
+      [fx.horarioId],
+    );
+    expect(rows[0]!.conductor).toBeNull();
   });
 
   it('rechaza un horario dado de baja', async () => {
@@ -156,14 +168,14 @@ run('materialización de salidas (PostgreSQL real)', () => {
   // -------------------------------------------------------------------------
   // `materializarVigentes`
   // -------------------------------------------------------------------------
-  it('`materializarVigentes` procesa todos los horarios con conductor y salta los que no', async () => {
-    const conConductor = await seedRuta(db);
-    const sinConductor = await seedRuta(db, { sinConductor: true });
+  it('`materializarVigentes` procesa todos los horarios con unidad y salta los que no (0074)', async () => {
+    const conUnidad = await seedRuta(db);
+    const sinUnidad = await seedRuta(db, { sinUnidad: true });
 
     const r = await materializarVigentes(db, { dias: 5 });
     const rutas = r.detalle.map((d) => d.horarioId);
-    expect(rutas).toContain(conConductor.horarioId);
-    expect(rutas).not.toContain(sinConductor.horarioId);
+    expect(rutas).toContain(conUnidad.horarioId);
+    expect(rutas).not.toContain(sinUnidad.horarioId);
     expect(r.creadas).toBeGreaterThanOrEqual(6);
   });
 });

@@ -24,6 +24,8 @@ export interface RutaFixture {
   rutaId: string;
   conductorId: string;
   conductorNombre: string;
+  /** Unidad del horario (0074: es la que resuelve el tipo/mapa, no el conductor). */
+  unidadId: string;
   tipoUnidadId: string;
   horarioId: string;
 }
@@ -51,8 +53,10 @@ export interface SeedRutaOpts {
   /** El horario arranca/termina en estas fechas. */
   vigenteDesde?: string | null;
   vigenteHasta?: string | null;
-  /** No asignar conductor al horario (para probar el rechazo). */
+  /** No asignar conductor al horario (ya no bloquea materializar, 0074). */
   sinConductor?: boolean;
+  /** No asignar unidad al horario (para probar el rechazo, 0074). */
+  sinUnidad?: boolean;
   /** El conductor usa un tipo_unidad distinto (para probar incompatibilidad, slice 3). */
   claveTipoUnidad?: string;
   /**
@@ -160,15 +164,23 @@ export async function seedRuta(client: Client, opts: SeedRutaOpts = {}): Promise
   );
   const conductorId = co[0]!.id;
 
+  // 0074: la unidad (no el conductor) resuelve el tipo/mapa de la salida.
+  const { rows: un } = await client.query<{ id: string }>(
+    `INSERT INTO core.unidad (tipo_unidad_id, numero_economico) VALUES ($1, $2) RETURNING id`,
+    [tipoUnidadId, `U-${suf}`],
+  );
+  const unidadId = un[0]!.id;
+
   const horaSalida = opts.horaSalida ?? '07:00';
   const { rows: h } = await client.query<{ id: string }>(
-    `INSERT INTO core.horario (ruta_id, hora_salida, dias_semana, conductor_id,
+    `INSERT INTO core.horario (ruta_id, hora_salida, dias_semana, conductor_id, unidad_id,
                                vigente_desde, vigente_hasta)
-     VALUES ($1, $2::time, $3::smallint[], $4, $5::date, $6::date) RETURNING id`,
+     VALUES ($1, $2::time, $3::smallint[], $4, $5, $6::date, $7::date) RETURNING id`,
     [
       rutaId, horaSalida,
       opts.diasSemana ?? [1, 2, 3, 4, 5, 6, 7],
       opts.sinConductor ? null : conductorId,
+      opts.sinUnidad ? null : unidadId,
       opts.vigenteDesde ?? null,
       opts.vigenteHasta ?? null,
     ],
@@ -194,7 +206,7 @@ export async function seedRuta(client: Client, opts: SeedRutaOpts = {}): Promise
   }
 
   return {
-    agenciaId, sucursales, puntos, rutaId, conductorId, conductorNombre, tipoUnidadId, horarioId,
+    agenciaId, sucursales, puntos, rutaId, conductorId, conductorNombre, unidadId, tipoUnidadId, horarioId,
   };
 }
 

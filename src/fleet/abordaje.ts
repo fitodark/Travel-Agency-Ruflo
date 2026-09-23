@@ -48,14 +48,14 @@ export interface EstadoViaje {
 
 export async function marcarEnRuta(
   db: Consultable,
-  args: { salidaId: string; usuarioId: string; conductorId?: string; ahora?: Date },
+  args: { salidaId: string; usuarioId: string; ahora?: Date },
 ): Promise<EstadoViaje> {
   const { rows } = await db.query<{
     salida_id: string; estado: string; salida_real_en: Date;
   }>(
     `SELECT salida_id, estado, salida_real_en
-       FROM core.marcar_en_ruta($1::uuid, $2::uuid, $3::uuid, $4::timestamptz)`,
-    [args.salidaId, args.usuarioId, args.conductorId ?? null, args.ahora ?? new Date()],
+       FROM core.marcar_en_ruta($1::uuid, $2::uuid, $3::timestamptz)`,
+    [args.salidaId, args.usuarioId, args.ahora ?? new Date()],
   );
   const r = rows[0]!;
   return { salidaId: r.salida_id, estado: r.estado, salidaRealEn: r.salida_real_en };

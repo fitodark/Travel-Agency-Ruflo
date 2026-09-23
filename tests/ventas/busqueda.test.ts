@@ -362,8 +362,9 @@ run('búsqueda de salidas (PostgreSQL real)', () => {
     expect(s!.horaLlegadaDestino).not.toBeNull();
     expect(s!.horaLlegadaDestino!.getTime()).toBeGreaterThan(s!.horaSalidaOrigen.getTime());
     expect(s!.unidadNombre).toMatch(/sprinter/i);
-    // La fixture no asigna unidad física al horario: dato operativo ausente.
-    expect(s!.unidadNumeroEconomico).toBeNull();
+    // 0074: la fixture SIEMPRE asigna unidad física al horario (es la que
+    // resuelve el tipo/mapa, ya no el conductor).
+    expect(s!.unidadNumeroEconomico).not.toBeNull();
   });
 
   it('destino en una parada autorizada sin horario capturado: hora de llegada null (0052, D6)', async () => {

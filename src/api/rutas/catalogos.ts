@@ -29,7 +29,12 @@ export async function rutasCatalogos(app: FastifyInstance): Promise<void> {
 
   // Puntos de ruta (terminal | parada) para poblar los selectores de origen y
   // destino del flujo de venta (paso 1). `puedeOriginar` = existe al menos una
-  // ruta activa donde este punto permite ascenso.
+  // ruta activa donde este punto permite ascenso. `destinos` = ids de los
+  // puntos alcanzables como destino SI este punto se usa como origen: misma
+  // ruta activa, este punto con `permite_ascenso`, el candidato con
+  // `permite_descenso` y `orden` mayor (mismo criterio que `buscar_salidas`/
+  // `registrar_venta`). Así el selector de destino no ofrece paradas fuera de
+  // la ruta del origen elegido (p. ej. una sucursal de otra ruta sin conexión).
   app.get('/puntos', { preHandler: exige() }, async () => {
     const { rows } = await app.db.query(
       `SELECT pr.id, pr.nombre, pr.tipo, pr.municipio, pr.referencia,
@@ -37,7 +42,18 @@ export async function rutasCatalogos(app: FastifyInstance): Promise<void> {
               EXISTS (
                 SELECT 1 FROM core.ruta_parada rp
                  WHERE rp.punto_id = pr.id AND rp.permite_ascenso AND rp.activo
-              ) AS "puedeOriginar"
+              ) AS "puedeOriginar",
+              COALESCE((
+                SELECT array_agg(DISTINCT rpd.punto_id)
+                  FROM core.ruta_parada rpo
+                  JOIN core.ruta_parada rpd
+                    ON rpd.ruta_id = rpo.ruta_id AND rpd.orden > rpo.orden
+                  JOIN core.ruta r ON r.id = rpo.ruta_id
+                 WHERE rpo.punto_id = pr.id
+                   AND rpo.permite_ascenso AND rpo.activo
+                   AND rpd.permite_descenso AND rpd.activo
+                   AND r.activo
+              ), ARRAY[]::uuid[]) AS "destinos"
          FROM core.punto_ruta pr
         WHERE pr.activo
         ORDER BY pr.tipo, pr.nombre`,
@@ -82,6 +98,16 @@ export async function rutasCatalogos(app: FastifyInstance): Promise<void> {
       [req.sesion.sucursalId],
     );
     return rows[0] ?? null;
+  });
+
+  // Conductores activos, para asignar el conductor real de una salida (0074)
+  // antes de imprimir el manifiesto. Cualquier sesión, no solo administración:
+  // lo usa la pantalla Viajes, que opera vendedor en adelante.
+  app.get('/conductores', { preHandler: exige() }, async () => {
+    const { rows } = await app.db.query(
+      `SELECT id, nombre FROM core.conductor WHERE activo ORDER BY nombre`,
+    );
+    return rows;
   });
 
   app.get('/parametros', { preHandler: exige() }, async () => {

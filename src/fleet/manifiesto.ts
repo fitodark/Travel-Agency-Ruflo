@@ -13,11 +13,15 @@ import type { Consultable } from '../db/consulta.js';
 export interface SalidaDelDia {
   salidaId: string;
   horarioId: string;
+  /** Para filtrar candidatos de `moverUnidad`: mismo día, misma ruta (0074). */
+  rutaId: string;
   estado: string;
   horaSalida: Date;
   origen: string;
   destino: string;
   conductor: string | null;
+  unidadId: string | null;
+  unidad: string | null;
   boletos: number;
 }
 
@@ -26,21 +30,26 @@ export async function salidasDelDia(
   args: { fecha: string; sucursalId?: string },
 ): Promise<SalidaDelDia[]> {
   const { rows } = await db.query<{
-    salida_id: string; horario_id: string; estado: string; hora_salida: Date;
-    origen: string; destino: string; conductor: string | null; boletos: number;
+    salida_id: string; horario_id: string; ruta_id: string; estado: string; hora_salida: Date;
+    origen: string; destino: string; conductor: string | null;
+    unidad_id: string | null; unidad: string | null; boletos: number;
   }>(
-    `SELECT salida_id, horario_id, estado, hora_salida, origen, destino, conductor, boletos
+    `SELECT salida_id, horario_id, ruta_id, estado, hora_salida, origen, destino, conductor,
+            unidad_id, unidad, boletos
        FROM core.salidas_del_dia($1::date, $2::uuid)`,
     [args.fecha, args.sucursalId ?? null],
   );
   return rows.map((r) => ({
     salidaId: r.salida_id,
     horarioId: r.horario_id,
+    rutaId: r.ruta_id,
     estado: r.estado,
     horaSalida: r.hora_salida,
     origen: r.origen,
     destino: r.destino,
     conductor: r.conductor,
+    unidadId: r.unidad_id,
+    unidad: r.unidad,
     boletos: Number(r.boletos),
   }));
 }

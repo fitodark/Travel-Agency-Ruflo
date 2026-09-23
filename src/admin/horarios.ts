@@ -246,7 +246,7 @@ export interface NuevoHorario {
 
 export interface ResultadoHorario {
   id: string;
-  /** Salidas materializadas en el acto (0 si el horario aún no tiene conductor). */
+  /** Salidas materializadas en el acto (0 si el horario aún no tiene unidad). */
   salidasCreadas: number;
   /** Presente si se intentó materializar y no se pudo (p. ej. el horario todavía
    *  no está vigente): el horario SÍ quedó guardado; el job nocturno lo tomará. */
@@ -254,15 +254,16 @@ export interface ResultadoHorario {
 }
 
 /**
- * Materializa el horizonte de un horario, best-effort. Si no tiene conductor no
- * hace nada; si `core.materializar_salidas` se queja (horario aún no vigente, sin
- * mapa), se devuelve el aviso pero NO se propaga: el horario ya está guardado y
- * el barrido nocturno lo retomará.
+ * Materializa el horizonte de un horario, best-effort. Si no tiene unidad
+ * (0074: es la unidad, no el conductor, la que resuelve el mapa) no hace nada;
+ * si `core.materializar_salidas` se queja (horario aún no vigente, sin mapa),
+ * se devuelve el aviso pero NO se propaga: el horario ya está guardado y el
+ * barrido nocturno lo retomará.
  */
 async function materializarSiSePuede(
-  db: Consultable, id: string, tieneConductor: boolean,
+  db: Consultable, id: string, tieneUnidad: boolean,
 ): Promise<{ salidasCreadas: number; avisoMaterializacion?: string }> {
-  if (!tieneConductor) return { salidasCreadas: 0 };
+  if (!tieneUnidad) return { salidasCreadas: 0 };
   try {
     const r = await materializarHorario(db, id);
     return { salidasCreadas: r.creadas };
@@ -321,7 +322,7 @@ export async function crearHorario(db: Consultable, h: NuevoHorario): Promise<Re
     ],
   );
   const id = rows[0]!.id;
-  return { id, ...(await materializarSiSePuede(db, id, h.conductorId != null)) };
+  return { id, ...(await materializarSiSePuede(db, id, h.unidadId != null)) };
 }
 
 export async function editarHorario(
@@ -347,12 +348,12 @@ export async function editarHorario(
   if (sets.length === 0) return { salidasCreadas: 0 };
   await db.query(`UPDATE core.horario SET ${sets.join(', ')} WHERE id = $1::uuid`, vals);
 
-  // Tras el cambio, ¿el horario tiene conductor? Un `vigente_hasta` extendido o un
-  // conductor recién asignado dan salidas nuevas; las ya congeladas no se tocan.
-  const { rows } = await db.query<{ conductor_id: string | null }>(
-    `SELECT conductor_id FROM core.horario WHERE id = $1::uuid AND activo`, [id],
+  // Tras el cambio, ¿el horario tiene unidad? Un `vigente_hasta` extendido o una
+  // unidad recién asignada dan salidas nuevas; las ya congeladas no se tocan.
+  const { rows } = await db.query<{ unidad_id: string | null }>(
+    `SELECT unidad_id FROM core.horario WHERE id = $1::uuid AND activo`, [id],
   );
-  return materializarSiSePuede(db, id, rows[0]?.conductor_id != null);
+  return materializarSiSePuede(db, id, rows[0]?.unidad_id != null);
 }
 
 /**

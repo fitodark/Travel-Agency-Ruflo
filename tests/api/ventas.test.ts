@@ -108,7 +108,7 @@ run('API · /ventas (PostgreSQL real)', () => {
       method: 'POST', url: '/ventas', headers: bearer(token),
       payload: {
         salidaId: fx.salidaId, origenOrden: 0, destinoOrden: 3,
-        contactoTelefono: '953 111 2222', esReservacion: true,
+        contactoTelefono: '953 111 2222',
         pasajeros: [{ asientoNum: 5, nombre: 'Cyn', importe: 450 }],
       },
     });
@@ -133,7 +133,7 @@ run('API · /ventas (PostgreSQL real)', () => {
       method: 'POST', url: '/ventas', headers: bearer(token),
       payload: {
         salidaId: fx.salidaId, origenOrden: 0, destinoOrden: 3,
-        contactoTelefono: '953 111 2222', esReservacion: true,
+        contactoTelefono: '953 111 2222',
         pasajeros: [
           { asientoNum: 2, nombre: 'Ana Ruiz', importe: 450 },
           { asientoNum: 3, nombre: 'Beto Sosa', importe: 450 },

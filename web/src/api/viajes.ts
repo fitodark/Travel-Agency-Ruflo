@@ -3,11 +3,15 @@ import { api } from './cliente';
 export interface SalidaDelDia {
   salidaId: string;
   horarioId: string;
+  /** Para filtrar candidatos de `moverUnidad`: mismo día, misma ruta (0074). */
+  rutaId: string;
   estado: string;
   horaSalida: string;
   origen: string;
   destino: string;
   conductor: string | null;
+  unidadId: string | null;
+  unidad: string | null;
   boletos: number;
 }
 
@@ -251,6 +255,66 @@ export function registrarAbordaje(
 
 export function generarManifiestos(salidaId: string): Promise<ManifiestosEncolados> {
   return api<ManifiestosEncolados>(`/viajes/${salidaId}/manifiestos`, { method: 'POST' });
+}
+
+/** Asigna el conductor real de la salida (0074) — antes de generar manifiestos. */
+export function asignarConductor(
+  salidaId: string, conductorId: string,
+): Promise<{ cambioId: string }> {
+  return api(`/viajes/${salidaId}/conductor`, {
+    method: 'POST',
+    body: JSON.stringify({ conductorId }),
+  });
+}
+
+/** Recorre en cadena la unidad de una salida sin boletos al resto del día (0074). */
+export function moverUnidad(
+  salidaOrigenId: string,
+): Promise<{ unidadId: string; salidasAfectadas: number; unidadDesplazadaId: string | null }> {
+  return api(`/viajes/${salidaOrigenId}/mover-unidad`, { method: 'POST' });
+}
+
+export interface NuevoAsientoExtra {
+  contactoTelefono: string;
+  origenOrden: number;
+  destinoOrden: number;
+  nombre: string;
+  metodo: 'efectivo' | 'transferencia';
+  efectivoRecibido?: number;
+  referencia?: string;
+}
+
+export interface ResultadoAsientoExtra {
+  ventaId: string;
+  boletoId: string;
+  folio: string;
+  asientoNum: number;
+  importe: number;
+  estado: 'liquidada' | 'finalizada_transferencia';
+  printJobs: number;
+}
+
+/** Hasta 2 asientos extra por salida, sin tocar el mapa (0075). */
+export function venderAsientoExtra(
+  salidaId: string, datos: NuevoAsientoExtra,
+): Promise<ResultadoAsientoExtra> {
+  return api(`/viajes/${salidaId}/asientos-extra`, {
+    method: 'POST',
+    body: JSON.stringify(datos),
+  });
+}
+
+export interface ParadaManifiesto {
+  orden: number;
+  punto: string;
+  tipo: string;
+  hora_paso: string | null;
+}
+
+/** Paradas de la salida (para el selector de destino del asiento extra). */
+export function paradasDeSalida(salidaId: string): Promise<ParadaManifiesto[]> {
+  return api<{ paradas: ParadaManifiesto[] }>(`/viajes/${salidaId}/manifiesto`)
+    .then((d) => d.paradas ?? []);
 }
 
 export function marcarEnRuta(salidaId: string): Promise<EstadoViaje> {

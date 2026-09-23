@@ -3484,6 +3484,220 @@ formato del comprobante impreso. Queda pendiente:
 
 ---
 
+## Sesión 73 — 2026-09-21 · Destino filtrado por paradas autorizadas de la ruta
+
+**Objetivo**: fix de QA sobre el paso 1 del wizard — el selector de **destino**
+ofrecía TODOS los puntos de ruta salvo el origen, sin importar si existía una
+ruta real entre ambos. Ejemplo reportado: con origen Huajuapan de León no debe
+aparecer Acatlán de Osorio como destino (no comparten ruta en ese sentido),
+pero sí Izúcar u otras paradas autorizadas de descenso de esa ruta. El origen
+ya quedaba preseleccionado con la sucursal de la sesión desde el PR #82 — eso
+no cambió.
+
+Validado contra el modelo antes de tocar código: `core.ruta_parada` ya guarda
+`permite_ascenso`/`permite_descenso` por punto y ruta (Fase 1, migr. 0048-0049)
+— la misma regla que usan `core.buscar_salidas` y `core.registrar_venta` para
+aceptar una venta, solo que nunca alimentaba el catálogo del selector. Contra
+los datos reales locales: en la ruta `HJPN - CDMX`, Acatlán de Osorio tiene
+`permite_descenso=false` (orden 1, solo ascenso — es parada de RETORNO), así
+que la regla de QA ya está en el dato, solo faltaba leerla.
+
+**Cambios:**
+- `GET /catalogos/puntos` (`src/api/rutas/catalogos.ts`) gana `destinos:
+  uuid[]` por punto — los ids alcanzables como destino si ese punto se usa
+  como origen (misma ruta activa, origen con `permite_ascenso`, candidato con
+  `permite_descenso`, `orden` mayor). Una sola consulta: no hay round-trip
+  extra al cambiar el origen en el wizard.
+- `web/src/paginas/Vender.tsx` (paso 1): el `<select>` de destino filtra por
+  `destinos` del origen elegido (antes: "todos menos el origen"); si el origen
+  cambia y el destino ya elegido deja de ser alcanzable, se limpia; el botón
+  ⇄ de intercambiar ahora exige que el destino tenga ruta de regreso real
+  hacia el origen (antes solo comprobaba `puedeOriginar`, que ya no bastaba
+  con el filtro nuevo — si no, tras el swap podía quedar un destino
+  seleccionado fuera de la lista de opciones).
+- Test nuevo en `tests/api/catalogos.test.ts` con el fixture `seedRuta`
+  (`tests/fleet/fixture.ts`, ya traía `paradaDescensoEnOrden` para armar
+  justo este escenario): una ruta con parada intermedia solo-descenso +
+  una segunda ruta ajena, verificando que `destinos` incluye la primera y
+  excluye la segunda.
+- Verificado en navegador con datos reales (`vendedor.oax@donaji.local`,
+  sucursal Huajuapan): origen preseleccionado, destino ofrece Izúcar/Cuautla/
+  CDMX/Chalco.../Terminal 1 y 2 — **sin Acatlán de Osorio** — y la búsqueda de
+  horarios Huajuapan→Izúcar trae resultados reales sin error.
+- Type-check limpio (backend + `web/`). `tests/api/catalogos.test.ts` pasa
+  solo y en lote con el resto de `tests/api`.
+
+**Hallazgo aparte, arreglado en la misma sesión**: al correr `npm test`
+completo aparecieron 17 fallos nuevos en `tests/api/viajes.test.ts` y
+`tests/api/reportes.test.ts` — ambos con `AHORA = new Date('2026-09-15...')`
+fija, ya vencida (hoy 21 sep). Es el mismo patrón de "ancla de reloj vencida"
+que cerró la Ses. 63/PR #81 (`effective_from = now()` real en los fixtures vs.
+un reloj de prueba fijo en el pasado → `usuario_no_vigente` en cascada), en 2
+archivos que ese barrido no cubrió. Mismo fix: `AHORA = new Date(Date.now() +
+30 * 86_400_000)` (relativa, siempre por delante). Ninguno de los dos usaba
+`AHORA` para aserciones de fecha de calendario, solo para `ahora()` — cambio
+seguro. `npm test` completo: **623 pass, 0 fail nuevos** — quedan los 2 flakes
+preexistentes ya catalogados y sin relación con código de producción:
+`tests/fleet/puntos.test.ts` (arrastre de datos de QA, se cura con
+`seed:qa`) y `tests/sync/f1-criterios.test.ts` (conexión real a la nube,
+intermitente).
+
+---
+
+## Sesión 74 — 2026-09-22 · Error 500 en manifiestos (causa real) + reservación calculada del pago
+
+**Parte 1 — depurar el 500 genérico al generar manifiestos.** El usuario reportó
+`POST /viajes/:id/manifiestos` respondiendo `{"error":"error_interno"}` sin
+pista real. `core.generar_manifiestos`/`core.datos_manifiesto` probados
+directo contra LOCAL y NUBE para esa salida: sin error. La causa real solo
+apareció con el log del servidor que compartió el usuario:
+`FST_ERR_CTP_EMPTY_JSON_BODY` — el cliente HTTP de la SPA (`web/src/api/
+cliente.ts`) mandaba SIEMPRE `content-type: application/json` aunque el POST
+no llevara body (p. ej. "Generar manifiestos", `finalizarSalida`, `logout`,
+`sync/ciclo`), y Fastify rechaza un content-type JSON con cuerpo vacío. El
+manejador de errores (`src/api/server.ts`) no reconocía ese tipo de error de
+framework y lo colapsaba a `500 error_interno` genérico, ocultando la causa
+real incluso del propio log.
+
+**Cambios:**
+- `web/src/api/cliente.ts`: `content-type` solo cuando hay `body`. Arregla el
+  error de raíz para TODOS los POST sin payload, no solo manifiestos.
+- `src/api/server.ts`: el manejador ahora respeta el `statusCode`/mensaje
+  propio de los errores `FST_ERR_*` de Fastify en vez de colapsarlos a 500 —
+  la próxima vez que pase algo así, se ve claro sin tener que ir al log.
+- Migr. `0072`: al revisar cómo se imprime la lista de pasajeros se encontró
+  que `core.datos_manifiesto` podía perder la clave `paradas` del jsonb
+  (`jsonb_strip_nulls` la borra si la salida no tiene `salida_parada`, estado
+  real que `materializar_salidas` cuenta como `sin_paradas`) — el renderer
+  ESC/POS tronaba con `TypeError` sin SQLSTATE, exactamente la clase de error
+  que el punto anterior dejaba de ocultar. `COALESCE` a `[]` + guard en
+  `src/printing/templates/manifiesto.ts`.
+
+**Parte 2 — "¿es reservación?" deja de preguntarse, se calcula del pago real.**
+QA planteó: el check "Es reservación" del paso 1 del wizard puede saltarse —
+una reservación que se paga completo YA es una venta. Validado contra el
+modelo: `core.registrar_venta` nunca usó `p_es_reservacion` para decidir si
+exige pago — el `estado` de la venta (`liquidada`/`finalizada_transferencia`/
+`pendiente`) ya salía 100% del pago real. El único consumidor real del flag
+era la caducidad automática (D9); todo lo demás (impresión de boleto vs.
+comprobante, `venta_vs_caja`) ya dependía del pago, no del checkbox — lo que
+significa que el checkbox de intención declarada al inicio podía quedar
+DESINCRONIZADO del resultado real 5 pasos después (marcar "reservación" y
+pagar completo de todos modos ⇒ el boleto imprimía "(por reservacion)" ya
+liquidado, y el reporte operativo contaba mal las reservaciones del día).
+
+**Cambios (migr. `0073`, `DROP`+`CREATE`, cambia la firma — quita
+`p_es_reservacion`):**
+- `core.registrar_venta` calcula `es_reservacion := NOT (liquidada OR
+  transferencia_finalizada)` — ya no lo recibe.
+- `web/src/paginas/Vender.tsx`: se quita el checkbox del paso 1; el paso 6
+  ofrece siempre las 4 opciones de pago (efectivo/transferencia/corresponsal/
+  sin pago) + anticipo, sin depender de una intención declarada al inicio.
+- 9 archivos de test actualizados (ya no pasan `esReservacion`).
+
+**Verificado:** `tsc` limpio, `vite build` OK, 622-627 pass en distintas
+corridas (flakes preexistentes: `tests/fleet/puntos.test.ts` y
+`tests/sync/f1-criterios.test.ts`, sin relación). Probado en navegador:
+"sin pago" y "anticipo" registran `es_reservacion=true` sin que el frontend lo
+mande.
+
+**Nota operativa encontrada en vivo:** el `npm run api` que ya estaba corriendo
+llevaba código viejo (de antes de estos cambios) — cualquier prueba manual
+tras editar el backend necesita reiniciarlo, si no las pruebas fallan con un
+error confuso (otro `error_interno` genérico, ver Parte 1).
+
+---
+
+## Sesión 75 — 2026-09-22/23 · La unidad, no el conductor, resuelve el mapa
+
+QA planteó dos reglas sobre cómo se asigna la unidad/conductor de un viaje
+ya programado: (1) el conductor real puede diferir del que quedó configurado
+en el horario, y se decide justo antes de imprimir el manifiesto; (2) si una
+unidad no lleva pasajeros, se puede recorrer al siguiente horario disponible
+de esa ruta ese mismo día. Validando la regla 1 contra el modelo se encontró
+que ya existía una función completa para esto (`core.cambiar_conductor`, F3,
+migr. `0020`, cerrada desde el principio del proyecto) — nunca se conectó a
+la API ni a la SPA, y además había un camino paralelo INSEGURO: `marcar_en_ruta`
+aceptaba un `conductorId` opcional y lo aplicaba con `UPDATE` directo,
+saltándose toda la validación de compatibilidad de mapa de `cambiar_conductor`.
+
+Validar la regla 2 (mover la unidad) expuso algo más de fondo: el diseño
+original (D-7, migr. 0003/0004) resolvía el mapa de asientos vía
+`conductor → tipo_unidad → mapa`, cuando en operación real la UNIDAD es lo
+que casi nunca cambia y lo que de verdad se programa — el conductor es dato
+del día. `core.unidad` ya traía su propio `tipo_unidad_id` desde el inicio
+(migr. 0003), simplemente nunca se usaba. Se confirmó con el usuario/QA
+invertir esa cadena.
+
+**Cambios (migr. `0074`):**
+- `core.materializar_salidas` exige `horario.unidad_id` (ya no
+  `conductor_id`) y saca `tipo_unidad_id`/`mapa_snapshot` de `core.unidad` —
+  el conductor pasa a ser opcional en el horario.
+- `core.conductor.tipo_unidad_id` deja de ser `NOT NULL` (queda como
+  referencia informativa).
+- `core.cambiar_conductor` se simplificó radicalmente: como el mapa ya no
+  depende del conductor, asignarlo NUNCA vuelve a tocar mapa/cupos/boletos —
+  desaparecen los 4 casos de compatibilidad de la versión original.
+- `core.mover_unidad` (nueva): recorre la unidad de una salida sin boletos
+  activos EN CADENA al resto del día, misma ruta — no es un traspaso 1 a 1
+  (diseño ajustado con QA en una segunda vuelta): si el siguiente horario ya
+  tenía su propia unidad, esa se desplaza al que sigue, y así hasta un hueco
+  o el fin del día; nunca cruza a otro día. La salida donante se cancela. Los
+  boletos de los eslabones intermedios no se afectan (el mapa es del
+  conductor, no de la unidad).
+- `marcar_en_ruta` ya no acepta `conductorId` (el camino inseguro se retiró).
+- Rutas nuevas: `POST /viajes/:id/conductor`, `POST /viajes/:id/mover-unidad`.
+  UI nueva en Viajes ("Conductor real" antes del manifiesto, "Mover unidad"
+  cuando hay 0 boletos). Consola Administración → Horarios actualizada
+  (unidad es el requisito, conductor es opcional).
+
+**Verificado:** `tsc` limpio, build OK, 629/631 pass (2 flakes preexistentes
+sin relación). Probado en navegador con datos reales de QA (Unidad 3 /
+Aldo Acevedo Aparicio, 09:00 Huajuapan→CDMX): asignar conductor real cambia
+SOLO el conductor, el mapa/unidad no se tocan.
+
+**Nota de la sesión en vivo:** el botón "Mover unidad" dispara un
+`window.confirm()` nativo (mismo patrón que "Cancelar venta"/"Dar de baja" en
+el resto de la app) que congela la pestaña automatizada un momento — no es un
+bug, solo interrumpe la automatización del navegador si se vuelve a probar así.
+
+---
+
+## Sesión 76 — 2026-09-23 · Hasta 2 asientos extra por salida, sin tocar el mapa
+
+QA planteó: una unidad de 18 plazas puede llevar 1 o 2 pasajeros extra cuando
+la demanda lo pide, visto en vivo minutos antes de que salga — sin tocar el
+mapa de asientos ni la configuración de la unidad. Validado contra el modelo:
+`core.asiento_ocupacion.asiento_num` no tiene ninguna atadura de esquema al
+mapa (ni FK, ni CHECK) — es dato libre; lo único que impedía vender el 19 era
+la validación de aplicación en `core.registrar_venta`. Aclarado con QA en dos
+vueltas de preguntas: sin ventana de tiempo (el sistema no intenta adivinar
+"a punto de salir", es criterio del vendedor — incluso después de imprimir el
+manifiesto, que se reimprime a mano si hace falta), pago de contado completo
+(efectivo o transferencia íntegra, nunca abono/corresponsal/reservación),
+cualquier rol operativo.
+
+**Cambios (migr. `0075`):**
+- `core.vender_asiento_extra` (función DEDICADA, no se tocó
+  `registrar_venta` — demasiado riesgo para la función de venta más probada
+  del sistema por un caso con reglas distintas: sin `cierre_venta_en`, sin
+  lease/cupo offline, un pasajero, categoría siempre general). El conteo de
+  "ya van 2" no necesita columna ni tabla nueva: se cuenta de los boletos ya
+  emitidos con `asiento_num` por encima del máximo del mapa.
+- `POST /viajes/:id/asientos-extra` + botón "Vender asiento extra" en Viajes
+  (destino, nombre, teléfono, cobro — sin selector de asiento ni mapa visual).
+
+**Verificado:** `tsc` limpio, build OK, 8 pruebas nuevas
+(`tests/ventas/asientoExtra.test.ts`) + 637/639 en la suite completa (2
+flakes preexistentes sin relación). Probado en vivo: vendió folio real,
+asiento 19, tarifa correcta del tramo elegido, apareció listo para abordar en
+el checklist de Viajes.
+
+**Estado al cierre de la sesión:** migraciones `0072`–`0075` aplicadas por el
+usuario a LOCAL y NUBE. Sin commit — lo hace el usuario.
+
+---
+
 Los cinco criterios de aceptación verdes contra Supabase real
 (`tests/sync/f1-criterios.test.ts`). Contrato de pruebas del motor cerrado
 (`salud.ts` Ses. 4, arbitraje/reasignación en F4, checksum dirigido de

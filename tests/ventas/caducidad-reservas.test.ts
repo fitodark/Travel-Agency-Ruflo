@@ -50,7 +50,6 @@ run('caducidad de reservas sin pagar (PostgreSQL real)', () => {
     registrarVenta(db, {
       salidaId: fx.salidaId, sucursalVentaId: fx.sucursales[0]!, usuarioId,
       contactoTelefono: '953 111 2222', origenOrden: 0, destinoOrden: 3,
-      esReservacion: true,
       pasajeros: [{ asientoNum: asiento, nombre: 'Reservado', importe: 450 }],
     });
 
@@ -101,7 +100,6 @@ run('caducidad de reservas sin pagar (PostgreSQL real)', () => {
     const r = await registrarVenta(db, {
       salidaId: fx.salidaId, sucursalVentaId: fx.sucursales[0]!, usuarioId,
       contactoTelefono: '953 111 2222', origenOrden: 0, destinoOrden: 3,
-      esReservacion: true,
       pasajeros: [{ asientoNum: 7, nombre: 'Con abono', importe: 450 }],
       pago: { metodo: 'efectivo', monto: 100, esAbono: true, corteCajaId: corteId },
     });

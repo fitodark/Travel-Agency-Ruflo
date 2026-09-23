@@ -54,7 +54,10 @@ export async function api<T>(ruta: string, opciones: RequestInit = {}): Promise<
   const res = await fetch(`/api${ruta}`, {
     ...opciones,
     headers: {
-      'content-type': 'application/json',
+      // Solo con `body`: mandar 'content-type: application/json' sin cuerpo
+      // (p. ej. un POST de acción sin payload) hace que Fastify rechace el
+      // request con FST_ERR_CTP_EMPTY_JSON_BODY antes de llegar al handler.
+      ...(opciones.body !== undefined ? { 'content-type': 'application/json' } : {}),
       ...(token ? { authorization: `Bearer ${token}` } : {}),
       ...opciones.headers,
     },

@@ -131,7 +131,7 @@ run('movimientos de caja (PostgreSQL real)', () => {
     const r = await registrarVenta(db, {
       salidaId: c.fx.salidaId, sucursalVentaId: c.fx.sucursales[0]!, usuarioId: c.usuarioId,
       contactoTelefono: '953 000 0000', origenOrden: 0, destinoOrden: 3,
-      pasajeros: [pasajero], esReservacion: true, ahora: c.ahora,
+      pasajeros: [pasajero], ahora: c.ahora,
     });
 
     const cobrador = await crearUsuario(db);

@@ -87,7 +87,6 @@ run('reubicación de huérfano (PostgreSQL real)', () => {
     const v = await registrarVenta(db, {
       salidaId: vieja.salidaId, sucursalVentaId: vieja.sucursales[0]!, usuarioId,
       contactoTelefono: '953 111 2222', origenOrden: 0, destinoOrden: 2,
-      esReservacion: true,
       pasajeros: [{ asientoNum: 4, nombre: 'Doña Rosa', importe: 450 }],
     });
 
@@ -113,7 +112,7 @@ run('reubicación de huérfano (PostgreSQL real)', () => {
     const v = await registrarVenta(db, {
       salidaId: vieja.salidaId, sucursalVentaId: vieja.sucursales[0]!, usuarioId,
       contactoTelefono: '953 111 2222', origenOrden: 0, destinoOrden: 2,
-      esReservacion: true, pasajeros: [{ asientoNum: 4, nombre: 'X', importe: 450 }],
+      pasajeros: [{ asientoNum: 4, nombre: 'X', importe: 450 }],
     });
     await db.query(`UPDATE core.boleto SET estado = 'cancelado' WHERE id = $1`, [v.boletos[0]!.boletoId]);
 

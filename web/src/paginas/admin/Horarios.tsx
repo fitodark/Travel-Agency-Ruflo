@@ -30,9 +30,11 @@ export function AdminHorarios() {
     <div className="space-y-6">
       <p className="text-sm text-slate-500">
         Ruta = qué sucursales toca y en qué orden. Horario = a qué hora y qué días.
-        Al guardar un horario <b>con conductor</b> se generan sus salidas en el acto
-        (bajan a las sucursales en el siguiente sync). Sin conductor, el horario
-        queda listo y el job nocturno lo materializa cuando se le asigne uno.
+        Al guardar un horario <b>con unidad</b> se generan sus salidas en el acto
+        (bajan a las sucursales en el siguiente sync). Sin unidad, el horario
+        queda listo y el job nocturno lo materializa cuando se le asigne una — la
+        unidad es lo que define el mapa de asientos, no el conductor. El conductor
+        es opcional: el real se asigna por salida, antes de imprimir el manifiesto.
         Cambiar un horario <b>no</b> re-materializa las salidas ya creadas.
       </p>
       {error && <p className="text-sm text-red-600">{error}</p>}
@@ -411,7 +413,7 @@ function Horarios({ ruta, onError }: { ruta: RutaDetalle; onError: (m: string) =
           ? `Horario guardado. Salidas pendientes: ${r.avisoMaterializacion}`
           : r.salidasCreadas > 0
             ? `Horario guardado — ${r.salidasCreadas} salidas generadas.`
-            : 'Horario guardado. Asígnale un conductor para generar sus salidas.',
+            : 'Horario guardado. Asígnale una unidad para generar sus salidas.',
       );
       void refrescar();
     },
@@ -508,8 +510,9 @@ function Horarios({ ruta, onError }: { ruta: RutaDetalle; onError: (m: string) =
         )}
 
         <p className="sm:col-span-2 text-xs text-slate-400">
-          Sin conductor el horario se guarda pero no genera salidas (no se puede
-          vender). Puedes asignarlo ahora o después con "editar".
+          Sin unidad el horario se guarda pero no genera salidas (no se puede
+          vender). Puedes asignarla ahora o después con "editar". El conductor es
+          opcional — el real se asigna por salida antes del manifiesto.
         </p>
         <button type="submit" disabled={m.isPending || ds.length === 0} className="btn-primario justify-self-start">
           {m.isPending ? 'Creando…' : 'Crear horario'}
@@ -538,7 +541,7 @@ function FilaHorario(
   const [unidadId, setUnidadId] = useState(h.unidadId ?? '');
   const [vd, setVd] = useState(h.vigenteDesde ?? '');
   const [vh, setVh] = useState(h.vigenteHasta ?? '');
-  const sinConductor = !h.conductorId;
+  const sinUnidad = !h.unidadId;
 
   const abrir = () => {
     setConductorId(h.conductorId ?? '');
@@ -573,8 +576,8 @@ function FilaHorario(
       <div className="flex items-center gap-4">
         <span className="font-mono">{h.horaSalida.slice(0, 5)}</span>
         <span className="text-slate-600">{dias(h.diasSemana)}</span>
-        <span className={sinConductor ? 'text-amber-600' : 'text-slate-500'}>
-          {h.conductor ?? 'sin conductor — no se vende'}{h.unidad ? ` · ${h.unidad}` : ''}
+        <span className={sinUnidad ? 'text-amber-600' : 'text-slate-500'}>
+          {h.unidad ?? 'sin unidad — no se vende'}{h.conductor ? ` · ${h.conductor}` : ''}
         </span>
         <span className="text-slate-400">
           {h.vigenteDesde ?? '—'}{h.vigenteHasta ? ` → ${h.vigenteHasta}` : ''}

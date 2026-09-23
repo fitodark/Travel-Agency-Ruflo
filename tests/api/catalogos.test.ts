@@ -10,6 +10,7 @@ import { Client } from 'pg';
 import type { FastifyInstance } from 'fastify';
 import { resolveConnection } from '../../src/db/connection.js';
 import { seedAuth } from '../auth/fixture.js';
+import { seedRuta } from '../fleet/fixture.js';
 import { abrirApp, bearer, tokenDe } from './helpers.js';
 
 const local = process.env['LOCAL_DATABASE_URL'];
@@ -94,6 +95,29 @@ run('API · /catalogos (PostgreSQL real)', () => {
     const p = r.json() as Record<string, unknown>;
     expect(p['umbral_sync_degradado_horas']).toBe(72);
     expect(p['minutos_lease']).toBe(15);
+  });
+
+  it('GET /catalogos/puntos: `destinos` solo incluye paradas de descenso de la MISMA ruta activa', async () => {
+    const fx = await seedAuth(db);
+    const token = await tokenDe(db, fx.email, fx.sucursalAId, ahora);
+
+    // Ruta A: terminal origen -> parada intermedia SOLO descenso (p. ej.
+    // Izúcar) -> terminal destino. Ruta B: totalmente ajena (otra agencia,
+    // otras sucursales) — no debe aparecer entre los destinos de A.
+    const rutaA = await seedRuta(db, { paradas: 3, paradaDescensoEnOrden: 1 });
+    const rutaB = await seedRuta(db, { paradas: 2 });
+
+    const r = await app.inject({ method: 'GET', url: '/catalogos/puntos', headers: bearer(token) });
+    expect(r.statusCode).toBe(200);
+    const puntos = r.json() as { id: string; destinos: string[] }[];
+
+    const origenA = puntos.find((p) => p.id === rutaA.puntos[0]);
+    expect(origenA?.destinos).toEqual(expect.arrayContaining([rutaA.puntos[1], rutaA.puntos[2]]));
+    expect(origenA?.destinos).not.toEqual(expect.arrayContaining([rutaB.puntos[0], rutaB.puntos[1]]));
+
+    // La parada de solo-descenso no permite ascenso: no debe originar nada.
+    const paradaDescenso = puntos.find((p) => p.id === rutaA.puntos[1]);
+    expect(paradaDescenso?.destinos).toEqual([]);
   });
 
   it('GET /catalogos/parametros/:clave y 404 para una clave inexistente', async () => {

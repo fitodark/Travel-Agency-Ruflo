@@ -101,7 +101,6 @@ run('reubicación de venta huérfana completa (PostgreSQL real)', () => {
     const v = await registrarVenta(db, {
       salidaId: vieja.salidaId, sucursalVentaId: vieja.sucursales[0]!, usuarioId,
       contactoTelefono: '953 111 2222', origenOrden: 0, destinoOrden: 2,
-      esReservacion: true,
       pasajeros: [
         { asientoNum: 4, nombre: 'Papá', importe: 450 },
         { asientoNum: 5, nombre: 'Hijo', importe: 450 },

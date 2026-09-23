@@ -11,4 +11,6 @@ export { repartirCupo, cupoDeSalida } from './cupo.js';
 export type { CupoSucursal } from './cupo.js';
 
 export { cambiarConductor } from './conductor.js';
-export type { CasoCambio, CambiarConductorArgs, ResultadoCambioConductor } from './conductor.js';
+export type { CambiarConductorArgs, ResultadoCambioConductor } from './conductor.js';
+export { moverUnidad } from './movimientoUnidad.js';
+export type { MoverUnidadArgs, ResultadoMoverUnidad } from './movimientoUnidad.js';

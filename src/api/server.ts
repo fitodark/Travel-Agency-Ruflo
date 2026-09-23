@@ -58,6 +58,15 @@ export async function construirApp(opts: OpcionesApp): Promise<FastifyInstance> 
     if (err.validation) {
       return reply.status(400).send({ error: 'entrada_invalida', mensaje: err.message });
     }
+    // Error del propio Fastify (parseo de body, content-type, límites...): el
+    // `statusCode` y el mensaje ya son correctos y seguros de exponer — nunca
+    // es un 500 real. P. ej. FST_ERR_CTP_EMPTY_JSON_BODY (un POST con
+    // 'content-type: application/json' pero sin cuerpo) quedaba enmascarado
+    // como "error_interno" genérico antes de este fix.
+    if (typeof err.code === 'string' && err.code.startsWith('FST_ERR_')) {
+      req.log.info({ err }, 'error de framework');
+      return reply.status(err.statusCode ?? 400).send({ error: 'solicitud_invalida', mensaje: err.message });
+    }
     // `RAISE EXCEPTION` de una función de dominio (SQLSTATE P0001): es una regla
     // de negocio con un mensaje escrito a mano, seguro de exponer.
     if (err.code === 'P0001') {

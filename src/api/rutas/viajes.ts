@@ -19,6 +19,9 @@ import {
   detalleBoleto, finalizarSalida, marcarEnRuta, registrarAbordaje, reimprimirBoleto,
   reubicarHuerfano, reubicarVentaHuerfana, verificarBoletoQr,
 } from '../../fleet/abordaje.js';
+import { cambiarConductor } from '../../fleet/conductor.js';
+import { moverUnidad } from '../../fleet/movimientoUnidad.js';
+import { venderAsientoExtra } from '../../ventas/asientoExtra.js';
 import { exige } from '../autenticar.js';
 import { noEncontrado } from '../errores.js';
 
@@ -28,6 +31,9 @@ const idParam = {
 } as const;
 
 const operar = { permiso: 'abordaje.registrar' } as const;
+// El asiento extra ES una venta (aunque se dispare desde Viajes, no Vender):
+// mismo permiso que `POST /ventas`.
+const vender = { permiso: 'venta.crear' } as const;
 
 export async function rutasViajes(app: FastifyInstance): Promise<void> {
   app.addHook('preHandler', exige());
@@ -301,6 +307,114 @@ export async function rutasViajes(app: FastifyInstance): Promise<void> {
     },
   );
 
+  // Asigna el conductor real de la salida (0074): la unidad ya trae el mapa
+  // congelado desde que se materializó, así que esto nunca lo toca — es el
+  // paso previo a "Generar manifiestos", que es donde de verdad se necesita
+  // saber quién maneja hoy.
+  app.post(
+    '/:id/conductor',
+    {
+      preHandler: exige(operar),
+      schema: {
+        params: idParam,
+        body: {
+          type: 'object',
+          required: ['conductorId'],
+          properties: {
+            conductorId: { type: 'string', format: 'uuid' },
+            motivo: { type: 'string', maxLength: 200 },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      const { id } = req.params as { id: string };
+      const { conductorId, motivo } = req.body as { conductorId: string; motivo?: string };
+      const r = await cambiarConductor(app.db, {
+        salidaId: id, conductorNuevoId: conductorId, usuarioId: req.sesion.usuarioId,
+        ...(motivo ? { motivo } : {}),
+      });
+      return reply.status(201).send(r);
+    },
+  );
+
+  // Recorre en cadena la unidad de una salida sin boletos activos al resto
+  // del día, misma ruta: desplaza la unidad de cada salida siguiente a la
+  // que sigue, hasta un hueco o el fin del día (0074, regla de QA Ses. 75).
+  app.post(
+    '/:id/mover-unidad',
+    {
+      preHandler: exige(operar),
+      schema: {
+        params: idParam,
+        body: {
+          type: 'object',
+          properties: { motivo: { type: 'string', maxLength: 200 } },
+        },
+      },
+    },
+    async (req, reply) => {
+      const { id } = req.params as { id: string };
+      const { motivo } = (req.body ?? {}) as { motivo?: string };
+      const r = await moverUnidad(app.db, {
+        salidaOrigenId: id, usuarioId: req.sesion.usuarioId,
+        ...(motivo ? { motivo } : {}),
+      });
+      return reply.status(201).send(r);
+    },
+  );
+
+  // Hasta 2 asientos extra por salida, sin tocar el mapa (0075, regla de QA
+  // Ses. 76): la unidad en la puerta puede llevar 1 o 2 pasajeros de más si
+  // el cupo normal ya se agotó — criterio del vendedor, sin ventana de
+  // tiempo. Un pasajero, pago de contado (efectivo o transferencia íntegra).
+  app.post(
+    '/:id/asientos-extra',
+    {
+      preHandler: exige(vender),
+      schema: {
+        params: idParam,
+        body: {
+          type: 'object',
+          required: ['contactoTelefono', 'origenOrden', 'destinoOrden', 'nombre', 'metodo'],
+          properties: {
+            contactoTelefono: { type: 'string', minLength: 1, maxLength: 40 },
+            origenOrden: { type: 'integer', minimum: 0 },
+            destinoOrden: { type: 'integer', minimum: 1 },
+            nombre: { type: 'string', minLength: 1, maxLength: 200 },
+            metodo: { type: 'string', enum: ['efectivo', 'transferencia'] },
+            efectivoRecibido: { type: 'number', exclusiveMinimum: 0 },
+            referencia: { type: 'string', maxLength: 120 },
+            corteCajaId: { type: 'string', format: 'uuid' },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      const { id } = req.params as { id: string };
+      const b = req.body as {
+        contactoTelefono: string; origenOrden: number; destinoOrden: number;
+        nombre: string; metodo: 'efectivo' | 'transferencia';
+        efectivoRecibido?: number; referencia?: string; corteCajaId?: string;
+      };
+      const r = await venderAsientoExtra(app.db, {
+        salidaId: id,
+        sucursalVentaId: req.sesion.sucursalId!,
+        usuarioId: req.sesion.usuarioId,
+        contactoTelefono: b.contactoTelefono,
+        origenOrden: b.origenOrden,
+        destinoOrden: b.destinoOrden,
+        nombre: b.nombre,
+        metodo: b.metodo,
+        ...(b.efectivoRecibido != null ? { efectivoRecibido: b.efectivoRecibido } : {}),
+        ...(b.referencia ? { referencia: b.referencia } : {}),
+        ...(b.corteCajaId ? { corteCajaId: b.corteCajaId } : {}),
+        ahora: app.ahora(),
+      });
+      return reply.status(201).send(r);
+    },
+  );
+
   app.post(
     '/:id/manifiestos',
     { preHandler: exige(operar), schema: { params: idParam } },
@@ -313,26 +427,16 @@ export async function rutasViajes(app: FastifyInstance): Promise<void> {
     },
   );
 
+  // El conductor se asigna aparte (`POST /:id/conductor`), antes del
+  // manifiesto — marcar en ruta ya no lo recibe (0074): hacerlo aquí se
+  // saltaba esa asignación sin pasar por su validación.
   app.post(
     '/:id/en-ruta',
-    {
-      preHandler: exige(operar),
-      schema: {
-        params: idParam,
-        body: {
-          type: 'object',
-          properties: { conductorId: { type: 'string', format: 'uuid' } },
-        },
-      },
-    },
+    { preHandler: exige(operar), schema: { params: idParam } },
     async (req) => {
       const { id } = req.params as { id: string };
-      const { conductorId } = (req.body ?? {}) as { conductorId?: string };
       return marcarEnRuta(app.db, {
-        salidaId: id,
-        usuarioId: req.sesion.usuarioId,
-        ...(conductorId ? { conductorId } : {}),
-        ahora: app.ahora(),
+        salidaId: id, usuarioId: req.sesion.usuarioId, ahora: app.ahora(),
       });
     },
   );

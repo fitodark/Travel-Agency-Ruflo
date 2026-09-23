@@ -163,7 +163,6 @@ export function Vender() {
   const [origen, setOrigen] = useState('');
   const [destino, setDestino] = useState('');
   const [personas, setPersonas] = useState(1);
-  const [esReservacion, setEsReservacion] = useState(false);
   const [conConexion, setConConexion] = useState(true);
   const [contacto, setContacto] = useState('');
 
@@ -214,6 +213,21 @@ export function Vender() {
     if (origenPorDefecto) setOrigen((o) => o || origenPorDefecto);
   }, [origenPorDefecto]);
 
+  // Destinos válidos para el origen elegido: solo paradas/terminales de una
+  // ruta activa donde el origen permite ascenso y el candidato permite
+  // descenso (`destinos` de `GET /catalogos/puntos`) — p. ej. desde Huajuapan
+  // de León no debe ofrecerse Acatlán de Osorio (otra ruta), pero sí Izúcar si
+  // es parada autorizada de descenso de esa ruta.
+  const destinosOrigen = useMemo(
+    () => new Set(puntos.data?.find((p) => p.id === origen)?.destinos ?? []),
+    [puntos.data, origen],
+  );
+  // Si cambia el origen y el destino ya elegido deja de ser alcanzable, se
+  // limpia — no puede quedar seleccionado un destino fuera de la lista.
+  useEffect(() => {
+    if (destino && !destinosOrigen.has(destino)) setDestino('');
+  }, [destino, destinosOrigen]);
+
   // Anticipo (paso 6, Ses. 71): monto menor al total; el resto se cubre después
   // en la sucursal de origen. `montoACobrar` es lo que realmente se cobra hoy
   // (el anticipo, o el total si no hay anticipo) — de ahí salen el "recibe" en
@@ -249,7 +263,6 @@ export function Vender() {
         origenOrden: salida.origenOrden,
         destinoOrden: salida.destinoOrden,
         contactoTelefono: contacto,
-        esReservacion,
         ...(cliente ? { clienteId: cliente.id } : {}),
         conConexion,
         pasajeros: asientos.map((a) => ({
@@ -309,7 +322,6 @@ export function Vender() {
     setOrigen(origenPorDefecto);
     setDestino('');
     setPersonas(1);
-    setEsReservacion(false);
     setConConexion(true);
     setContacto('');
     busqueda.reset();
@@ -326,14 +338,20 @@ export function Vender() {
     );
   };
 
-  // Antes del paso 6 el método de pago todavía no se elige: con reservación
-  // se muestra "Por cobrar" en automático. Ya en el paso 6, el label sigue al
-  // método elegido (corresponsal y "pago en terminal" tampoco cobran ahora).
+  // Si es reservación o venta completa se decide hasta el paso 6, con el
+  // método de pago elegido (QA, Ses. 74): antes de eso no hay nada que
+  // etiquetar como "por cobrar" — el label por defecto es "Total". En el
+  // paso 6 sigue al método (corresponsal siempre cobra completo; "pago en
+  // terminal" y un anticipo dejan saldo pendiente).
   const totalLabel = paso === 6
     ? (metodo === 'efectivo' || metodo === 'transferencia' ? 'Total' : 'Por cobrar')
-    : (esReservacion ? 'Por cobrar' : 'Total');
-  const avisoReservacion = esReservacion
-    ? 'Venta tipo reservación: los asientos se conservan hasta 30 minutos antes de la salida.'
+    : 'Total';
+  const avisoPago = paso === 6
+    ? (metodo === 'sin_pago'
+        ? 'Los asientos se conservan hasta 30 minutos antes de la salida, sin pago.'
+        : esAbono && (metodo === 'efectivo' || metodo === 'transferencia')
+          ? 'Anticipo: el resto se cubre después, en la sucursal de origen.'
+          : undefined)
     : undefined;
   const textoBotonPago = esAbono && (metodo === 'efectivo' || metodo === 'transferencia')
     ? 'Registrar anticipo'
@@ -361,15 +379,6 @@ export function Vender() {
   return (
     <div className="wizard-fonts mx-auto w-full lg:w-[80%]">
       <Pasos actual={paso} />
-
-      {esReservacion && typeof paso === 'number' && paso > 1 && (
-        <div className="mb-4 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-sm border border-brand-200 bg-brand-50 px-3 py-2 text-xs">
-          <span className="font-semibold uppercase tracking-wide text-brand-700">Venta tipo reservación</span>
-          <span className="text-slate-500">
-            Pago opcional — el cliente puede liquidar en la terminal antes de la salida.
-          </span>
-        </div>
-      )}
 
       {error && <p className="mb-4 text-sm text-red-600">{error}</p>}
 
@@ -439,7 +448,7 @@ export function Vender() {
               </label>
               <button
                 type="button"
-                disabled={!origen || !destino || !puntos.data?.find((p) => p.id === destino)?.puedeOriginar}
+                disabled={!origen || !destino || !puntos.data?.find((p) => p.id === destino)?.destinos.includes(origen)}
                 onClick={() => { setOrigen(destino); setDestino(origen); }}
                 title="Intercambiar origen y destino"
                 aria-label="Intercambiar origen y destino"
@@ -453,25 +462,16 @@ export function Vender() {
                   value={destino}
                   onChange={(e) => setDestino(e.target.value)}
                   required
+                  disabled={!origen}
                   className="campo mt-1 rounded-sm"
                 >
                   <option value="">—</option>
-                  {puntos.data?.filter((p) => p.id !== origen).map((p) => (
+                  {puntos.data?.filter((p) => destinosOrigen.has(p.id)).map((p) => (
                     <option key={p.id} value={p.id}>{p.nombre}</option>
                   ))}
                 </select>
               </label>
             </div>
-          </div>
-          <div className="rounded-sm border border-slate-200 p-3 text-sm">
-            <label className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                checked={esReservacion}
-                onChange={(e) => setEsReservacion(e.target.checked)}
-              />
-              Es reservación (paga después)
-            </label>
           </div>
           <div className="text-sm">
             <label className="flex items-center gap-2">
@@ -613,7 +613,7 @@ export function Vender() {
             totalLabel={totalLabel}
             precioUnitario={precioUnitario}
             precioUnitarioLabel={precioUnitarioLabel}
-            aviso={avisoReservacion}
+            aviso={avisoPago}
           >
             <button
               disabled={asientos.length !== personas}
@@ -691,7 +691,7 @@ export function Vender() {
           </div>
           <ResumenViaje
             salida={salida} personas={personas} asientos={asientos} total={total} totalLabel={totalLabel}
-            precioUnitario={precioUnitario} precioUnitarioLabel={precioUnitarioLabel} aviso={avisoReservacion}
+            precioUnitario={precioUnitario} precioUnitarioLabel={precioUnitarioLabel} aviso={avisoPago}
           >
             <button
               disabled={asientos.some((a) => !nombres[a]?.trim())}
@@ -774,7 +774,7 @@ export function Vender() {
           </div>
           <ResumenViaje
             salida={salida} personas={personas} asientos={asientos} total={total} totalLabel={totalLabel}
-            precioUnitario={precioUnitario} precioUnitarioLabel={precioUnitarioLabel} aviso={avisoReservacion}
+            precioUnitario={precioUnitario} precioUnitarioLabel={precioUnitarioLabel} aviso={avisoPago}
           >
             <button
               onClick={() => setPaso(6)}
@@ -795,9 +795,8 @@ export function Vender() {
           <div>
             <h2 className="text-xl font-semibold text-slate-900">Pago</h2>
             <p className="mt-1 text-sm text-slate-500">
-              {esReservacion
-                ? 'Venta tipo reservación: el pago es opcional. Puedes apartar sin cobro, dejar un anticipo (efectivo o transferencia), o cobrar de una vez.'
-                : 'Registra el cobro en mostrador.'}
+              Cobra de una vez, deja un anticipo (efectivo o transferencia), o aparta los
+              asientos sin cobro por ahora.
             </p>
           </div>
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
@@ -807,9 +806,7 @@ export function Vender() {
               ...(sinSistema.length > 0
                 ? [{ valor: 'corresponsal' as const, titulo: 'Corresponsal', descripcion: 'Cobro en sucursal autorizada' }]
                 : []),
-              ...(esReservacion
-                ? [{ valor: 'sin_pago' as const, titulo: 'Pago en terminal', descripcion: 'Sin cobro ahora, apartado' }]
-                : []),
+              { valor: 'sin_pago' as const, titulo: 'Pago en terminal', descripcion: 'Sin cobro ahora, apartado' },
             ].map((m) => (
               <button
                 key={m.valor}
@@ -831,14 +828,12 @@ export function Vender() {
 
           {metodo === 'efectivo' && (
             <div className="space-y-2">
-              {esReservacion && (
-                <AbonoParcial
-                  esAbono={esAbono} setEsAbono={setEsAbono}
-                  montoAbono={montoAbono} setMontoAbono={setMontoAbono}
-                  montoAbonoNum={montoAbonoNum} abonoValido={abonoValido} total={total}
-                  cliente={cliente} setCliente={setCliente} contacto={contacto}
-                />
-              )}
+              <AbonoParcial
+                esAbono={esAbono} setEsAbono={setEsAbono}
+                montoAbono={montoAbono} setMontoAbono={setMontoAbono}
+                montoAbonoNum={montoAbonoNum} abonoValido={abonoValido} total={total}
+                cliente={cliente} setCliente={setCliente} contacto={contacto}
+              />
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                 <label className="block">
                   <span className={ETIQUETA}>Teléfono de contacto *</span>
@@ -892,14 +887,12 @@ export function Vender() {
 
           {metodo === 'transferencia' && (
             <div className="space-y-2">
-              {esReservacion && (
-                <AbonoParcial
-                  esAbono={esAbono} setEsAbono={setEsAbono}
-                  montoAbono={montoAbono} setMontoAbono={setMontoAbono}
-                  montoAbonoNum={montoAbonoNum} abonoValido={abonoValido} total={total}
-                  cliente={cliente} setCliente={setCliente} contacto={contacto}
-                />
-              )}
+              <AbonoParcial
+                esAbono={esAbono} setEsAbono={setEsAbono}
+                montoAbono={montoAbono} setMontoAbono={setMontoAbono}
+                montoAbonoNum={montoAbonoNum} abonoValido={abonoValido} total={total}
+                cliente={cliente} setCliente={setCliente} contacto={contacto}
+              />
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                 <label className="block">
                   <span className={ETIQUETA}>Teléfono de contacto *</span>
@@ -995,7 +988,7 @@ export function Vender() {
           </div>
           <ResumenViaje
             salida={salida} personas={personas} asientos={asientos} total={total} totalLabel={totalLabel}
-            precioUnitario={precioUnitario} precioUnitarioLabel={precioUnitarioLabel} aviso={avisoReservacion}
+            precioUnitario={precioUnitario} precioUnitarioLabel={precioUnitarioLabel} aviso={avisoPago}
           >
             <button
               onClick={() => venta.mutate()}

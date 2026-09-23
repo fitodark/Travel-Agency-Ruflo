@@ -82,7 +82,7 @@ run('dashboard · reportes de operación (PostgreSQL real)', () => {
       salidaId: c.fx.salidaId, sucursalVentaId: c.fx.sucursales[0]!, usuarioId: c.usuarioId,
       contactoTelefono: '953 000 0000', origenOrden: 0, destinoOrden: 3,
       pasajeros: [{ asientoNum: 2, nombre: 'Ana', importe: 450 }],
-      esReservacion: true, ahora: c.ahora,
+      ahora: c.ahora,
     });
 
     const filas = soloDe(await reporteVentas(db, RANGO), c.fx.sucursales[0]!);
@@ -97,7 +97,7 @@ run('dashboard · reportes de operación (PostgreSQL real)', () => {
       salidaId: c.fx.salidaId, sucursalVentaId: c.fx.sucursales[0]!, usuarioId: c.usuarioId,
       contactoTelefono: '953 000 0000', origenOrden: 0, destinoOrden: 3,
       pasajeros: [{ asientoNum: 2, nombre: 'Ana', importe: 450 }],
-      esReservacion: true, ahora: c.ahora,
+      ahora: c.ahora,
     });
     const cobrador = await crearUsuario(db);
     const corteDestino = await abrirCorte(db, {

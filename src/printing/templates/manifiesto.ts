@@ -104,8 +104,12 @@ export function renderManifiesto(m: DatosManifiesto, cfg: ConfigManifiesto = {})
   const anchoDestino = Math.min(16, Math.floor(doc.cols / 2));
 
   // ---- Encabezado --------------------------------------------------------
-  const origen = m.paradas[0];
-  const destino = m.paradas[m.paradas.length - 1];
+  // `paradas` puede faltar si el jsonb lo generó un nodo en una migración
+  // vieja (< 0072) para una salida sin salida_parada (`sin_paradas` de
+  // `core.materializar_salidas`) — jsonb_strip_nulls borraba la clave entera.
+  const paradas = m.paradas ?? [];
+  const origen = paradas[0];
+  const destino = paradas[paradas.length - 1];
 
   doc.align('center').bold(true);
   doc.line('MANIFIESTO DE ABORDAJE');

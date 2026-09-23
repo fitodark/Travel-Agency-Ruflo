@@ -47,7 +47,7 @@ run('cancelación de boleto (PostgreSQL real)', () => {
     const r = await registrarVenta(db, {
       salidaId: fx.salidaId, sucursalVentaId: fx.sucursales[0]!, usuarioId,
       contactoTelefono: '953 111 2222', origenOrden: 0, destinoOrden: 3,
-      esReservacion: true, pasajeros: [pax(4)],
+      pasajeros: [pax(4)],
     });
 
     const c = await cancelarBoleto(db, {
@@ -110,7 +110,7 @@ run('cancelación de boleto (PostgreSQL real)', () => {
     const r = await registrarVenta(db, {
       salidaId: fx.salidaId, sucursalVentaId: fx.sucursales[0]!, usuarioId,
       contactoTelefono: '953 111 2222', origenOrden: 0, destinoOrden: 3,
-      esReservacion: true, pasajeros: [pax(4)],
+      pasajeros: [pax(4)],
       pago: { metodo: 'corresponsal', monto: 450, corteCajaId: corteId, sucursalCobroId: sc[0]!.id },
     });
 
@@ -166,7 +166,7 @@ run('cancelación de boleto (PostgreSQL real)', () => {
     const r = await registrarVenta(db, {
       salidaId: fx.salidaId, sucursalVentaId: fx.sucursales[0]!, usuarioId,
       contactoTelefono: '953 111 2222', origenOrden: 0, destinoOrden: 3,
-      esReservacion: true, pasajeros: [pax(4)],
+      pasajeros: [pax(4)],
     });
     await expect(cancelarBoleto(db, {
       boletoId: r.boletos[0]!.boletoId, usuarioId, sucursalId: fx.sucursales[0]!, ahora: t30,
@@ -203,7 +203,6 @@ run('cancelación de boleto (PostgreSQL real)', () => {
     const r = await registrarVenta(db, {
       salidaId: fx.salidaId, sucursalVentaId: fx.sucursales[0]!, usuarioId,
       contactoTelefono: '953 111 2222', origenOrden: 0, destinoOrden: 3,
-      esReservacion: true,
       pasajeros: [pax(4, 'Ana'), pax(5, 'Beto')],
       pago: { metodo: 'efectivo', monto: 500, esAbono: true, corteCajaId: corteId },
     });
@@ -235,7 +234,7 @@ run('cancelación de boleto (PostgreSQL real)', () => {
     const r = await registrarVenta(db, {
       salidaId: fx.salidaId, sucursalVentaId: fx.sucursales[0]!, usuarioId,
       contactoTelefono: '953 111 2222', origenOrden: 0, destinoOrden: 3,
-      esReservacion: true, pasajeros: [pax(4)],
+      pasajeros: [pax(4)],
     });
     await cancelarBoleto(db, {
       boletoId: r.boletos[0]!.boletoId, usuarioId, sucursalId: fx.sucursales[0]!,

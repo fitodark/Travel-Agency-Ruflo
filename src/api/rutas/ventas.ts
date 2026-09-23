@@ -43,7 +43,6 @@ const ventaSchema = {
     origenOrden: { type: 'integer', minimum: 0 },
     destinoOrden: { type: 'integer', minimum: 1 },
     contactoTelefono: { type: 'string', minLength: 1, maxLength: 40 },
-    esReservacion: { type: 'boolean' },
     clienteId: { type: 'string', format: 'uuid' },
     conConexion: { type: 'boolean' },
     pasajeros: {
@@ -156,7 +155,7 @@ export async function rutasVentas(app: FastifyInstance): Promise<void> {
     async (req, reply) => {
       const b = req.body as {
         salidaId: string; origenOrden: number; destinoOrden: number;
-        contactoTelefono: string; esReservacion?: boolean; clienteId?: string;
+        contactoTelefono: string; clienteId?: string;
         conConexion?: boolean;
         pasajeros: Array<{
           asientoNum: number; nombre: string; importe: number;
@@ -177,7 +176,6 @@ export async function rutasVentas(app: FastifyInstance): Promise<void> {
         origenOrden: b.origenOrden,
         destinoOrden: b.destinoOrden,
         pasajeros: b.pasajeros,
-        esReservacion: b.esReservacion ?? false,
         ...(b.clienteId ? { clienteId: b.clienteId } : {}),
         ...(b.pago ? { pago: b.pago } : {}),
         conConexion: b.conConexion ?? true,

@@ -18,7 +18,10 @@ import { abrirApp, bearer, tokenDe } from './helpers.js';
 const local = process.env['LOCAL_DATABASE_URL'];
 const run = local ? describe : describe.skip;
 
-const AHORA = new Date('2026-09-15T09:00:00.000Z');
+// Ancla de reloj EN EL FUTURO: los fixtures siembran usuarios/config con
+// `effective_from = now()` (hora real); fija, la ancla se queda atrás y todo
+// parece "no vigente" (ver PR #81).
+const AHORA = new Date(Date.now() + 30 * 86_400_000);
 const ahora = (): Date => AHORA;
 
 run('API · /viajes (PostgreSQL real)', () => {

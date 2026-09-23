@@ -118,11 +118,11 @@ run('API · /admin (PostgreSQL real)', () => {
     const lista = await app.inject({ method: 'GET', url: `/admin/horarios?rutaId=${rutaId}`, headers: bearer(tok) });
     expect(lista.json()).toHaveLength(1);
     expect(lista.json()[0].pasos).toHaveLength(2);
-    // Sin conductor: no se materializa nada.
+    // Sin unidad (0074): no se materializa nada.
     expect(horario.json().salidasCreadas).toBe(0);
   });
 
-  it('crear un horario CON conductor materializa sus salidas en el acto', async () => {
+  it('crear un horario CON unidad materializa sus salidas en el acto (0074)', async () => {
     const admin = await seedAuth(db, { rol: 'administrador', sucursales: 2 });
     const tok = await tokenDe(db, admin.email, admin.sucursalAId, ahora);
 
@@ -134,6 +134,12 @@ run('API · /admin (PostgreSQL real)', () => {
     });
     expect(conductor.statusCode, conductor.body).toBe(201);
     const conductorId = conductor.json().id as string;
+    const unidad = await app.inject({
+      method: 'POST', url: '/admin/unidades', headers: bearer(tok),
+      payload: { numeroEconomico: `U-${Date.now()}`, tipoUnidadId: tipoUnidadId[0]!.id },
+    });
+    expect(unidad.statusCode, unidad.body).toBe(201);
+    const unidadId = unidad.json().id as string;
 
     const ruta = await app.inject({
       method: 'POST', url: '/admin/rutas-detalle', headers: bearer(tok),
@@ -147,7 +153,7 @@ run('API · /admin (PostgreSQL real)', () => {
     const horario = await app.inject({
       method: 'POST', url: '/admin/horarios', headers: bearer(tok),
       payload: {
-        rutaId, horaSalida: '06:30', diasSemana: [1, 2, 3, 4, 5, 6, 7], conductorId,
+        rutaId, horaSalida: '06:30', diasSemana: [1, 2, 3, 4, 5, 6, 7], conductorId, unidadId,
         vigenteDesde: '2026-09-10',
         pasos: paradas.map((p) => ({ rutaParadaId: p.id, orden: p.orden, horaPaso: p.orden === 0 ? '06:30' : '09:00' })),
       },
@@ -163,7 +169,7 @@ run('API · /admin (PostgreSQL real)', () => {
     expect(Number(rows[0]!.n)).toBe(horario.json().salidasCreadas);
   });
 
-  it('asignar conductor a un horario existente (PATCH) materializa sus salidas', async () => {
+  it('asignar unidad a un horario existente (PATCH) materializa sus salidas (0074)', async () => {
     const admin = await seedAuth(db, { rol: 'administrador', sucursales: 2 });
     const tok = await tokenDe(db, admin.email, admin.sucursalAId, ahora);
     const bearerTok = bearer(tok);
@@ -174,6 +180,10 @@ run('API · /admin (PostgreSQL real)', () => {
       method: 'POST', url: '/admin/conductores', headers: bearerTok,
       payload: { nombre: `Chofer ${Date.now()}`, tipoUnidadId: tipos[0]!.id },
     }).then((r) => r.json())).id as string;
+    const unidadId = (await app.inject({
+      method: 'POST', url: '/admin/unidades', headers: bearerTok,
+      payload: { numeroEconomico: `U-${Date.now()}`, tipoUnidadId: tipos[0]!.id },
+    }).then((r) => r.json())).id as string;
 
     const rutaId = (await app.inject({
       method: 'POST', url: '/admin/rutas-detalle', headers: bearerTok,
@@ -183,22 +193,23 @@ run('API · /admin (PostgreSQL real)', () => {
       .then((r) => r.json())) as { id: string; paradas: { id: string; orden: number }[] }[])
       .find((x) => x.id === rutaId)!.paradas;
 
-    // Alta SIN conductor: se guarda pero no materializa.
+    // Alta CON conductor pero SIN unidad: se guarda pero no materializa (0074:
+    // la unidad, no el conductor, resuelve el tipo/mapa).
     const horarioId = (await app.inject({
       method: 'POST', url: '/admin/horarios', headers: bearerTok,
       payload: {
-        rutaId, horaSalida: '09:00', diasSemana: [1, 2, 3, 4, 5, 6, 7], vigenteDesde: '2026-09-10',
+        rutaId, horaSalida: '09:00', diasSemana: [1, 2, 3, 4, 5, 6, 7], conductorId, vigenteDesde: '2026-09-10',
         pasos: paradas.map((p) => ({ rutaParadaId: p.id, orden: p.orden, horaPaso: p.orden === 0 ? '09:00' : '11:00' })),
       },
     }).then((r) => r.json())).id as string;
 
     let salidas = await db.query<{ n: string }>(`SELECT count(*) n FROM core.salida WHERE horario_id = $1`, [horarioId]);
-    expect(Number(salidas.rows[0]!.n), 'sin conductor no hay salidas').toBe(0);
+    expect(Number(salidas.rows[0]!.n), 'sin unidad no hay salidas').toBe(0);
 
-    // Se le asigna el conductor por PATCH → materializa.
+    // Se le asigna la unidad por PATCH → materializa.
     const patch = await app.inject({
       method: 'PATCH', url: `/admin/horarios/${horarioId}`, headers: bearerTok,
-      payload: { conductorId },
+      payload: { unidadId },
     });
     expect(patch.statusCode, patch.body).toBe(200);
     expect(patch.json().salidasCreadas).toBeGreaterThan(0);

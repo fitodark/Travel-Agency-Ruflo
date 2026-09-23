@@ -1,12 +1,13 @@
 import { useState, type FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ErrorApi } from '../api/cliente';
-import { listarPuntos } from '../api/catalogos';
+import { listarConductores, listarPuntos } from '../api/catalogos';
 import { buscarSalidas, registrarPago, type SalidaDisponible } from '../api/ventas';
 import {
-  boletosReubicables, buscarBoletoPorFolio, cancelarBoleto, checklist, detalleBoleto,
-  finalizarViaje, generarManifiestos, marcarEnRuta, registrarAbordaje, reimprimirBoleto,
-  reubicarBoleto, reubicarVentaHuerfana, salidasDelDia,
+  asignarConductor, boletosReubicables, buscarBoletoPorFolio, cancelarBoleto, checklist,
+  detalleBoleto, finalizarViaje, generarManifiestos, marcarEnRuta, moverUnidad,
+  paradasDeSalida, registrarAbordaje, reimprimirBoleto, reubicarBoleto, reubicarVentaHuerfana,
+  salidasDelDia, venderAsientoExtra,
   type BoletoPorFolio, type ManifiestosEncolados, type SalidaDelDia,
 } from '../api/viajes';
 import { Modal } from '../componentes/ui';
@@ -243,7 +244,9 @@ function SalidaFila({
         <span className="font-mono">{hora(salida.horaSalida)}</span>
         <span className="flex-1">
           {salida.origen} → {salida.destino}
-          <span className="text-slate-400"> · {salida.conductor ?? 'sin conductor'}</span>
+          <span className="text-slate-400">
+            {' · '}{salida.unidad ?? 'sin unidad'}{salida.conductor ? ` · ${salida.conductor}` : ''}
+          </span>
         </span>
         <span className="text-slate-500">{salida.boletos} boletos</span>
         <span className={`rounded px-2 py-0.5 text-xs ${CHIP[salida.estado] ?? 'bg-slate-100'}`}>
@@ -255,11 +258,16 @@ function SalidaFila({
   );
 }
 
-function DetalleViaje({ salida }: { salida: SalidaDelDia }) {
+function DetalleViaje({
+  salida,
+}: { salida: SalidaDelDia }) {
   const qc = useQueryClient();
   const [error, setError] = useState<string | null>(null);
   const [manifiestos, setManifiestos] = useState<ManifiestosEncolados | null>(null);
   const [boletoDetalle, setBoletoDetalle] = useState<string | null>(null);
+  const [conductorId, setConductorId] = useState('');
+
+  const conductores = useQuery({ queryKey: ['catalogos', 'conductores'], queryFn: listarConductores });
 
   const lista = useQuery({
     queryKey: ['viajes', 'checklist', salida.salidaId],
@@ -284,6 +292,62 @@ function DetalleViaje({ salida }: { salida: SalidaDelDia }) {
     onSuccess: (m) => { setManifiestos(m); invalidar(); },
     onError: alError,
   });
+  const asignar = useMutation({
+    mutationFn: () => asignarConductor(salida.salidaId, conductorId),
+    onSuccess: () => { setConductorId(''); invalidar(); },
+    onError: alError,
+  });
+  const [avisoMovimiento, setAvisoMovimiento] = useState<string | null>(null);
+  const mover = useMutation({
+    mutationFn: () => moverUnidad(salida.salidaId),
+    onSuccess: (r) => {
+      setAvisoMovimiento(
+        r.unidadDesplazadaId
+          ? `Movida a ${r.salidasAfectadas} salida(s) más tarde. Quedó sin horario una unidad: reacomódala a mano.`
+          : `Movida a ${r.salidasAfectadas} salida(s) más tarde.`,
+      );
+      invalidar();
+    },
+    onError: alError,
+  });
+  const [mostrarExtra, setMostrarExtra] = useState(false);
+  const [destinoExtraOrden, setDestinoExtraOrden] = useState<number | ''>('');
+  const [nombreExtra, setNombreExtra] = useState('');
+  const [telefonoExtra, setTelefonoExtra] = useState('');
+  const [metodoExtra, setMetodoExtra] = useState<'efectivo' | 'transferencia'>('efectivo');
+  const [efectivoExtra, setEfectivoExtra] = useState('');
+  const [referenciaExtra, setReferenciaExtra] = useState('');
+  const [resultadoExtra, setResultadoExtra] = useState<string | null>(null);
+
+  const paradasExtra = useQuery({
+    queryKey: ['viajes', 'paradas', salida.salidaId],
+    queryFn: () => paradasDeSalida(salida.salidaId),
+    enabled: mostrarExtra,
+  });
+
+  const extra = useMutation({
+    mutationFn: () => venderAsientoExtra(salida.salidaId, {
+      contactoTelefono: telefonoExtra,
+      origenOrden: 0,
+      destinoOrden: Number(destinoExtraOrden),
+      nombre: nombreExtra,
+      metodo: metodoExtra,
+      ...(metodoExtra === 'efectivo' ? { efectivoRecibido: Number(efectivoExtra) } : {}),
+      ...(metodoExtra === 'transferencia' && referenciaExtra ? { referencia: referenciaExtra } : {}),
+    }),
+    onSuccess: (r) => {
+      setResultadoExtra(`Folio ${r.folio} · asiento ${r.asientoNum} · $${r.importe}`);
+      setMostrarExtra(false);
+      setDestinoExtraOrden('');
+      setNombreExtra('');
+      setTelefonoExtra('');
+      setEfectivoExtra('');
+      setReferenciaExtra('');
+      invalidar();
+    },
+    onError: alError,
+  });
+
   const enRuta = useMutation({
     mutationFn: () => marcarEnRuta(salida.salidaId),
     onSuccess: invalidar,
@@ -298,6 +362,151 @@ function DetalleViaje({ salida }: { salida: SalidaDelDia }) {
   return (
     <div className="border-t px-4 py-3 space-y-3">
       {error && <p className="text-sm text-red-600">{error}</p>}
+
+      {salida.estado === 'programada' && (
+        <div className="flex flex-wrap items-center gap-2 rounded border border-slate-200 bg-slate-50/60 px-3 py-2 text-sm">
+          <span className="text-slate-500">Conductor real</span>
+          <select
+            value={conductorId}
+            onChange={(e) => setConductorId(e.target.value)}
+            className="rounded border px-2 py-1"
+          >
+            <option value="">
+              {salida.conductor ? `— cambiar (hoy: ${salida.conductor}) —` : '— elegir —'}
+            </option>
+            {conductores.data?.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+          </select>
+          <button
+            onClick={() => asignar.mutate()}
+            disabled={!conductorId || asignar.isPending}
+            className="rounded border px-3 py-1 text-xs disabled:opacity-50"
+          >
+            {asignar.isPending ? 'Asignando…' : 'Asignar conductor'}
+          </button>
+          <span className="text-xs text-slate-400">Antes de imprimir el manifiesto.</span>
+        </div>
+      )}
+
+      {salida.estado === 'programada' && salida.unidadId != null && salida.boletos === 0 && (
+        <div className="flex flex-wrap items-center gap-2 rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm">
+          <span className="text-amber-800">
+            Sin pasajeros — recorre {salida.unidad ?? 'la unidad'} al resto del día (esta salida se cancela)
+          </span>
+          <button
+            onClick={() => {
+              if (window.confirm(`¿Recorrer ${salida.unidad ?? 'la unidad'} al resto del día y cancelar esta salida de las ${hora(salida.horaSalida)}?`)) {
+                mover.mutate();
+              }
+            }}
+            disabled={mover.isPending}
+            className="rounded border border-amber-700 px-3 py-1 text-xs text-amber-800 disabled:opacity-50"
+          >
+            {mover.isPending ? 'Moviendo…' : 'Mover unidad'}
+          </button>
+          {avisoMovimiento && <span className="text-xs text-amber-700">{avisoMovimiento}</span>}
+        </div>
+      )}
+
+      {salida.estado === 'programada' && (
+        <div className="rounded border border-slate-200 bg-slate-50/60 px-3 py-2 text-sm">
+          {!mostrarExtra ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                onClick={() => setMostrarExtra(true)}
+                className="rounded border px-3 py-1 text-xs disabled:opacity-50"
+              >
+                Vender asiento extra
+              </button>
+              <span className="text-xs text-slate-500">
+                Hasta 2 por unidad, sin tocar el mapa — cuando el cupo ya se agotó.
+              </span>
+              {resultadoExtra && <span className="text-xs text-green-700">Vendido: {resultadoExtra}</span>}
+            </div>
+          ) : (
+            <form
+              onSubmit={(e) => { e.preventDefault(); extra.mutate(); }}
+              className="grid gap-2 sm:grid-cols-2"
+            >
+              <div className="sm:col-span-2 text-xs font-medium text-slate-600">
+                Asiento extra — un pasajero, pago de contado completo (no reservación, no anticipo)
+              </div>
+              <label className="text-xs">
+                Destino
+                <select
+                  required
+                  value={destinoExtraOrden}
+                  onChange={(e) => setDestinoExtraOrden(e.target.value === '' ? '' : Number(e.target.value))}
+                  className="mt-0.5 w-full rounded border px-2 py-1"
+                >
+                  <option value="">— elegir —</option>
+                  {(paradasExtra.data ?? [])
+                    .filter((p) => p.orden > 0)
+                    .map((p) => <option key={p.orden} value={p.orden}>{p.punto}</option>)}
+                </select>
+              </label>
+              <label className="text-xs">
+                Nombre del pasajero
+                <input
+                  required value={nombreExtra} onChange={(e) => setNombreExtra(e.target.value)}
+                  className="mt-0.5 w-full rounded border px-2 py-1"
+                />
+              </label>
+              <label className="text-xs">
+                Teléfono de contacto
+                <input
+                  required value={telefonoExtra} onChange={(e) => setTelefonoExtra(e.target.value)}
+                  className="mt-0.5 w-full rounded border px-2 py-1"
+                />
+              </label>
+              <label className="text-xs">
+                Cobro
+                <select
+                  value={metodoExtra}
+                  onChange={(e) => setMetodoExtra(e.target.value as 'efectivo' | 'transferencia')}
+                  className="mt-0.5 w-full rounded border px-2 py-1"
+                >
+                  <option value="efectivo">Efectivo</option>
+                  <option value="transferencia">Transferencia</option>
+                </select>
+              </label>
+              {metodoExtra === 'efectivo' ? (
+                <label className="text-xs">
+                  Recibe (efectivo)
+                  <input
+                    required type="number" min={0} step="1" value={efectivoExtra}
+                    onChange={(e) => setEfectivoExtra(e.target.value)}
+                    className="mt-0.5 w-full rounded border px-2 py-1"
+                  />
+                </label>
+              ) : (
+                <label className="text-xs">
+                  Referencia / folio SPEI
+                  <input
+                    value={referenciaExtra} onChange={(e) => setReferenciaExtra(e.target.value)}
+                    className="mt-0.5 w-full rounded border px-2 py-1"
+                  />
+                </label>
+              )}
+              <div className="sm:col-span-2 flex gap-2">
+                <button
+                  type="submit"
+                  disabled={extra.isPending || destinoExtraOrden === ''}
+                  className="btn-primario px-3 py-1 text-xs disabled:opacity-50"
+                >
+                  {extra.isPending ? 'Vendiendo…' : 'Cobrar y emitir'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMostrarExtra(false)}
+                  className="rounded border px-3 py-1 text-xs text-slate-500"
+                >
+                  Cancelar
+                </button>
+              </div>
+            </form>
+          )}
+        </div>
+      )}
 
       <div className="flex flex-wrap gap-2">
         <button

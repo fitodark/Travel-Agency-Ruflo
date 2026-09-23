@@ -1,8 +1,10 @@
 /**
- * Cambio de conductor — los cuatro casos (contra PostgreSQL real).
+ * Asignación del conductor real de una salida (contra PostgreSQL real).
  *
  * Blueprint v0.2 · docs/architecture/02-modelo-datos.md §5.3
- *                  docs/architecture/04-riesgos-roadmap.md §3 (F3, criterios 3 y 4)
+ *                  Regla de QA (Ses. 75, migración 0074): la unidad, no el
+ *                  conductor, determina el mapa — asignar/cambiar el conductor
+ *                  nunca vuelve a tocar el mapa, los cupos ni los boletos.
  */
 
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -17,11 +19,10 @@ import { crearConductorTipo, crearUsuario, seedRuta, venderEn, type RutaFixture 
 const local = process.env['LOCAL_DATABASE_URL'];
 const run = local ? describe : describe.skip;
 
-run('cambio de conductor (PostgreSQL real)', () => {
+run('asignación de conductor (PostgreSQL real)', () => {
   let db: Client;
   let fx: RutaFixture;
   let salidaId: string;
-  let gerente: string;
   let vendedor: string;
 
   beforeAll(async () => {
@@ -38,149 +39,77 @@ run('cambio de conductor (PostgreSQL real)', () => {
       `SELECT id FROM core.salida WHERE horario_id = $1 LIMIT 1`, [fx.horarioId],
     );
     salidaId = sal.rows[0]!.id;
-    gerente = await crearUsuario(db, 'gerente');
     vendedor = await crearUsuario(db, 'vendedor');
   });
   afterEach(async () => { await db.query('ROLLBACK'); });
 
-  const otroConductorSprinter = async (): Promise<string> => {
-    const { rows } = await db.query<{ id: string }>(
-      `INSERT INTO core.conductor (nombre, tipo_unidad_id) VALUES ('Relevo', $1) RETURNING id`,
-      [fx.tipoUnidadId],
-    );
-    return rows[0]!.id;
-  };
-  const mapaSnapshot = async (): Promise<{ asientos: number; conductor: string }> => {
-    const { rows } = await db.query<{ n: number; c: string }>(
+  const mapaSnapshot = async (): Promise<{ asientos: number; conductor: string | null }> => {
+    const { rows } = await db.query<{ n: number; c: string | null }>(
       `SELECT jsonb_array_length(mapa_snapshot->'asientos') AS n, conductor_nombre_snapshot AS c
          FROM core.salida WHERE id = $1`, [salidaId],
     );
     return { asientos: rows[0]!.n, conductor: rows[0]!.c };
   };
 
-  // -------------------------------------------------------------------------
-  // Caso 3 — sin boletos vendidos: libre, re-materializa mapa y cupos
-  // -------------------------------------------------------------------------
-  it('caso 3 · sin boletos: el cambio re-materializa el mapa y el cupo', async () => {
-    const mini = await crearConductorTipo(db);
-    const r = await cambiarConductor(db, {
-      salidaId, conductorNuevoId: mini.conductorId, usuarioId: vendedor,
-    });
-    expect(r).toMatchObject({ caso: 3, estado: 'aplicado', boletosAfectados: 0 });
-
-    expect((await mapaSnapshot()).asientos, 'ahora el mapa es el de la unidad chica').toBe(6);
-    const cupo = await cupoDeSalida(db, salidaId);
-    expect(cupo[0]!.bloques.sort()).toEqual(['X0', 'X1']);
-  });
-
-  // -------------------------------------------------------------------------
-  // Caso 1 — compatible: NO toca mapa ni cupos
-  // -------------------------------------------------------------------------
-  it('caso 1 · relevo del mismo tipo: cambia el conductor y nada más', async () => {
+  it('asigna el conductor sin tocar el mapa ni los cupos, aunque haya boletos vendidos', async () => {
     await venderEn(db, { salidaId, sucursalId: fx.sucursales[0]!, usuarioId: vendedor, asiento: 5 });
     const cupoAntes = await cupoDeSalida(db, salidaId);
 
+    const relevo = await crearConductorTipo(db);
     const r = await cambiarConductor(db, {
-      salidaId, conductorNuevoId: await otroConductorSprinter(), usuarioId: vendedor,
+      salidaId, conductorNuevoId: relevo.conductorId, usuarioId: vendedor,
     });
-    expect(r).toMatchObject({ caso: 1, estado: 'aplicado', boletosAfectados: 0 });
+    expect(r.cambioId).toEqual(expect.any(String));
 
-    expect((await mapaSnapshot()).asientos, 'el mapa NO cambia').toBe(18);
+    expect((await mapaSnapshot()).asientos, 'el mapa NO cambia: es de la unidad, no del conductor').toBe(18);
     expect(await cupoDeSalida(db, salidaId), 'el cupo NO cambia').toEqual(cupoAntes);
-    expect((await mapaSnapshot()).conductor).toBe('Relevo');
-  });
 
-  it('caso 1 · otro tipo de unidad pero con los mismos bloques también es compatible', async () => {
-    await venderEn(db, { salidaId, sucursalId: fx.sucursales[0]!, usuarioId: vendedor, asiento: 5 });
-    const mapaRes = await db.query<{ mapa: object }>(
-      `SELECT mapa FROM core.tipo_unidad WHERE clave = 'SPRINTER-18'`,
+    const { rows: cond } = await db.query<{ nombre: string }>(
+      `SELECT nombre FROM core.conductor WHERE id = $1`, [relevo.conductorId],
     );
-    const clon = await crearConductorTipo(db, {
-      mapa: mapaRes.rows[0]!.mapa, numAsientos: 18, clave: `SPR-CLON-${Date.now()}`,
-    });
-
-    const r = await cambiarConductor(db, { salidaId, conductorNuevoId: clon.conductorId, usuarioId: vendedor });
-    expect(r.caso).toBe(1);
+    expect((await mapaSnapshot()).conductor).toBe(cond[0]!.nombre);
   });
 
-  // -------------------------------------------------------------------------
-  // Caso 2 — incompatible (criterio 4 de F3)
-  // -------------------------------------------------------------------------
-  it('caso 2 · un vendedor NO puede forzar un cambio incompatible', async () => {
+  it('un conductor de un tipo de unidad totalmente distinto también es válido: el mapa sigue siendo el de la unidad', async () => {
     await venderEn(db, { salidaId, sucursalId: fx.sucursales[0]!, usuarioId: vendedor, asiento: 15 });
-    const mini = await crearConductorTipo(db);
+    const mini = await crearConductorTipo(db);   // 6 plazas — antes de 0074 esto hubiera sido "incompatible"
 
-    await expect(cambiarConductor(db, {
-      salidaId, conductorNuevoId: mini.conductorId, usuarioId: vendedor,
-    })).rejects.toThrow(/bloqueado para el rol vendedor/i);
-  });
+    await cambiarConductor(db, { salidaId, conductorNuevoId: mini.conductorId, usuarioId: vendedor });
 
-  it('caso 2 · sin conexión queda pendiente para la siguiente sync, sin tocar la salida', async () => {
-    await venderEn(db, { salidaId, sucursalId: fx.sucursales[0]!, usuarioId: vendedor, asiento: 15 });
-    const mini = await crearConductorTipo(db);
-
-    const r = await cambiarConductor(db, {
-      salidaId, conductorNuevoId: mini.conductorId, usuarioId: gerente, conConexion: false,
-    });
-    expect(r).toMatchObject({ caso: 2, estado: 'pendiente', boletosAfectados: 0 });
-
-    expect((await mapaSnapshot()).asientos, 'la salida no se tocó').toBe(18);
+    expect((await mapaSnapshot()).asientos, 'sigue siendo el mapa de la unidad (18)').toBe(18);
     const { rows } = await db.query<{ estado: string }>(
-      `SELECT estado FROM core.cambio_conductor WHERE id = $1`, [r.cambioId],
+      `SELECT estado FROM core.boleto WHERE salida_id = $1 AND asiento_num = 15`, [salidaId],
     );
-    expect(rows[0]!.estado).toBe('pendiente');
+    expect(rows[0]!.estado, 'el boleto ya vendido sigue emitido, nadie lo marca huérfano').toBe('emitido');
   });
 
-  it('caso 2 · con conexión, el gerente fuerza: encola los huérfanos y abre excepción crítica', async () => {
-    const bValido = await venderEn(db, { salidaId, sucursalId: fx.sucursales[0]!, usuarioId: vendedor, asiento: 3 });
-    const bHuerfano = await venderEn(db, { salidaId, sucursalId: fx.sucursales[0]!, usuarioId: vendedor, asiento: 15 });
-    const mini = await crearConductorTipo(db);   // 6 plazas: el 15 no existe
-
-    const r = await cambiarConductor(db, {
-      salidaId, conductorNuevoId: mini.conductorId, usuarioId: gerente, motivo: 'baja del conductor',
-    });
-    expect(r).toMatchObject({ caso: 2, estado: 'aplicado', boletosAfectados: 1 });
-
-    expect((await mapaSnapshot()).asientos, 'el mapa se recalculó').toBe(6);
-
-    const { rows: estados } = await db.query<{ id: string; estado: string }>(
-      `SELECT id, estado FROM core.boleto WHERE id = ANY($1::uuid[])`, [[bValido, bHuerfano]],
-    );
-    const porId = new Map(estados.map((e) => [e.id, e.estado]));
-    expect(porId.get(bValido), 'el que sí cabe sigue emitido').toBe('emitido');
-    expect(porId.get(bHuerfano), 'el huérfano entra a la cola de reasignación').toBe('conflicto_sobreventa');
-
-    const { rows: oc } = await db.query<{ estado: string }>(
-      `SELECT estado FROM core.asiento_ocupacion WHERE boleto_id = $1`, [bHuerfano],
-    );
-    expect(oc[0]!.estado).toBe('conflicto');
-
-    const { rows: exc } = await db.query<{ n: string }>(
-      `SELECT count(*) AS n FROM sync.excepcion
-        WHERE tipo = 'mapa_incompatible' AND severidad = 'critica' AND entidad_id = $1`,
-      [bHuerfano],
-    );
-    expect(Number(exc[0]!.n)).toBe(1);
-  });
-
-  // -------------------------------------------------------------------------
-  // Caso 4 — salida en ruta o finalizada
-  // -------------------------------------------------------------------------
-  it('caso 4 · una salida en ruta no admite cambio de conductor', async () => {
+  it('una salida en ruta no admite asignar conductor', async () => {
     await db.query(`UPDATE core.salida SET estado = 'en_ruta' WHERE id = $1`, [salidaId]);
+    const relevo = await crearConductorTipo(db);
     await expect(cambiarConductor(db, {
-      salidaId, conductorNuevoId: await otroConductorSprinter(), usuarioId: gerente,
-    })).rejects.toThrow(/en_ruta|caso 4/i);
+      salidaId, conductorNuevoId: relevo.conductorId, usuarioId: vendedor,
+    })).rejects.toThrow(/en_ruta/i);
   });
 
-  it('registra siempre una fila en core.cambio_conductor con el caso correcto', async () => {
-    await cambiarConductor(db, {
-      salidaId, conductorNuevoId: await otroConductorSprinter(), usuarioId: vendedor,
+  it('una salida cancelada no admite asignar conductor', async () => {
+    await db.query(`UPDATE core.salida SET estado = 'cancelada' WHERE id = $1`, [salidaId]);
+    const relevo = await crearConductorTipo(db);
+    await expect(cambiarConductor(db, {
+      salidaId, conductorNuevoId: relevo.conductorId, usuarioId: vendedor,
+    })).rejects.toThrow(/cancelada/i);
+  });
+
+  it('registra siempre una fila en core.cambio_conductor', async () => {
+    const relevo = await crearConductorTipo(db);
+    const r = await cambiarConductor(db, {
+      salidaId, conductorNuevoId: relevo.conductorId, usuarioId: vendedor, motivo: 'relevo de turno',
     });
-    const { rows } = await db.query<{ caso: number; conductor_anterior_id: string }>(
-      `SELECT caso, conductor_anterior_id FROM core.cambio_conductor WHERE salida_id = $1`, [salidaId],
+    const { rows } = await db.query<{ conductor_anterior_id: string; conductor_nuevo_id: string; motivo: string }>(
+      `SELECT conductor_anterior_id, conductor_nuevo_id, motivo FROM core.cambio_conductor WHERE id = $1`,
+      [r.cambioId],
     );
-    expect(rows[0]!.caso).toBe(3);   // la salida del beforeEach no tiene boletos
     expect(rows[0]!.conductor_anterior_id).toBe(fx.conductorId);
+    expect(rows[0]!.conductor_nuevo_id).toBe(relevo.conductorId);
+    expect(rows[0]!.motivo).toBe('relevo de turno');
   });
 });

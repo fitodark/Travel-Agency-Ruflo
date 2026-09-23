@@ -25,6 +25,8 @@ export interface PuntoRuta {
   sucursalId: string | null;
   /** Hay al menos una ruta activa donde este punto permite ascenso. */
   puedeOriginar: boolean;
+  /** Ids de los puntos alcanzables como destino si este punto se usa como origen. */
+  destinos: string[];
 }
 
 export function listarPuntos(): Promise<PuntoRuta[]> {
@@ -33,4 +35,14 @@ export function listarPuntos(): Promise<PuntoRuta[]> {
 
 export function parametros(): Promise<Record<string, unknown>> {
   return api<Record<string, unknown>>('/catalogos/parametros');
+}
+
+export interface Conductor {
+  id: string;
+  nombre: string;
+}
+
+/** Conductores activos, para asignar el real antes del manifiesto (0074). */
+export function listarConductores(): Promise<Conductor[]> {
+  return api<Conductor[]>('/catalogos/conductores');
 }

@@ -122,7 +122,7 @@ run('registro de venta (PostgreSQL real)', () => {
     const r = await registrarVenta(db, {
       salidaId: c.salidaId, sucursalVentaId: c.sucursales[0]!, usuarioId: c.usuarioId,
       contactoTelefono: '953 111 2222', origenOrden: 0, destinoOrden: 3,
-      pasajeros: [dosPasajeros[0]!], esReservacion: true, ahora: c.ahora,
+      pasajeros: [dosPasajeros[0]!], ahora: c.ahora,
     });
 
     expect(r.estado).toBe('pendiente');
@@ -164,7 +164,7 @@ run('registro de venta (PostgreSQL real)', () => {
     const r = await registrarVenta(db, {
       salidaId: c.salidaId, sucursalVentaId: c.sucursales[0]!, usuarioId: c.usuarioId,
       contactoTelefono: '953 111 2222', origenOrden: 0, destinoOrden: 3,
-      pasajeros: dosPasajeros, esReservacion: true, clienteId: cli[0]!.id,
+      pasajeros: dosPasajeros, clienteId: cli[0]!.id,
       pago: { metodo: 'efectivo', monto: 300, esAbono: true, corteCajaId: c.corteId },
       ahora: c.ahora,
     });
@@ -190,8 +190,7 @@ run('registro de venta (PostgreSQL real)', () => {
     const r = await registrarVenta(db, {
       salidaId: c.salidaId, sucursalVentaId: c.sucursales[0]!, usuarioId: c.usuarioId,
       contactoTelefono: '953 111 2222', origenOrden: 0, destinoOrden: 3,
-      pasajeros: dosPasajeros, esReservacion: true,
-      pago: { metodo: 'efectivo', monto: 300, esAbono: true, corteCajaId: c.corteId },
+      pasajeros: dosPasajeros, pago: { metodo: 'efectivo', monto: 300, esAbono: true, corteCajaId: c.corteId },
       ahora: c.ahora,
     });
     expect(r.comprobanteImpreso).toBe(true);
@@ -221,7 +220,7 @@ run('registro de venta (PostgreSQL real)', () => {
     const r = await registrarVenta(db, {
       salidaId: c.salidaId, sucursalVentaId: c.sucursales[0]!, usuarioId: c.usuarioId,
       contactoTelefono: '953 111 2222', origenOrden: 0, destinoOrden: 3,
-      pasajeros: dosPasajeros, esReservacion: true, clienteId: cli[0]!.id,
+      pasajeros: dosPasajeros, clienteId: cli[0]!.id,
       pago: { metodo: 'efectivo', monto: 300, esAbono: true, corteCajaId: c.corteId },
       ahora: c.ahora,
     });
@@ -347,7 +346,7 @@ run('registro de venta (PostgreSQL real)', () => {
     const r = await registrarVenta(db, {
       salidaId: c.salidaId, sucursalVentaId: c.sucursales[0]!, usuarioId: c.usuarioId,
       contactoTelefono: '953 111 2222', origenOrden: 0, destinoOrden: 3,
-      pasajeros: dosPasajeros, esReservacion: true, ahora: c.ahora,
+      pasajeros: dosPasajeros, ahora: c.ahora,
     });
     expect(r.estado).toBe('pendiente');
 

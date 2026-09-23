@@ -51,8 +51,6 @@ export interface RegistrarVentaArgs {
   origenOrden: number;
   destinoOrden: number;
   pasajeros: Pasajero[];
-  /** Cómo se originó; inmutable, para reportes. No cambia que se imprima o no. */
-  esReservacion?: boolean;
   clienteId?: string;
   /** Omitir para una reservación sin pago. */
   pago?: PagoInput;
@@ -135,7 +133,7 @@ export async function registrarVenta(
             boletos, print_jobs, imprimible, comprobante_impreso
        FROM core.registrar_venta(
          $1::uuid, $2::uuid, $3::uuid, $4::text, $5::int, $6::int, $7::jsonb,
-         $8::boolean, $9::uuid, $10::jsonb, $11::boolean, $12::timestamptz)`,
+         $8::uuid, $9::jsonb, $10::boolean, $11::timestamptz)`,
     [
       args.salidaId,
       args.sucursalVentaId,
@@ -144,7 +142,6 @@ export async function registrarVenta(
       args.origenOrden,
       args.destinoOrden,
       JSON.stringify(args.pasajeros.map(pasajeroAJson)),
-      args.esReservacion ?? false,
       args.clienteId ?? null,
       args.pago ? JSON.stringify(pagoAJson(args.pago)) : null,
       args.conConexion ?? true,

@@ -17,7 +17,6 @@ import { registrarVenta } from '../../src/ventas/venta.js';
 import {
   antesDelCierre, crearUsuario, seedCorte, seedSalida, sembrarOcupacion,
 } from '../ventas/fixture.js';
-import { crearConductorTipo } from './fixture.js';
 
 const local = process.env['LOCAL_DATABASE_URL'];
 const run = local ? describe : describe.skip;
@@ -114,7 +113,7 @@ run('captura de abordaje y estado del viaje (PostgreSQL real)', () => {
       salidaId: fx.salidaId, sucursalVentaId: fx.sucursales[0]!, usuarioId,
       contactoTelefono: '953 111 2222', origenOrden: 0, destinoOrden: 3,
       pasajeros: [{ asientoNum: 2, nombre: 'Ana Ruiz', importe: 450 }],
-      esReservacion: true, clienteId: cli[0]!.id,
+      clienteId: cli[0]!.id,
       pago: { metodo: 'efectivo', monto: 150, esAbono: true, corteCajaId: corteId },
       ahora,
     });
@@ -145,23 +144,18 @@ run('captura de abordaje y estado del viaje (PostgreSQL real)', () => {
   });
 
   // -------------------------------------------------------------------------
-  it('marcar en ruta fija el estado, la hora del sistema y —si se pasa— el conductor', async () => {
+  it('marcar en ruta fija el estado y la hora del sistema (0074: el conductor se asigna aparte)', async () => {
     const { fx, usuarioId } = await prep();
-    const { conductorId } = await crearConductorTipo(db);
     const t = new Date('2026-09-12T07:05:00Z');
 
-    const r = await marcarEnRuta(db, {
-      salidaId: fx.salidaId, usuarioId, conductorId, ahora: t,
-    });
+    const r = await marcarEnRuta(db, { salidaId: fx.salidaId, usuarioId, ahora: t });
     expect(r.estado).toBe('en_ruta');
     expect(r.salidaRealEn!.getTime()).toBe(t.getTime());
 
-    const { rows } = await db.query<{ estado: string; real: Date; cond: string }>(
-      `SELECT estado, salida_real_en AS real, conductor_id AS cond
-         FROM core.salida WHERE id = $1`, [fx.salidaId],
+    const { rows } = await db.query<{ estado: string; real: Date }>(
+      `SELECT estado, salida_real_en AS real FROM core.salida WHERE id = $1`, [fx.salidaId],
     );
     expect(rows[0]!.estado).toBe('en_ruta');
-    expect(rows[0]!.cond).toBe(conductorId);
 
     const { rows: ev } = await db.query<{ n: string }>(
       `SELECT count(*) AS n FROM core.evento_salida

@@ -107,7 +107,6 @@ export interface NuevaVenta {
   origenOrden: number;
   destinoOrden: number;
   contactoTelefono: string;
-  esReservacion?: boolean;
   clienteId?: string;
   conConexion?: boolean;
   pasajeros: Pasajero[];
