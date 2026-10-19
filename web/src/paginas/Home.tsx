@@ -16,20 +16,32 @@ import { Icono } from '../componentes/iconos';
  */
 export function Home() {
   const { sesion } = useSesion();
-  const corte = useQuery({ queryKey: ['caja', 'corte'], queryFn: corteAbierto });
+  const sinSucursal = !sesion?.sucursalId;
+  const corte = useQuery({
+    queryKey: ['caja', 'corte'], queryFn: corteAbierto, enabled: !sinSucursal,
+  });
   const hayCorte = Boolean(corte.data);
 
   return (
     <div className="mx-auto max-w-3xl space-y-6">
       <div>
         <h1 className="text-2xl font-semibold tracking-tight text-tinta">
-          Bienvenido a {sesion?.sucursalNombre ?? 'la terminal'}
+          Bienvenido {sinSucursal ? '— modo consulta' : `a ${sesion?.sucursalNombre ?? 'la terminal'}`}
         </h1>
         <p className="mt-1 text-sm capitalize text-slate-500">
           {sesion?.rol ?? 'terminal de venta'}
         </p>
       </div>
 
+      {sinSucursal ? (
+        <div className="tarjeta p-5">
+          <p className="text-sm text-slate-500">
+            Estás en modo consulta, sin una sucursal activa. Puedes ver el Tablero y
+            Administración; para vender, operar la caja o lo demás, el sistema te va a pedir
+            elegir una sucursal cuando lo necesites.
+          </p>
+        </div>
+      ) : (
       <div className="tarjeta p-5">
         {corte.isLoading ? (
           <p className="text-sm text-slate-400">Consultando el corte de caja…</p>
@@ -60,6 +72,7 @@ export function Home() {
           </>
         )}
       </div>
+      )}
 
       <div className="grid gap-3 sm:grid-cols-3">
         {/* Siempre va a /vender; si no hay corte, RequiereCorte redirige a /caja. */}

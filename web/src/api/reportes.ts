@@ -3,6 +3,8 @@ import { api } from './cliente';
 export interface Rango {
   desde: string;
   hasta: string;
+  /** Obligatorio para gerente en modo consulta (0076); opcional para administrador. */
+  sucursalId?: string;
 }
 
 export interface FilaVentas {
@@ -85,8 +87,11 @@ export interface Excepciones {
   abiertas: ExcepcionAbierta[];
 }
 
-const qs = (r: Rango): string =>
-  `?desde=${encodeURIComponent(r.desde)}&hasta=${encodeURIComponent(r.hasta)}`;
+const qs = (r: Rango): string => {
+  const p = new URLSearchParams({ desde: r.desde, hasta: r.hasta });
+  if (r.sucursalId) p.set('sucursalId', r.sucursalId);
+  return `?${p.toString()}`;
+};
 
 export const reporteVentas = (r: Rango): Promise<FilaVentas[]> =>
   api<FilaVentas[]>(`/reportes/ventas${qs(r)}`);

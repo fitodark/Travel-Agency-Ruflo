@@ -63,6 +63,34 @@ export function movimientos(corteId: string): Promise<Movimiento[]> {
   return api<Movimiento[]>(`/caja/corte/${corteId}/movimientos`);
 }
 
+export interface PasajeroBoleto { folio: string; pasajero: string; importe: number }
+
+export interface MovimientoDetalle {
+  id: string;
+  corteCajaId: string;
+  tipo: 'ingreso' | 'egreso';
+  origenTipo: string;
+  origenId: string | null;
+  descripcion: string | null;
+  monto: number;
+  usuarioId: string;
+  usuario: string;
+  registradoEn: string;
+  activo: boolean;
+  /** Solo si `origenTipo` es `pago_boleto`: cómo se cobró. */
+  metodoPago: string | null;
+  referenciaTransferencia: string | null;
+  esAbono: boolean | null;
+  ventaId: string | null;
+  /** Pasajeros/folios de la venta (abonos incluidos), si `ventaId` no es null. */
+  pasajeros: PasajeroBoleto[] | null;
+}
+
+/** Movimientos con detalle de pago (0077), para /historial/:id/movimientos. */
+export function movimientosCorteDetalle(corteId: string): Promise<MovimientoDetalle[]> {
+  return api<MovimientoDetalle[]>(`/caja/corte/${corteId}/movimientos-detalle`);
+}
+
 export interface CobradoEnCorresponsal {
   conteo: number;
   suma: number;
@@ -88,6 +116,7 @@ export interface CorteHistorial {
   estado: 'abierto' | 'cerrado';
   abiertoEn: string;
   cerradoEn: string | null;
+  usuarioAperturaId: string;
   usuarioApertura: string;
   usuarioCierre: string | null;
   saldoInicial: number;
@@ -104,17 +133,51 @@ export interface CorteHistorial {
   diferencia: number | null;
 }
 
+export interface FiltrosHistorial {
+  desde?: string; hasta?: string; estado?: 'abierto' | 'cerrado'; sucursalId?: string;
+  usuarioAperturaId?: string;
+}
+
+export interface HistorialCortesPagina {
+  filas: CorteHistorial[];
+  /** Total que cumple el filtro, antes de paginar. */
+  total: number;
+  pagina: number;
+  porPagina: 20 | 50 | 100;
+}
+
+const aQs = (obj: object): string => {
+  const p = new URLSearchParams();
+  for (const [k, v] of Object.entries(obj) as [string, string | number | undefined][]) {
+    if (v !== undefined && v !== '') p.set(k, String(v));
+  }
+  const s = p.toString();
+  return s ? `?${s}` : '';
+};
+
 /**
- * Historial de cortes que el rol puede ver (lo decide la API por la sesión):
- * admin = todos; gerente = su sucursal; vendedor = los que él abrió.
+ * Historial de cortes, paginado (0077, restringido a admin/gerente): admin =
+ * todas las sucursales; gerente = la que elija entre las suyas. En modo
+ * consulta (0076, sin sucursal activa) hay que mandar `sucursalId` explícito.
  */
 export function historialCortes(
-  filtros: { desde?: string; hasta?: string; estado?: 'abierto' | 'cerrado' } = {},
-): Promise<CorteHistorial[]> {
-  const qs = new URLSearchParams(
-    Object.entries(filtros).filter(([, v]) => v) as [string, string][],
-  ).toString();
-  return api<CorteHistorial[]>(`/caja/cortes${qs ? `?${qs}` : ''}`);
+  filtros: FiltrosHistorial & { pagina?: number; porPagina?: 20 | 50 | 100 } = {},
+): Promise<HistorialCortesPagina> {
+  return api<HistorialCortesPagina>(`/caja/cortes${aQs(filtros)}`);
+}
+
+export interface UsuarioBreve { id: string; nombre: string }
+
+/** Combo de filtro "usuario que abrió el corte" (0077). */
+export function cortesUsuariosVisibles(
+  filtros: Omit<FiltrosHistorial, 'usuarioAperturaId'> = {},
+): Promise<UsuarioBreve[]> {
+  return api<UsuarioBreve[]>(`/caja/cortes/usuarios${aQs(filtros)}`);
+}
+
+/** Resumen de un corte por id (0077), para el encabezado del detalle. */
+export function corteDetalle(corteId: string): Promise<CorteHistorial> {
+  return api<CorteHistorial>(`/caja/cortes/${corteId}`);
 }
 
 export function registrarEgreso(

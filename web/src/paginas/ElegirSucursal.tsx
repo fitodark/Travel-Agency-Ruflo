@@ -10,11 +10,13 @@ import { useSesion } from '../auth/sesion';
  * sobrevivir a un F5 en esta pantalla.
  */
 export function ElegirSucursal() {
-  const { sesion, refrescar } = useSesion();
+  const { sesion, refrescar, entrarModoConsulta } = useSesion();
   const navigate = useNavigate();
   const [sucursales, setSucursales] = useState<SucursalBreve[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [eligiendo, setEligiendo] = useState<string | null>(null);
+  const [enConsulta, setEnConsulta] = useState(false);
+  const puedeConsulta = sesion?.rol === 'administrador' || sesion?.rol === 'gerente';
 
   useEffect(() => {
     // Si ya hay sucursal, no hay nada que elegir.
@@ -49,6 +51,20 @@ export function ElegirSucursal() {
     return null;
   }
 
+  const irAModoConsulta = async () => {
+    setError(null);
+    setEnConsulta(true);
+    try {
+      await entrarModoConsulta();
+      sessionStorage.removeItem('donaji.sucursales');
+      navigate('/', { replace: true });
+    } catch {
+      setError('No se pudo entrar en modo consulta.');
+    } finally {
+      setEnConsulta(false);
+    }
+  };
+
   return (
     <div className="flex h-full items-center justify-center bg-gradient-to-br from-lienzo via-lienzo to-brand-50 p-6">
       <div className="tarjeta w-[22rem] space-y-3 p-6 shadow-panel">
@@ -77,6 +93,20 @@ export function ElegirSucursal() {
           ))}
         </div>
         {error && <p className="text-sm text-red-600">{error}</p>}
+        {puedeConsulta && (
+          <>
+            <div className="flex items-center gap-2 pt-1 text-xs text-slate-400">
+              <span className="h-px flex-1 bg-slate-200" />o<span className="h-px flex-1 bg-slate-200" />
+            </div>
+            <button
+              onClick={() => void irAModoConsulta()}
+              disabled={enConsulta || eligiendo !== null}
+              className="btn-fantasma w-full justify-center disabled:opacity-50"
+            >
+              Entrar en modo consulta (sin sucursal)
+            </button>
+          </>
+        )}
       </div>
     </div>
   );

@@ -4,6 +4,8 @@ import { cambiarSucursal } from '../api/auth';
 import { useSesion } from '../auth/sesion';
 import { Icono } from './iconos';
 
+const MODO_CONSULTA = '__consulta__';
+
 interface ItemNav { a: string; texto: string; icono: string; permiso?: string; exacto?: boolean }
 
 const NAV_OPERACION: ItemNav[] = [
@@ -13,6 +15,7 @@ const NAV_OPERACION: ItemNav[] = [
   { a: '/viajes', texto: 'Viajes', icono: 'viajes' },
   { a: '/verificar', texto: 'Verificar boleto', icono: 'verificar' },
   { a: '/tablero', texto: 'Tablero', icono: 'tablero', permiso: 'dashboard.ver' },
+  { a: '/historial', texto: 'Historial de cortes', icono: 'historial', permiso: 'dashboard.ver' },
   { a: '/sincronizacion', texto: 'Sincronización', icono: 'sync' },
   { a: '/clientes', texto: 'Clientes', icono: 'clientes' },
 ];
@@ -83,15 +86,16 @@ function BotonSidebar(
 }
 
 function SelectorSucursal() {
-  const { sesion, refrescar } = useSesion();
+  const { sesion, refrescar, entrarModoConsulta } = useSesion();
   const [cambiando, setCambiando] = useState(false);
   const [error, setError] = useState<string | null>(null);
   if (!sesion) return null;
 
   const sucursales = sesion.sucursales;
-  const nombre = sesion.sucursalNombre ?? '—';
+  const puedeConsulta = sesion.rol === 'administrador' || sesion.rol === 'gerente';
+  const nombre = sesion.modoConsulta ? 'Modo consulta' : (sesion.sucursalNombre ?? '—');
 
-  if (sucursales.length <= 1) {
+  if (sucursales.length <= 1 && !puedeConsulta) {
     return (
       <span className="inline-flex items-center gap-1.5 rounded-md bg-brand-50 px-2.5 py-1 font-medium text-brand-800">
         <Icono nombre="sucursales" width={14} height={14} />
@@ -101,11 +105,12 @@ function SelectorSucursal() {
   }
 
   const elegir = async (id: string) => {
-    if (id === sesion.sucursalId) return;
+    if (id === (sesion.modoConsulta ? MODO_CONSULTA : sesion.sucursalId)) return;
     setError(null);
     setCambiando(true);
     try {
-      await cambiarSucursal(id);
+      if (id === MODO_CONSULTA) await entrarModoConsulta();
+      else await cambiarSucursal(id);
       await refrescar();
     } catch {
       setError('No se pudo cambiar (¿corte de caja abierto?)');
@@ -118,7 +123,7 @@ function SelectorSucursal() {
     <span className="flex items-center gap-2">
       <span className="text-brand-600"><Icono nombre="sucursales" width={15} height={15} /></span>
       <select
-        value={sesion.sucursalId ?? ''}
+        value={sesion.modoConsulta ? MODO_CONSULTA : (sesion.sucursalId ?? '')}
         disabled={cambiando}
         onChange={(e) => void elegir(e.target.value)}
         className="campo-sm font-medium text-slate-700 disabled:opacity-50"
@@ -127,6 +132,7 @@ function SelectorSucursal() {
         {sucursales.map((s) => (
           <option key={s.id} value={s.id}>{s.nombre}</option>
         ))}
+        {puedeConsulta && <option value={MODO_CONSULTA}>Modo consulta (sin sucursal)</option>}
       </select>
       {error && <span className="text-xs text-red-600">{error}</span>}
     </span>

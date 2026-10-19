@@ -19,6 +19,8 @@ export interface Yo {
   rol: 'administrador' | 'gerente' | 'vendedor';
   sucursalId: string | null;
   sucursalNombre: string | null;
+  /** `true` si administrador/gerente entró a propósito sin sucursal (0076). */
+  modoConsulta: boolean;
   sucursales: SucursalBreve[];
   permisos: string[];
 }
@@ -42,6 +44,11 @@ export function cambiarSucursal(sucursalId: string): Promise<{ sucursalId: strin
     method: 'POST',
     body: JSON.stringify({ sucursalId }),
   });
+}
+
+/** Entra (o vuelve) a modo consulta: administrador/gerente sin sucursal activa (0076). */
+export function entrarModoConsulta(): Promise<{ ok: true }> {
+  return api('/auth/modo-consulta', { method: 'POST' });
 }
 
 export function yo(): Promise<Yo> {

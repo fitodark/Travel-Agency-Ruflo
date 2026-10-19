@@ -53,16 +53,31 @@ export interface ConfigTicketRow {
  * Devuelve `null` si no hay ninguna configurada, que NO es un error: una terminal recién
  * instalada opera sin impresora hasta que llega el equipo. La venta debe poder cerrarse y
  * el `print_job` quedar encolado; lo que no puede es reventar en el mostrador.
+ *
+ * Si existe un override LOCAL de emergencia (0078, `src/printing/override-local.ts`) para
+ * esta fila, sus datos de transporte ganan sobre los replicados: es el camino para que un
+ * administrador corrija la IP sin internet, sin depender de que la nube vuelva a estar
+ * disponible para publicarlo.
  */
 export async function cargarConfigImpresora(
   client: Client,
   sucursalId: string,
 ): Promise<ConfigImpresoraRow | null> {
+  // El override gana COMO FILA, no campo a campo: si existe, manda incluso en
+  // los campos que deja en null (p. ej. `ip` al pasar a transporte usb). Un
+  // `coalesce` por columna dejaría filtrar el dato viejo de la fila replicada
+  // en cuanto el override no lo trajera.
   const { rows } = await client.query<ConfigImpresoraRow>(
-    `SELECT id, sucursal_id, nombre, transporte, host(ip) AS ip, puerto, usb_nombre_cola,
-            ancho_mm, ancho_cols, code_page, soporta_qr_nativo
-       FROM core.v_config_impresora_vigente
-      WHERE sucursal_id = $1`,
+    `SELECT v.id, v.sucursal_id, v.nombre,
+            CASE WHEN o.impresora_id IS NOT NULL THEN o.transporte ELSE v.transporte END AS transporte,
+            host(CASE WHEN o.impresora_id IS NOT NULL THEN o.ip ELSE v.ip END) AS ip,
+            CASE WHEN o.impresora_id IS NOT NULL THEN o.puerto ELSE v.puerto END AS puerto,
+            CASE WHEN o.impresora_id IS NOT NULL THEN o.usb_nombre_cola ELSE v.usb_nombre_cola END
+              AS usb_nombre_cola,
+            v.ancho_mm, v.ancho_cols, v.code_page, v.soporta_qr_nativo
+       FROM core.v_config_impresora_vigente v
+       LEFT JOIN core.config_impresora_override_local o ON o.impresora_id = v.id
+      WHERE v.sucursal_id = $1`,
     [sucursalId],
   );
   return rows[0] ?? null;

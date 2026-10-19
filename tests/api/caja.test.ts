@@ -184,7 +184,9 @@ run('API · /caja (PostgreSQL real)', () => {
   });
 
   // -------------------------------------------------------------------------
-  // GET /caja/cortes — historial visible por rol (0045).
+  // GET /caja/cortes — historial de cortes (0045), pantalla propia restringida
+  // a administrador/gerente (`dashboard.ver`) desde 0077. Paginado: ver
+  // tests/api/historial-cortes.test.ts.
   // -------------------------------------------------------------------------
   describe('GET /caja/cortes (historial por rol)', () => {
     /**
@@ -206,7 +208,8 @@ run('API · /caja (PostgreSQL real)', () => {
       const corteB = await abrirCorte(tokVB, 200);
       return { sucA, sucB, tokVA, tokVB, tokGer, tokAdm, corteA, corteB };
     }
-    const ids = (r: { json: () => { corteId: string }[] }) => r.json().map((c) => c.corteId);
+    const ids = (r: { json: () => { filas: { corteId: string }[] } }) =>
+      r.json().filas.map((c) => c.corteId);
 
     it('el administrador ve los cortes de ambas sucursales', async () => {
       const e = await escena();
@@ -222,10 +225,10 @@ run('API · /caja (PostgreSQL real)', () => {
       expect(ids(r)).not.toContain(e.corteB);
     });
 
-    it('el vendedor ve solo los que él abrió', async () => {
+    it('un vendedor ya no puede ver el historial de cortes (403, 0077)', async () => {
       const e = await escena();
       const r = await app.inject({ method: 'GET', url: '/caja/cortes', headers: bearer(e.tokVA) });
-      expect(ids(r)).toEqual([e.corteA]);
+      expect(r.statusCode).toBe(403);
     });
 
     it('un vendedor no puede ver los movimientos de un corte ajeno (403)', async () => {

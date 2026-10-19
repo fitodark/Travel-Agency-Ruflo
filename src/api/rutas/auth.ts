@@ -9,8 +9,10 @@ import { corteAbiertoDe } from '../../caja/corte.js';
 import { login } from '../../auth/login.js';
 import { permisosDe } from '../../auth/rbac.js';
 import { aplicarCodigoRevocacion } from '../../auth/revocacion.js';
-import { cerrarSesion, seleccionarSucursal, sucursalesDe } from '../../auth/sesion.js';
-import { conflicto, entradaInvalida, noAutorizado } from '../errores.js';
+import {
+  cerrarSesion, entrarModoConsulta, seleccionarSucursal, sucursalesDe,
+} from '../../auth/sesion.js';
+import { conflicto, entradaInvalida, noAutorizado, prohibido } from '../errores.js';
 import { exige } from '../autenticar.js';
 
 const emailPassword = {
@@ -110,6 +112,22 @@ export async function rutasAuth(app: FastifyInstance): Promise<void> {
     },
   );
 
+  // Modo consulta (0076): administrador/gerente entra o vuelve sin sucursal
+  // activa — solo para ver reportes, el historial de cortes de otra sucursal,
+  // o Administración. Misma guarda de corte abierto que cambiar-sucursal.
+  app.post('/modo-consulta', { preHandler: exige({ conSucursal: false }) }, async (req) => {
+    const actual = req.sesion.sucursalId;
+    if (actual && (await corteAbiertoDe(app.db, actual))) {
+      throw conflicto('Cierra el corte de caja de la sucursal actual antes de entrar en modo consulta');
+    }
+    const r = await entrarModoConsulta(app.db, { token: req.sesion.token, ahora: app.ahora });
+    if (!r.ok) {
+      if (r.motivo === 'sesion_invalida') throw noAutorizado();
+      throw prohibido();
+    }
+    return { ok: true };
+  });
+
   app.post('/logout', { preHandler: exige({ conSucursal: false }) }, async (req) => {
     await cerrarSesion(app.db, req.sesion.token, 'logout');
     return { ok: true };
@@ -122,6 +140,7 @@ export async function rutasAuth(app: FastifyInstance): Promise<void> {
       rol: req.sesion.rol,
       sucursalId: req.sesion.sucursalId,
       sucursalNombre: sucursales.find((s) => s.id === req.sesion.sucursalId)?.nombre ?? null,
+      modoConsulta: req.sesion.modoConsulta,
       sucursales,
       permisos: await permisosDe(app.db, req.sesion.rol),
     };

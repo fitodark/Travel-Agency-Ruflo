@@ -1151,15 +1151,20 @@ run('D-8 · invariantes de migración que un nodo N-1 necesita', () => {
           AND NOT sync.es_tabla_ingerible('core.' || c.relname)
         ORDER BY 1`,
     );
-    // `core.folio_secuencia` es hoy la ÚNICA tabla de `core` que no puede cruzar, y no
-    // por descuido de esta prueba: no lleva columnas de sync, así que ni genera outbox
-    // ni es ingerible. Es la causa raíz del choque de folios tras reinstalar una
-    // terminal que se reproduce en `caos-reintentos.test.ts`.
+    // `core.folio_secuencia` es la causa raíz del choque de folios tras reinstalar una
+    // terminal que se reproduce en `caos-reintentos.test.ts`: no lleva columnas de
+    // sync, así que ni genera outbox ni es ingerible.
     //
-    // Si aparece OTRA tabla en esta lista, es que alguien agregó una tabla y se le
-    // olvidó `core.registrar_entidad`: sus filas se escribirían en la sucursal y no
+    // `core.config_impresora_override_local` (0078) es la OTRA excepción deliberada:
+    // el override de emergencia para la IP de la impresora sin internet es a propósito
+    // 100% local — nunca debe subir a la nube ni bajar de ella (ver cabecera de
+    // `src/printing/override-local.ts`), así que a propósito no pasa por
+    // `core.registrar_entidad`.
+    //
+    // Si aparece OTRA tabla distinta de estas dos, es que alguien agregó una tabla y se
+    // le olvidó `core.registrar_entidad`: sus filas se escribirían en la sucursal y no
     // llegarían nunca a la nube, sin un solo error.
-    expect(rows.map((r) => r.tabla)).toEqual(['folio_secuencia']);
+    expect(rows.map((r) => r.tabla)).toEqual(['config_impresora_override_local', 'folio_secuencia']);
   }, 60_000);
 
   it('un payload de nodo N-1 al que le faltan columnas se aplica igual', async () => {

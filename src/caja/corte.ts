@@ -167,11 +167,16 @@ export async function corteAbiertoDe(
 //   vendedor      → solo los cortes que él mismo abrió
 // ---------------------------------------------------------------------------
 
-/** Contexto de sesión que decide qué cortes se ven. */
+/**
+ * Contexto de sesión que decide qué cortes se ven. `sucursalId` puede ser
+ * `null` (0076, modo consulta sin sucursal): el rol `administrador` la
+ * ignora igual (ve todas); `gerente` debe traer una sucursal resuelta antes
+ * de llegar aquí (ver `resolverSucursalCaja` en la ruta).
+ */
 export interface AlcanceCorte {
   rol: Rol;
   usuarioId: string;
-  sucursalId: string;
+  sucursalId: string | null;
 }
 
 export interface CorteHistorial {
@@ -181,6 +186,7 @@ export interface CorteHistorial {
   estado: 'abierto' | 'cerrado';
   abiertoEn: Date;
   cerradoEn: Date | null;
+  usuarioAperturaId: string;
   usuarioApertura: string;
   usuarioCierre: string | null;
   saldoInicial: number;
@@ -205,6 +211,7 @@ interface FilaCorteHistorial {
   estado: 'abierto' | 'cerrado';
   abierto_en: Date;
   cerrado_en: Date | null;
+  usuario_apertura_id: string;
   usuario_apertura: string;
   usuario_cierre: string | null;
   saldo_inicial: string;
@@ -215,43 +222,102 @@ interface FilaCorteHistorial {
   saldo_calculado: string;
   saldo_declarado: string | null;
   diferencia: string | null;
+  total: string;
 }
 
 const num = (v: string | null): number | null => (v === null ? null : Number(v));
 
+const filaACorteHistorial = (r: FilaCorteHistorial): CorteHistorial => ({
+  corteId: r.corte_id,
+  sucursalId: r.sucursal_id,
+  sucursal: r.sucursal,
+  estado: r.estado,
+  abiertoEn: r.abierto_en,
+  cerradoEn: r.cerrado_en,
+  usuarioAperturaId: r.usuario_apertura_id,
+  usuarioApertura: r.usuario_apertura,
+  usuarioCierre: r.usuario_cierre,
+  saldoInicial: Number(r.saldo_inicial),
+  ingresos: Number(r.ingresos),
+  egresos: Number(r.egresos),
+  transferencia: Number(r.transferencia),
+  efectivoCalculado: Number(r.efectivo_calculado),
+  saldoCalculado: Number(r.saldo_calculado),
+  saldoDeclarado: num(r.saldo_declarado),
+  diferencia: num(r.diferencia),
+});
+
+export interface HistorialCortesResultado {
+  filas: CorteHistorial[];
+  /** Total de cortes que cumplen el filtro, ANTES de paginar. */
+  total: number;
+}
+
+/**
+ * Historial de cortes, paginado (0077): `limite` por página (20/50/100 en la
+ * SPA) y `offset` para la página pedida. `usuarioAperturaId` acota a quien
+ * abrió el corte (combo alimentado por `cortesUsuariosVisibles`).
+ */
 export async function historialCortes(
   db: Consultable,
   alcance: AlcanceCorte,
-  filtros: { desde?: string; hasta?: string; estado?: 'abierto' | 'cerrado' } = {},
-): Promise<CorteHistorial[]> {
+  filtros: {
+    desde?: string; hasta?: string; estado?: 'abierto' | 'cerrado';
+    usuarioAperturaId?: string; limite?: number; offset?: number;
+  } = {},
+): Promise<HistorialCortesResultado> {
   const { rows } = await db.query<FilaCorteHistorial>(
     `SELECT corte_id, sucursal_id, sucursal, estado, abierto_en, cerrado_en,
-            usuario_apertura, usuario_cierre, saldo_inicial, ingresos, egresos,
-            transferencia, efectivo_calculado, saldo_calculado, saldo_declarado, diferencia
-       FROM core.f_cortes_visibles($1::text, $2::uuid, $3::uuid, $4::date, $5::date, $6::text)`,
+            usuario_apertura_id, usuario_apertura, usuario_cierre, saldo_inicial,
+            ingresos, egresos, transferencia, efectivo_calculado, saldo_calculado,
+            saldo_declarado, diferencia, total
+       FROM core.f_cortes_visibles(
+              $1::text, $2::uuid, $3::uuid, $4::date, $5::date, $6::text,
+              $7::uuid, $8::int, $9::int)`,
+    [
+      alcance.rol, alcance.usuarioId, alcance.sucursalId,
+      filtros.desde ?? null, filtros.hasta ?? null, filtros.estado ?? null,
+      filtros.usuarioAperturaId ?? null, filtros.limite ?? 20, filtros.offset ?? 0,
+    ],
+  );
+  return {
+    filas: rows.map(filaACorteHistorial),
+    total: rows.length > 0 ? Number(rows[0]!.total) : 0,
+  };
+}
+
+export interface UsuarioBreve { id: string; nombre: string }
+
+/** Quiénes abrieron un corte dentro del historial visible (0077): combo de filtro. */
+export async function cortesUsuariosVisibles(
+  db: Consultable,
+  alcance: AlcanceCorte,
+  filtros: { desde?: string; hasta?: string; estado?: 'abierto' | 'cerrado' } = {},
+): Promise<UsuarioBreve[]> {
+  const { rows } = await db.query<{ usuario_id: string; nombre: string }>(
+    `SELECT usuario_id, nombre
+       FROM core.cortes_usuarios_visibles($1::text, $2::uuid, $3::uuid, $4::date, $5::date, $6::text)`,
     [
       alcance.rol, alcance.usuarioId, alcance.sucursalId,
       filtros.desde ?? null, filtros.hasta ?? null, filtros.estado ?? null,
     ],
   );
-  return rows.map((r) => ({
-    corteId: r.corte_id,
-    sucursalId: r.sucursal_id,
-    sucursal: r.sucursal,
-    estado: r.estado,
-    abiertoEn: r.abierto_en,
-    cerradoEn: r.cerrado_en,
-    usuarioApertura: r.usuario_apertura,
-    usuarioCierre: r.usuario_cierre,
-    saldoInicial: Number(r.saldo_inicial),
-    ingresos: Number(r.ingresos),
-    egresos: Number(r.egresos),
-    transferencia: Number(r.transferencia),
-    efectivoCalculado: Number(r.efectivo_calculado),
-    saldoCalculado: Number(r.saldo_calculado),
-    saldoDeclarado: num(r.saldo_declarado),
-    diferencia: num(r.diferencia),
-  }));
+  return rows.map((r) => ({ id: r.usuario_id, nombre: r.nombre }));
+}
+
+/** Resumen de un corte por id (0077), para el encabezado del detalle. `null` si no existe. */
+export async function corteDetalle(
+  db: Consultable, corteId: string,
+): Promise<CorteHistorial | null> {
+  const { rows } = await db.query<FilaCorteHistorial>(
+    `SELECT corte_id, sucursal_id, sucursal, estado, abierto_en, cerrado_en,
+            usuario_apertura_id, usuario_apertura, usuario_cierre, saldo_inicial,
+            ingresos, egresos, transferencia, efectivo_calculado, saldo_calculado,
+            saldo_declarado, diferencia, NULL AS total
+       FROM core.corte_detalle($1::uuid)`,
+    [corteId],
+  );
+  return rows[0] ? filaACorteHistorial(rows[0]) : null;
 }
 
 /** ¿El alcance de esta sesión puede ver este corte (y sus movimientos)? */

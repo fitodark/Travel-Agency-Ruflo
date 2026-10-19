@@ -12,6 +12,7 @@ const RUTAS: Record<string, ReactElement> = {
   caja: <><rect x="3" y="6" width="18" height="12" rx="2" {...P} /><path d="M3 10h18M7 15h3" {...P} /></>,
   viajes: <><rect x="4" y="4" width="16" height="13" rx="2" {...P} /><path d="M4 11h16M8 21v-1M16 21v-1M7 17v1M17 17v1" {...P} /><circle cx="8" cy="14" r="1" fill="currentColor" /><circle cx="16" cy="14" r="1" fill="currentColor" /></>,
   tablero: <><path d="M4 20V10M10 20V4M16 20v-7M22 20H2" {...P} /></>,
+  historial: <><circle cx="12" cy="13" r="8" {...P} /><path d="M12 9v4l3 2" {...P} /><path d="M8 3h8" {...P} /></>,
   sync: <><path d="M4 12a8 8 0 0 1 13.7-5.7L20 8M20 4v4h-4M20 12a8 8 0 0 1-13.7 5.7L4 16M4 20v-4h4" {...P} /></>,
   clientes: <><circle cx="9" cy="8" r="3" {...P} /><path d="M3.5 19a5.5 5.5 0 0 1 11 0M16 8a3 3 0 0 1 0 6M17 19a5.5 5.5 0 0 0-3-4.9" {...P} /></>,
   sucursales: <><path d="M4 21V7l8-4 8 4v14M4 21h16" {...P} /><path d="M9 21v-5h6v5M9 10h1M14 10h1M9 13h1M14 13h1" {...P} /></>,

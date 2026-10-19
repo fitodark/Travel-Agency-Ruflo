@@ -28,19 +28,35 @@ const SEV_COLOR: Record<Severidad, string> = {
 };
 
 export function Dashboard() {
-  const { puede } = useSesion();
+  const { sesion, puede } = useSesion();
   const [rango, setRango] = useState<Rango>(rangoInicial);
   const [tab, setTab] = useState<Tab>('Ventas');
 
   if (!puede('dashboard.ver')) {
-    return <p className="text-sm text-slate-500">El tablero es solo para administradores.</p>;
+    return <p className="text-sm text-slate-500">El tablero es solo para administradores y gerentes.</p>;
   }
+
+  const esGerente = sesion?.rol === 'gerente';
+  const veAuditoria = puede('auditoria.ver');
+  const tabs = TABS.filter((t) => veAuditoria || !(['Gastos', 'Salud', 'Excepciones'] as Tab[]).includes(t));
+  const faltaSucursalReporte = esGerente && !rango.sucursalId;
 
   return (
     <div className="max-w-5xl space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-xl font-semibold">Tablero</h1>
         <div className="flex items-center gap-2 text-sm text-slate-500">
+          {esGerente && (
+            <select
+              value={rango.sucursalId ?? ''}
+              onChange={(e) => setRango((r) => ({ ...r, sucursalId: e.target.value || undefined }))}
+              className="rounded border px-2 py-1"
+              aria-label="Sucursal a consultar"
+            >
+              <option value="">Elige una sucursal…</option>
+              {sesion!.sucursales.map((s) => <option key={s.id} value={s.id}>{s.nombre}</option>)}
+            </select>
+          )}
           <input
             type="date" value={rango.desde}
             onChange={(e) => setRango((r) => ({ ...r, desde: e.target.value }))}
@@ -60,7 +76,7 @@ export function Dashboard() {
       </p>
 
       <div className="flex flex-wrap gap-1 border-b">
-        {TABS.map((t) => (
+        {tabs.map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -73,12 +89,18 @@ export function Dashboard() {
         ))}
       </div>
 
-      {tab === 'Ventas' && <Ventas rango={rango} />}
-      {tab === 'Ventas vs. caja' && <VentasVsCaja rango={rango} />}
-      {tab === 'Cortes' && <Cortes rango={rango} />}
-      {tab === 'Gastos' && <Gastos rango={rango} />}
-      {tab === 'Salud' && <Salud />}
-      {tab === 'Excepciones' && <Excepciones />}
+      {faltaSucursalReporte ? (
+        <p className="text-sm text-slate-400">Elige una sucursal para ver sus reportes.</p>
+      ) : (
+        <>
+          {tab === 'Ventas' && <Ventas rango={rango} />}
+          {tab === 'Ventas vs. caja' && <VentasVsCaja rango={rango} />}
+          {tab === 'Cortes' && <Cortes rango={rango} />}
+          {tab === 'Gastos' && veAuditoria && <Gastos rango={rango} />}
+          {tab === 'Salud' && veAuditoria && <Salud />}
+          {tab === 'Excepciones' && veAuditoria && <Excepciones />}
+        </>
+      )}
     </div>
   );
 }

@@ -23,6 +23,8 @@ export interface Sesion {
   /** `null` mientras el usuario no ha elegido sucursal: la sesión no puede operar. */
   sucursalId: string | null;
   sucursalElegidaEn: Date | null;
+  /** `true` si administrador/gerente entró a propósito sin sucursal (modo consulta, 0076). */
+  modoConsulta: boolean;
   emitidaEn: Date;
   expiraEn: Date;
 }
@@ -33,6 +35,7 @@ interface FilaSesion {
   rol: string;
   sucursal_id: string | null;
   sucursal_elegida_en: Date | null;
+  modo_consulta: boolean;
   emitida_en: Date;
   expira_en: Date;
 }
@@ -43,6 +46,7 @@ const mapear = (f: FilaSesion): Sesion => ({
   rol: f.rol,
   sucursalId: f.sucursal_id,
   sucursalElegidaEn: f.sucursal_elegida_en,
+  modoConsulta: f.modo_consulta,
   emitidaEn: f.emitida_en,
   expiraEn: f.expira_en,
 });
@@ -74,7 +78,7 @@ export async function abrirSesion(
        VALUES ($1::uuid, $2::uuid,
                CASE WHEN $2::uuid IS NULL THEN NULL ELSE $3::timestamptz END,
                $4::text, $3::timestamptz, $5::timestamptz)
-       RETURNING id, usuario_id, sucursal_id, sucursal_elegida_en, emitida_en, expira_en
+       RETURNING id, usuario_id, sucursal_id, sucursal_elegida_en, modo_consulta, emitida_en, expira_en
      )
      SELECT n.*, u.rol
        FROM nueva n
@@ -100,7 +104,7 @@ export async function verificarSesion(
 ): Promise<Sesion | null> {
   const ahora = opts.ahora?.() ?? new Date();
   const { rows } = await node.query<FilaSesion>(
-    `SELECT s.id, s.usuario_id, s.sucursal_id, s.sucursal_elegida_en,
+    `SELECT s.id, s.usuario_id, s.sucursal_id, s.sucursal_elegida_en, s.modo_consulta,
             s.emitida_en, s.expira_en, u.rol
        FROM auth_local.sesion s
        JOIN core.usuario u ON u.id = s.usuario_id
@@ -179,11 +183,41 @@ export async function seleccionarSucursal(
 
   await node.query(
     `UPDATE auth_local.sesion
-        SET sucursal_id = $2, sucursal_elegida_en = $3
+        SET sucursal_id = $2, sucursal_elegida_en = $3, modo_consulta = false
       WHERE id = $1`,
     [args.token, args.sucursalId, ahora],
   );
   return { ok: true, sucursalId: args.sucursalId };
+}
+
+export type ModoConsultaResultado =
+  | { ok: true }
+  | { ok: false; motivo: 'sesion_invalida' | 'rol_no_autorizado' };
+
+/**
+ * Entra (o vuelve) a modo consulta: la sesión se queda SIN sucursal a
+ * propósito — solo para administrador/gerente (req. QA, migr. 0076). Quien
+ * llama (la ruta) es responsable de comprobar antes que no quede un corte de
+ * caja abierto en la sucursal que se deja, igual que `cambiar-sucursal`.
+ */
+export async function entrarModoConsulta(
+  node: Consultable,
+  args: { token: string; ahora?: () => Date },
+): Promise<ModoConsultaResultado> {
+  const ahora = args.ahora?.() ?? new Date();
+  const sesion = await verificarSesion(node, args.token, { ahora: () => ahora });
+  if (!sesion) return { ok: false, motivo: 'sesion_invalida' };
+  if (sesion.rol !== 'administrador' && sesion.rol !== 'gerente') {
+    return { ok: false, motivo: 'rol_no_autorizado' };
+  }
+
+  await node.query(
+    `UPDATE auth_local.sesion
+        SET sucursal_id = NULL, sucursal_elegida_en = NULL, modo_consulta = true
+      WHERE id = $1`,
+    [args.token],
+  );
+  return { ok: true };
 }
 
 /** Cierra una sesión. Idempotente: cerrar una ya cerrada no hace nada. */

@@ -2,8 +2,124 @@ import { useState, type FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ErrorApi } from '../../api/cliente';
 import { configurarImpresora, listarImpresoras, listarSucursales } from '../../api/admin';
+import {
+  fijarOverrideLocal, listarImpresorasLocales, quitarOverrideLocal, type Transporte,
+} from '../../api/impresora-local';
 
 const msg = (e: unknown) => (e instanceof ErrorApi ? e.message : 'No se pudo guardar la impresora.');
+
+/**
+ * Ajuste de emergencia SIN internet (0078): QA detectó que, sin conexión a la
+ * nube, el administrador no tenía ningún camino para corregir la IP de la
+ * impresora aunque estuviera físicamente en la sucursal — `/admin/*` exige
+ * nube por diseño. Este bloque habla con `/impresora-local` en vez de
+ * `/admin`, así que funciona con o sin conexión. La nube sigue siendo la
+ * fuente de verdad: al volver el internet, corrige la IP real aquí arriba.
+ */
+function OverrideLocalImpresora() {
+  const qc = useQueryClient();
+  const lista = useQuery({ queryKey: ['impresora-local'], queryFn: listarImpresorasLocales });
+  const [error, setError] = useState<string | null>(null);
+  const [f, setF] = useState<Record<string, { transporte: Transporte; ip: string; puerto: string; usbNombreCola: string }>>({});
+
+  const campo = (id: string) => f[id] ?? { transporte: 'tcp' as Transporte, ip: '', puerto: '9100', usbNombreCola: '' };
+  const setCampo = (id: string, patch: Partial<ReturnType<typeof campo>>) =>
+    setF({ ...f, [id]: { ...campo(id), ...patch } });
+
+  const fijar = useMutation({
+    mutationFn: ({ id }: { id: string }) => {
+      const c = campo(id);
+      return fijarOverrideLocal(id, {
+        transporte: c.transporte,
+        ...(c.transporte === 'tcp'
+          ? { ip: c.ip, puerto: Number(c.puerto) || undefined }
+          : { usbNombreCola: c.usbNombreCola }),
+        nota: 'Ajustado localmente sin conexión a la nube',
+      });
+    },
+    onSuccess: () => { setError(null); void qc.invalidateQueries({ queryKey: ['impresora-local'] }); },
+    onError: (e) => setError(msg(e)),
+  });
+  const quitar = useMutation({
+    mutationFn: (id: string) => quitarOverrideLocal(id),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['impresora-local'] }),
+    onError: (e) => setError(msg(e)),
+  });
+
+  if (lista.data?.length === 0) return null;
+
+  return (
+    <div className="tarjeta space-y-3 border-amber-200 bg-amber-50/40 p-4">
+      <div>
+        <p className="text-sm font-medium text-amber-900">Ajuste de emergencia (sin internet)</p>
+        <p className="text-sm text-amber-800">
+          Si la IP de la impresora de ESTA terminal cambió y no hay conexión a la nube para
+          corregirla arriba, ajústala aquí: toma efecto de inmediato en esta máquina. Cuando
+          vuelva el internet, corrige la IP real en el formulario de arriba — esto es un
+          parche local, no reemplaza la configuración de la nube.
+        </p>
+      </div>
+      {error && <p className="text-sm text-red-600">{error}</p>}
+      <div className="space-y-3">
+        {lista.data?.map((i) => {
+          const c = campo(i.id);
+          return (
+            <div key={i.id} className="rounded-lg border border-amber-200 bg-white p-3 text-sm">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="font-medium">{i.nombre}</span>
+                <span className="text-slate-500">
+                  Vigente ahora: {i.transporte === 'tcp' ? `${i.ip}:${i.puerto}` : `USB · ${i.usbNombreCola}`}
+                  {i.override && ' (override local activo)'}
+                </span>
+              </div>
+              <div className="mt-2 grid gap-2 sm:grid-cols-[auto_1fr_auto_auto]">
+                <select
+                  value={c.transporte}
+                  onChange={(e) => setCampo(i.id, { transporte: e.target.value as Transporte })}
+                  className="campo"
+                >
+                  <option value="tcp">TCP (red)</option>
+                  <option value="usb">USB</option>
+                </select>
+                {c.transporte === 'tcp' ? (
+                  <>
+                    <input
+                      value={c.ip} onChange={(e) => setCampo(i.id, { ip: e.target.value })}
+                      placeholder="192.168.1.110" className="campo"
+                    />
+                    <input
+                      value={c.puerto} onChange={(e) => setCampo(i.id, { puerto: e.target.value })}
+                      className="campo" placeholder="9100"
+                    />
+                  </>
+                ) : (
+                  <input
+                    value={c.usbNombreCola} onChange={(e) => setCampo(i.id, { usbNombreCola: e.target.value })}
+                    placeholder="XP-80" className="campo sm:col-span-2"
+                  />
+                )}
+                <button
+                  type="button" onClick={() => fijar.mutate({ id: i.id })} disabled={fijar.isPending}
+                  className="btn-fantasma"
+                >
+                  Aplicar aquí
+                </button>
+              </div>
+              {i.override && (
+                <button
+                  type="button" onClick={() => quitar.mutate(i.id)} disabled={quitar.isPending}
+                  className="mt-2 text-xs text-slate-500 underline"
+                >
+                  Quitar override y volver a lo de la nube
+                </button>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
 
 export function AdminImpresoras() {
   const qc = useQueryClient();
@@ -36,6 +152,8 @@ export function AdminImpresoras() {
         Una impresora por sucursal. Los cambios son inmediatos: la IP es hardware presente, no una política.
       </p>
       {error && <p className="text-sm text-red-600">{error}</p>}
+
+      <OverrideLocalImpresora />
 
       <details className="tarjeta p-4">
         <summary className="cursor-pointer text-sm font-medium">+ Configurar impresora</summary>

@@ -25,7 +25,10 @@ async function resolverSesion(req: FastifyRequest): Promise<ContextoSesion | nul
   const s = await verificarSesion(req.server.db, token, { ahora: req.server.ahora });
   if (!s) return null;
 
-  return { token, usuarioId: s.usuarioId, rol: s.rol, sucursalId: s.sucursalId };
+  return {
+    token, usuarioId: s.usuarioId, rol: s.rol, sucursalId: s.sucursalId,
+    modoConsulta: s.modoConsulta,
+  };
 }
 
 export interface OpcionesExige {

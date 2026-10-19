@@ -180,4 +180,63 @@ run('vistas de vigencia (PostgreSQL real)', () => {
     );
     expect((await cargarConfigTicket(client, agenciaId))?.leyenda_pie).toBe('Reciente');
   });
+
+  // ---------------------------------------------------------------------------
+  // Override LOCAL de emergencia (0078): gana sobre la fila replicada cuando
+  // existe, sin tocar `core.config_impresora` (ver src/printing/override-local.ts).
+  // ---------------------------------------------------------------------------
+  describe('override local de emergencia (0078)', () => {
+    let usuarioId: string;
+    let impresoraId: string;
+
+    beforeEach(async () => {
+      const u = await client.query<{ id: string }>(
+        `INSERT INTO core.usuario (id, nombre, email, rol)
+         VALUES (core.uuid_v7(), 'Admin Cfg', 'admin-cfg-' || core.uuid_v7() || '@x.test', 'administrador')
+         RETURNING id`,
+      );
+      usuarioId = u.rows[0]!.id;
+      const i = await client.query<{ id: string }>(
+        `INSERT INTO core.config_impresora (id, sucursal_id, nombre, transporte, ip, es_predeterminada)
+         VALUES (core.uuid_v7(), $1, 'Caja 1', 'tcp', '192.168.1.50'::inet, true)
+         RETURNING id`,
+        [sucursalId],
+      );
+      impresoraId = i.rows[0]!.id;
+    });
+
+    it('sin override, devuelve la IP replicada de siempre', async () => {
+      const cfg = await cargarConfigImpresora(client, sucursalId);
+      expect(cfg?.ip).toBe('192.168.1.50');
+    });
+
+    it('con override, la IP local gana sobre la replicada', async () => {
+      await client.query(
+        `INSERT INTO core.config_impresora_override_local
+           (impresora_id, transporte, ip, actualizado_en, actualizado_por)
+         VALUES ($1, 'tcp', '10.0.0.77'::inet, now(), $2)`,
+        [impresoraId, usuarioId],
+      );
+      const cfg = await cargarConfigImpresora(client, sucursalId);
+      expect(cfg?.ip).toBe('10.0.0.77');
+      // La fila replicada en sí NO se tocó.
+      const { rows } = await client.query<{ ip: string }>(
+        `SELECT host(ip) AS ip FROM core.config_impresora WHERE id = $1`, [impresoraId],
+      );
+      expect(rows[0]!.ip).toBe('192.168.1.50');
+    });
+
+    it('un override a usb reemplaza también el transporte, no solo la ip', async () => {
+      await client.query(
+        `INSERT INTO core.config_impresora_override_local
+           (impresora_id, transporte, usb_nombre_cola, actualizado_en, actualizado_por)
+         VALUES ($1, 'usb', 'XP-80', now(), $2)`,
+        [impresoraId, usuarioId],
+      );
+      const cfg = await cargarConfigImpresora(client, sucursalId);
+      expect(cfg?.transporte).toBe('usb');
+      expect(cfg?.usb_nombre_cola).toBe('XP-80');
+      expect(cfg?.ip).toBeNull();
+    });
+  });
 });

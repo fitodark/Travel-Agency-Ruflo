@@ -18,6 +18,8 @@ export interface ContextoSesion {
   rol: string;
   /** `null` si el usuario aún no eligió sucursal; la mayoría de rutas lo exigen. */
   sucursalId: string | null;
+  /** `true` si administrador/gerente entró a propósito sin sucursal (0076). */
+  modoConsulta: boolean;
 }
 
 declare module 'fastify' {

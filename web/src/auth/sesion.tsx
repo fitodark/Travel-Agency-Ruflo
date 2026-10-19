@@ -4,6 +4,7 @@ import {
 } from 'react';
 import { fijarAlExpirarSesion, fijarToken, tokenActual } from '../api/cliente';
 import {
+  entrarModoConsulta as apiEntrarModoConsulta,
   login as apiLogin, logout as apiLogout, yo, type SucursalBreve, type Yo,
 } from '../api/auth';
 
@@ -12,6 +13,7 @@ interface Sesion {
   rol: 'administrador' | 'gerente' | 'vendedor';
   sucursalId: string | null;
   sucursalNombre: string | null;
+  modoConsulta: boolean;
   sucursales: SucursalBreve[];
   permisos: string[];
 }
@@ -19,7 +21,7 @@ interface Sesion {
 interface ContextoSesion {
   sesion: Sesion | null;
   cargando: boolean;
-  /** `true` si hay usuario pero aún no eligió sucursal. */
+  /** `true` si hay usuario pero aún no eligió sucursal Y no está en modo consulta. */
   faltaSucursal: boolean;
   /** `true` si la última sesión se cerró porque la API la rechazó (401). */
   expirada: boolean;
@@ -29,6 +31,8 @@ interface ContextoSesion {
   refrescar: () => Promise<void>;
   cerrar: () => Promise<void>;
   puede: (permiso: string) => boolean;
+  /** Entra (o vuelve) a modo consulta sin sucursal — solo administrador/gerente (0076). */
+  entrarModoConsulta: () => Promise<void>;
 }
 
 const Ctx = createContext<ContextoSesion | null>(null);
@@ -44,6 +48,7 @@ export function ProveedorSesion({ children }: { children: ReactNode }) {
       rol: y.rol,
       sucursalId: y.sucursalId,
       sucursalNombre: y.sucursalNombre,
+      modoConsulta: y.modoConsulta,
       sucursales: y.sucursales,
       permisos: y.permisos,
     });
@@ -88,6 +93,11 @@ export function ProveedorSesion({ children }: { children: ReactNode }) {
     [refrescar],
   );
 
+  const entrarModoConsulta = useCallback(async () => {
+    await apiEntrarModoConsulta();
+    await refrescar();
+  }, [refrescar]);
+
   const cerrar = useCallback(async () => {
     try {
       await apiLogout();
@@ -102,14 +112,15 @@ export function ProveedorSesion({ children }: { children: ReactNode }) {
     () => ({
       sesion,
       cargando,
-      faltaSucursal: sesion !== null && sesion.sucursalId === null,
+      faltaSucursal: sesion !== null && sesion.sucursalId === null && !sesion.modoConsulta,
       expirada,
       iniciar,
       refrescar,
       cerrar,
       puede: (permiso) => sesion?.permisos.includes(permiso) ?? false,
+      entrarModoConsulta,
     }),
-    [sesion, cargando, expirada, iniciar, refrescar, cerrar],
+    [sesion, cargando, expirada, iniciar, refrescar, cerrar, entrarModoConsulta],
   );
 
   return <Ctx.Provider value={valor}>{children}</Ctx.Provider>;
