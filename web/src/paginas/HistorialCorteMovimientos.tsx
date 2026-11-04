@@ -157,7 +157,9 @@ export function HistorialCorteMovimientos() {
                     <td className="px-4 py-3">
                       {m.pasajeros?.length
                         ? m.pasajeros.map((p) => `${p.folio} · ${p.pasajero}`).join(', ')
-                        : '—'}
+                        : m.envio
+                          ? `Envío ${m.envio.folio} · ${m.envio.bultos} bulto(s) → ${m.envio.destino} · recibe ${m.envio.destinatario}`
+                          : '—'}
                     </td>
                     <td className="px-3 py-3 text-right">${m.monto}</td>
                   </tr>

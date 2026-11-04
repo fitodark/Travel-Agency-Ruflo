@@ -12,6 +12,7 @@ import { Clientes } from './paginas/Clientes';
 import { Vender } from './paginas/Vender';
 import { Caja } from './paginas/Caja';
 import { Viajes } from './paginas/Viajes';
+import { Paqueteria } from './paginas/Paqueteria';
 import { Verificar } from './paginas/Verificar';
 import { Dashboard } from './paginas/Dashboard';
 import { HistorialCortes } from './paginas/HistorialCortes';
@@ -75,6 +76,7 @@ export function App() {
         />
         <Route path="/caja" element={<Caja />} />
         <Route path="/viajes" element={<RequiereSucursal><Viajes /></RequiereSucursal>} />
+        <Route path="/paqueteria" element={<RequiereSucursal><Paqueteria /></RequiereSucursal>} />
         <Route path="/verificar" element={<RequiereSucursal><Verificar /></RequiereSucursal>} />
         <Route path="/tablero" element={<Dashboard />} />
         <Route path="/historial" element={<HistorialCortes />} />

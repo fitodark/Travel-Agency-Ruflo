@@ -104,6 +104,8 @@ export const CLASE_POR_TABLA: Readonly<Record<string, ClaseEntidad>> = {
   'core.boleto': 'B',
   'core.cliente': 'B',
   'core.print_job': 'B',
+  // Paquetería (0084): la terminal de origen es la dueña del envío.
+  'core.envio': 'B',
 
   // C — Hechos append-only. Nunca se actualizan; su unión converge sola.
   'core.pago': 'C',
@@ -111,6 +113,9 @@ export const CLASE_POR_TABLA: Readonly<Record<string, ClaseEntidad>> = {
   'core.evento_salida': 'C',
   'core.nota_auditoria': 'C',
   'core.cambio_conductor': 'C',
+  // Paquetería (0084): cobro y custodia los escriben origen Y destino.
+  'core.pago_envio': 'C',
+  'core.evento_envio': 'C',
 
   // D — Capacidad compartida. El único conflicto genuino del sistema.
   'core.asiento_ocupacion': 'D',

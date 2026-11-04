@@ -46,6 +46,9 @@ const PREFIJO_CAOS = '019caa5f-%';
 const POC: Array<[string, string]> = [
   ['asiento_lease', `DELETE FROM core.asiento_lease WHERE salida_id::text LIKE $1`],
   ['asiento_ocupacion', `DELETE FROM core.asiento_ocupacion WHERE salida_id::text LIKE $1`],
+  ['evento_envio', `DELETE FROM core.evento_envio WHERE envio_id IN (SELECT id FROM core.envio WHERE salida_id::text LIKE $1)`],
+  ['pago_envio', `DELETE FROM core.pago_envio WHERE envio_id IN (SELECT id FROM core.envio WHERE salida_id::text LIKE $1)`],
+  ['envio', `DELETE FROM core.envio WHERE salida_id::text LIKE $1`],
   ['boleto', `DELETE FROM core.boleto WHERE salida_id::text LIKE $1`],
   ['venta', `DELETE FROM core.venta WHERE salida_id::text LIKE $1`],
   ['cupo_offline', `DELETE FROM core.cupo_offline WHERE salida_id::text LIKE $1`],

@@ -12,6 +12,7 @@ import {
 } from '../api/viajes';
 import { Modal } from '../componentes/ui';
 import { fechaHora, hora } from '../lib/fechas';
+import { despacharEnvios } from '../api/paqueteria';
 
 const mxn = (n: number): string =>
   n.toLocaleString('es-MX', { style: 'currency', currency: 'MXN' });
@@ -241,14 +242,19 @@ function SalidaFila({
         onClick={onToggle}
         className="w-full flex items-center gap-3 px-4 py-3 text-left text-sm"
       >
-        <span className="font-mono">{hora(salida.horaSalida)}</span>
+        <span className="font-mono">{hora(salida.esOrigen ? salida.horaSalida : salida.horaPaso)}</span>
         <span className="flex-1">
+          {!salida.esOrigen && (
+            <span className="mr-2 rounded bg-amber-100 px-1.5 py-0.5 text-xs text-amber-800">de paso</span>
+          )}
           {salida.origen} → {salida.destino}
           <span className="text-slate-400">
             {' · '}{salida.unidad ?? 'sin unidad'}{salida.conductor ? ` · ${salida.conductor}` : ''}
           </span>
         </span>
-        <span className="text-slate-500">{salida.boletos} boletos</span>
+        <span className="text-slate-500">
+          {salida.esOrigen ? `${salida.boletos} boletos` : `${salida.boletosAqui} suben aquí · ${salida.boletos} en total`}
+        </span>
         <span className={`rounded px-2 py-0.5 text-xs ${CHIP[salida.estado] ?? 'bg-slate-100'}`}>
           {salida.estado}
         </span>
@@ -358,12 +364,44 @@ function DetalleViaje({
     onSuccess: invalidar,
     onError: alError,
   });
+  // Paquetería (0086): una terminal intermedia despacha sus paquetes; el origen
+  // lo hace solo al marcar en ruta.
+  const despachar = useMutation({
+    mutationFn: () => despacharEnvios(salida.salidaId),
+    onError: alError,
+  });
 
   return (
     <div className="border-t px-4 py-3 space-y-3">
       {error && <p className="text-sm text-red-600">{error}</p>}
 
-      {salida.estado === 'programada' && (
+      {!salida.esOrigen && (
+        <p className="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+          Salida de paso: sale de {salida.origen} a las {hora(salida.horaSalida)} y pasa por aquí a
+          las {hora(salida.horaPaso)}. Imprime aquí el manifiesto de quienes suben en esta terminal;
+          conductor, unidad y estado del viaje los maneja la terminal de origen.
+        </p>
+      )}
+
+      {!salida.esOrigen && salida.estado !== 'finalizada' && salida.estado !== 'cancelada' && (
+        <div className="flex flex-wrap items-center gap-2 text-sm">
+          <button
+            onClick={() => despachar.mutate()}
+            disabled={despachar.isPending}
+            className="rounded border px-3 py-1.5 text-sm disabled:opacity-50"
+          >
+            Despachar paquetes
+          </button>
+          <span className="text-xs text-slate-500">
+            Al subirlos a la unidad: pasan a «en ruta» los paquetes que salen de aquí.
+          </span>
+          {despachar.data && (
+            <span className="text-xs text-green-700">{despachar.data.despachados} paquete(s) despachado(s).</span>
+          )}
+        </div>
+      )}
+
+      {salida.esOrigen && salida.estado === 'programada' && (
         <div className="flex flex-wrap items-center gap-2 rounded border border-slate-200 bg-slate-50/60 px-3 py-2 text-sm">
           <span className="text-slate-500">Conductor real</span>
           <select
@@ -387,7 +425,7 @@ function DetalleViaje({
         </div>
       )}
 
-      {salida.estado === 'programada' && salida.unidadId != null && salida.boletos === 0 && (
+      {salida.esOrigen && salida.estado === 'programada' && salida.unidadId != null && salida.boletos === 0 && (
         <div className="flex flex-wrap items-center gap-2 rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm">
           <span className="text-amber-800">
             Sin pasajeros — recorre {salida.unidad ?? 'la unidad'} al resto del día (esta salida se cancela)
@@ -516,7 +554,7 @@ function DetalleViaje({
         >
           Generar manifiestos
         </button>
-        {salida.estado === 'programada' && (
+        {salida.esOrigen && salida.estado === 'programada' && (
           <button
             onClick={() => enRuta.mutate()}
             disabled={enRuta.isPending}
@@ -525,7 +563,7 @@ function DetalleViaje({
             Marcar en ruta
           </button>
         )}
-        {salida.estado === 'en_ruta' && (
+        {salida.esOrigen && salida.estado === 'en_ruta' && (
           <button
             onClick={() => finalizar.mutate()}
             disabled={finalizar.isPending}
@@ -728,6 +766,16 @@ function ModalDetalleBoleto({
                 <span className="text-slate-400"> · {detalle.data.venta.clienteNombre}</span>
               )}
             </dd>
+
+            {detalle.data.venta.lugarAbordaje && (
+              <>
+                <dt className="text-slate-500">Aborda en</dt>
+                <dd>
+                  {detalle.data.venta.lugarAbordaje}
+                  <span className="text-slate-400"> · lugar de paso</span>
+                </dd>
+              </>
+            )}
           </dl>
 
           <p className="border-t pt-2 text-xs text-slate-500">
@@ -752,6 +800,7 @@ function ModalDetalleBoleto({
             </button>
             {puedeMover && (
               <CancelarBoleto
+                lugarPaso={detalle.data.venta.lugarAbordaje != null}
                 pending={cancelar.isPending}
                 onConfirmar={(m) => cancelar.mutate(m)}
               />
@@ -838,7 +887,9 @@ function ModalDetalleBoleto({
   );
 }
 
-function CancelarBoleto({ pending, onConfirmar }: { pending: boolean; onConfirmar: (motivo: string) => void }) {
+function CancelarBoleto({ pending, onConfirmar, lugarPaso = false }: {
+  pending: boolean; onConfirmar: (motivo: string) => void; lugarPaso?: boolean;
+}) {
   const [abierto, setAbierto] = useState(false);
   const [motivo, setMotivo] = useState('');
   if (!abierto) {
@@ -851,8 +902,9 @@ function CancelarBoleto({ pending, onConfirmar }: { pending: boolean; onConfirma
   return (
     <div className="w-full rounded-lg border border-red-200 bg-red-50/60 p-3 text-sm">
       <p className="text-red-800">
-        Se libera el asiento y, si hubo pago en efectivo o transferencia verificada, se registra el
-        reembolso en el corte abierto. Hasta 1 h antes de la salida.
+        {lugarPaso
+          ? 'Pasajero de lugar de paso que no se presentó: se libera el asiento (aun con la unidad en ruta) y el monto sale del corte abierto como devolución.'
+          : 'Se libera el asiento y, si hubo pago en efectivo o transferencia verificada, se registra el reembolso en el corte abierto. Hasta 1 h antes de la salida.'}
       </p>
       <input
         value={motivo}

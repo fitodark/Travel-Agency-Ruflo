@@ -25,7 +25,12 @@ export interface Pasajero {
 }
 
 export interface PagoInput {
-  metodo: 'efectivo' | 'transferencia' | 'corresponsal';
+  /**
+   * `conductor` (0079): reserva telefónica con lugar de paso; lo cobra el
+   * conductor al abordar, pero entra como efectivo al corte de quien reserva.
+   * Siempre por el total y sin imprimir boleto.
+   */
+  metodo: 'efectivo' | 'transferencia' | 'corresponsal' | 'conductor';
   monto: number;
   esAbono?: boolean;
   referencia?: string;
@@ -56,6 +61,11 @@ export interface RegistrarVentaArgs {
   pago?: PagoInput;
   conConexion?: boolean;
   ahora?: Date;
+  /**
+   * Lugar de abordaje en texto libre (0079, L1) cuando el pasajero sube fuera
+   * de una parada autorizada. Exige pago completo o `metodo: 'conductor'`.
+   */
+  lugarAbordaje?: string;
 }
 
 export interface BoletoEmitido {
@@ -133,7 +143,7 @@ export async function registrarVenta(
             boletos, print_jobs, imprimible, comprobante_impreso
        FROM core.registrar_venta(
          $1::uuid, $2::uuid, $3::uuid, $4::text, $5::int, $6::int, $7::jsonb,
-         $8::uuid, $9::jsonb, $10::boolean, $11::timestamptz)`,
+         $8::uuid, $9::jsonb, $10::boolean, $11::timestamptz, $12::text)`,
     [
       args.salidaId,
       args.sucursalVentaId,
@@ -146,6 +156,7 @@ export async function registrarVenta(
       args.pago ? JSON.stringify(pagoAJson(args.pago)) : null,
       args.conConexion ?? true,
       args.ahora ?? new Date(),
+      args.lugarAbordaje?.trim() || null,
     ],
   );
   return normalizar(rows[0]!);

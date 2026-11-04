@@ -13,6 +13,12 @@ export interface SalidaDelDia {
   unidadId: string | null;
   unidad: string | null;
   boletos: number;
+  /** 0081: sale de mi terminal. `false` = "de paso" por una terminal intermedia. */
+  esOrigen: boolean;
+  /** 0081: hora de paso por mi terminal. */
+  horaPaso: string;
+  /** 0081: boletos que van en el manifiesto de mi terminal. */
+  boletosAqui: number;
 }
 
 export type EstadoAbordaje = 'abordo' | 'no_presento' | 'pendiente';
@@ -47,6 +53,8 @@ export interface BoletoPorFolio extends FilaChecklist {
     saldoPendiente: number;
     clienteNombre: string | null;
     contactoTelefono: string;
+    /** Lugar de paso en texto libre (0079); null = sube en el origen. */
+    lugarAbordaje: string | null;
   };
 }
 
@@ -68,6 +76,8 @@ export interface DetalleBoleto {
     boletosEnLaVenta: number;
     contactoTelefono: string;
     clienteNombre: string | null;
+    /** Lugar de paso en texto libre (0079); null = sube en el origen. */
+    lugarAbordaje: string | null;
   };
   vendedor: { nombre: string; rol: string };
   sucursalVenta: string;

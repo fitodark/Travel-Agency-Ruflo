@@ -59,7 +59,7 @@ run('viajes efectuados · manifiestos (PostgreSQL real)', () => {
   });
 
   // -------------------------------------------------------------------------
-  it('lista SOLO los viajes que salen de la sucursal activa (0066)', async () => {
+  it('lista los viajes que salen de mi terminal y los que pasan por ella con ascenso (0081)', async () => {
     const { fx } = await prep();   // 4 paradas: sucursales[0] origen … [3] destino
     const laMia = await salidasDelDia(db, {
       fecha: fx.fechaOperacion, sucursalId: fx.sucursales[0]!,
@@ -68,14 +68,19 @@ run('viajes efectuados · manifiestos (PostgreSQL real)', () => {
     expect(mia).toBeDefined();
     expect(mia!.origen).not.toBe(mia!.destino);
     expect(mia!.estado).toBe('programada');
+    expect(mia!.esOrigen).toBe(true);
+    expect(mia!.horaPaso.getTime()).toBe(mia!.horaSalida.getTime());
 
-    // Una terminal INTERMEDIA (el viaje solo pasa por ella) NO lo ve.
+    // Una terminal INTERMEDIA lo ve "de paso", con SU hora de paso (0081).
     const intermedia = await salidasDelDia(db, {
       fecha: fx.fechaOperacion, sucursalId: fx.sucursales[1]!,
     });
-    expect(intermedia.find((s) => s.salidaId === fx.salidaId)).toBeUndefined();
+    const dePaso = intermedia.find((s) => s.salidaId === fx.salidaId);
+    expect(dePaso).toBeDefined();
+    expect(dePaso!.esOrigen).toBe(false);
+    expect(dePaso!.horaPaso.getTime()).toBeGreaterThan(dePaso!.horaSalida.getTime());
 
-    // La terminal de DESTINO tampoco.
+    // La terminal de DESTINO no (ahí solo se baja).
     const destino = await salidasDelDia(db, {
       fecha: fx.fechaOperacion, sucursalId: fx.sucursales[3]!,
     });
@@ -192,9 +197,10 @@ run('viajes efectuados · manifiestos (PostgreSQL real)', () => {
     await vende(fx, usuarioId, 2, 0, 3);
     await vende(fx, usuarioId, 8, 1, 3);
 
+    // 0081: el del origen solo lleva a quien sube ahí (el asiento 2).
     const r = await generarManifiestos(db, { salidaId: fx.salidaId, usuarioId });
-    expect(r.conductor.pasajeros).toBe(2);
-    expect(r.terminal.pasajeros).toBe(2);
+    expect(r.conductor.pasajeros).toBe(1);
+    expect(r.terminal.pasajeros).toBe(1);
 
     const { rows } = await db.query<{ template_key: string; sucursal: string }>(
       `SELECT pj.template_key, pj.sucursal_id AS sucursal
@@ -205,6 +211,54 @@ run('viajes efectuados · manifiestos (PostgreSQL real)', () => {
     expect(rows.map((x) => x.template_key).sort())
       .toEqual(['manifiesto_conductor', 'manifiesto_terminal']);
     expect(new Set(rows.map((x) => x.sucursal))).toEqual(new Set([fx.sucursales[0]]));
+  });
+
+  it('cada terminal genera SU manifiesto, en su impresora, sin tocar el de las demás (0081)', async () => {
+    const { fx, usuarioId } = await prep();
+    await vende(fx, usuarioId, 2, 0, 3);
+    await vende(fx, usuarioId, 8, 1, 3);
+    await vende(fx, usuarioId, 9, 1, 2);
+
+    const origen = await generarManifiestos(db, { salidaId: fx.salidaId, usuarioId });
+    const inter = await generarManifiestos(db, {
+      salidaId: fx.salidaId, usuarioId, sucursalId: fx.sucursales[1]!,
+    });
+    expect(inter.terminal.pasajeros).toBe(2);
+
+    const { rows } = await db.query<{ id: string; sucursal_id: string; activo: boolean }>(
+      `SELECT id, sucursal_id, activo FROM core.print_job
+        WHERE template_key IN ('manifiesto_conductor', 'manifiesto_terminal')
+          AND datos->>'salida_id' = $1`, [fx.salidaId],
+    );
+    expect(rows.filter((x) => x.activo)).toHaveLength(4);   // el del origen sigue vivo
+    expect(rows.find((x) => x.id === inter.terminal.printJobId)!.sucursal_id).toBe(fx.sucursales[1]);
+    expect(rows.find((x) => x.id === origen.terminal.printJobId)!.activo).toBe(true);
+
+    const m = await datosManifiesto(db, fx.salidaId, 'terminal', undefined, fx.sucursales[1]!);
+    expect(m['terminal_orden']).toBe(1);
+    expect(pasajerosDe(m).map((p) => p.asiento)).toEqual([8, 9]);
+  });
+
+  it('el manifiesto del origen lleva el lugar de paso y lo que cobra el conductor (0081)', async () => {
+    const { fx, usuarioId } = await prep();
+    const corteId = await seedCorte(db, fx.sucursales[0]!, usuarioId);
+    const { registrarVenta } = await import('../../src/ventas/venta.js');
+    await registrarVenta(db, {
+      salidaId: fx.salidaId, sucursalVentaId: fx.sucursales[0]!, usuarioId,
+      contactoTelefono: '953 111 2222', origenOrden: 0, destinoOrden: 3,
+      pasajeros: [{ asientoNum: 4, nombre: 'Luis Gil', importe: 450 }],
+      pago: { metodo: 'conductor', monto: 450, corteCajaId: corteId },
+      lugarAbordaje: 'Gasolinera de Chila',
+    });
+
+    const m = await datosManifiesto(db, fx.salidaId, 'terminal', undefined, fx.sucursales[0]!);
+    const p = pasajerosDe(m).find((x) => x.asiento === 4)!;
+    expect(p['lugar_abordaje']).toBe('Gasolinera de Chila');
+    expect(Number(p['cobrar'])).toBe(450);
+
+    // En la intermedia no aparece.
+    const mi = await datosManifiesto(db, fx.salidaId, 'terminal', undefined, fx.sucursales[1]!);
+    expect(pasajerosDe(mi).find((x) => x.asiento === 4)).toBeUndefined();
   });
 
   it('regenerar da de baja los manifiestos pendientes anteriores', async () => {

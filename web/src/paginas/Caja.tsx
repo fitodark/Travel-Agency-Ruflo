@@ -9,6 +9,7 @@ import {
   type CierreCorte, type CorteAbierto,
 } from '../api/caja';
 import { RequiereSucursal } from '../componentes/RequiereSucursal';
+import { TransferenciasEnvio } from '../componentes/paqueteria/TransferenciasEnvio';
 import { useSesion } from '../auth/sesion';
 import { fechaHora } from '../lib/fechas';
 
@@ -67,6 +68,11 @@ export function Caja() {
           )}
 
           <TransferenciasPorVerificar
+            hayCorte={!!corte.data}
+            onCambio={() => { setError(null); void invalidar(); }}
+            onError={alError}
+          />
+          <TransferenciasEnvio
             hayCorte={!!corte.data}
             onCambio={() => { setError(null); void invalidar(); }}
             onError={alError}

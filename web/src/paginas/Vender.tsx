@@ -174,7 +174,12 @@ export function Vender() {
   const [vistaMapa, setVistaMapa] = useState<'v1' | 'v2'>('v1');
   const [nombres, setNombres] = useState<Record<number, string>>({});
   const [categorias, setCategorias] = useState<Record<number, CategoriaPasajero>>({});
-  const [metodo, setMetodo] = useState<'efectivo' | 'transferencia' | 'corresponsal' | 'sin_pago'>('efectivo');
+  const [metodo, setMetodo] = useState<'efectivo' | 'transferencia' | 'corresponsal' | 'conductor' | 'sin_pago'>('efectivo');
+  // Paso 6, lugar de paso (0079, L1): el pasajero sube fuera de una parada
+  // autorizada. Con lugar de paso no hay intermedios: pago completo en taquilla
+  // o lo cobra el conductor al abordar (en lugar de "Pago en terminal").
+  const [abordaPaso, setAbordaPaso] = useState(false);
+  const [lugarAbordaje, setLugarAbordaje] = useState('');
   const [referencia, setReferencia] = useState('');
   const [sucursalCobroId, setSucursalCobroId] = useState('');
   // Paso 6, pago en efectivo: con cuánto paga el cliente. String para admitir el
@@ -245,6 +250,16 @@ export function Vender() {
   const cambio = recibidoValido ? recibido - montoACobrar : 0;
   const efectivoIncompleto = metodo === 'efectivo' && !recibidoValido;
 
+  const cambiarAbordaPaso = (v: boolean) => {
+    setAbordaPaso(v);
+    if (v) {
+      setEsAbono(false);
+      setMetodo((m) => (m === 'sin_pago' ? 'conductor' : m));
+    } else {
+      setMetodo((m) => (m === 'conductor' ? 'efectivo' : m));
+    }
+  };
+
   const busqueda = useMutation({
     mutationFn: () =>
       buscarSalidas({ fecha, origen, destino, personas, conConexion }),
@@ -271,6 +286,7 @@ export function Vender() {
           importe: importeDe(a),
           categoria: categorias[a] ?? 'general',
         })),
+        ...(abordaPaso && lugarAbordaje.trim() ? { lugarAbordaje: lugarAbordaje.trim() } : {}),
         ...(metodo === 'sin_pago'
           ? {}
           : {
@@ -309,6 +325,8 @@ export function Vender() {
     setEsAbono(false);
     setMontoAbono('');
     setCliente(null);
+    setAbordaPaso(false);
+    setLugarAbordaje('');
   };
 
   // Cancelar la venta en curso desde cualquier paso del wizard: el pasajero
@@ -349,9 +367,11 @@ export function Vender() {
   const avisoPago = paso === 6
     ? (metodo === 'sin_pago'
         ? 'Los asientos se conservan hasta 30 minutos antes de la salida, sin pago.'
-        : esAbono && (metodo === 'efectivo' || metodo === 'transferencia')
-          ? 'Anticipo: el resto se cubre después, en la sucursal de origen.'
-          : undefined)
+        : metodo === 'conductor'
+          ? 'El conductor cobra al abordar. No se imprime boleto: el pasajero aparece en el manifiesto.'
+          : esAbono && (metodo === 'efectivo' || metodo === 'transferencia')
+            ? 'Anticipo: el resto se cubre después, en la sucursal de origen.'
+            : undefined)
     : undefined;
   const textoBotonPago = esAbono && (metodo === 'efectivo' || metodo === 'transferencia')
     ? 'Registrar anticipo'
@@ -361,7 +381,9 @@ export function Vender() {
         ? 'Registrar transferencia'
         : metodo === 'corresponsal'
           ? 'Registrar venta'
-          : 'Apartar sin pago';
+          : metodo === 'conductor'
+            ? 'Registrar reserva'
+            : 'Apartar sin pago';
 
   // "Precio unitario" del panel lateral: solo tiene sentido mostrar una sola
   // tarifa cuando todos los asientos elegidos comparten categoría (lo normal).
@@ -799,6 +821,31 @@ export function Vender() {
               asientos sin cobro por ahora.
             </p>
           </div>
+          <div className="space-y-2 rounded-sm border border-slate-200 p-3">
+            <label className="flex items-center gap-2 text-sm text-slate-700">
+              <input
+                type="checkbox"
+                checked={abordaPaso}
+                onChange={(e) => cambiarAbordaPaso(e.target.checked)}
+              />
+              Aborda en un lugar de paso (fuera de la terminal de origen)
+            </label>
+            {abordaPaso && (
+              <label className="block">
+                <span className={ETIQUETA}>Lugar de abordaje *</span>
+                <input
+                  value={lugarAbordaje}
+                  maxLength={80}
+                  placeholder="p. ej. gasolinera de Chila de las Flores"
+                  onChange={(e) => setLugarAbordaje(e.target.value)}
+                  className="campo mt-1 rounded-sm"
+                />
+                <p className="mt-1 text-xs text-slate-500">
+                  El precio sigue siendo origen → destino. Se paga completo aquí, o lo cobra el conductor.
+                </p>
+              </label>
+            )}
+          </div>
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
             {[
               { valor: 'efectivo' as const, titulo: 'Efectivo', descripcion: 'Cobro en caja, calcula cambio' },
@@ -806,7 +853,9 @@ export function Vender() {
               ...(sinSistema.length > 0
                 ? [{ valor: 'corresponsal' as const, titulo: 'Corresponsal', descripcion: 'Cobro en sucursal autorizada' }]
                 : []),
-              { valor: 'sin_pago' as const, titulo: 'Pago en terminal', descripcion: 'Sin cobro ahora, apartado' },
+              abordaPaso
+                ? { valor: 'conductor' as const, titulo: 'Lo cobra el conductor', descripcion: 'Al abordar, entra al corte' }
+                : { valor: 'sin_pago' as const, titulo: 'Pago en terminal', descripcion: 'Sin cobro ahora, apartado' },
             ].map((m) => (
               <button
                 key={m.valor}
@@ -828,12 +877,12 @@ export function Vender() {
 
           {metodo === 'efectivo' && (
             <div className="space-y-2">
-              <AbonoParcial
+              {!abordaPaso && <AbonoParcial
                 esAbono={esAbono} setEsAbono={setEsAbono}
                 montoAbono={montoAbono} setMontoAbono={setMontoAbono}
                 montoAbonoNum={montoAbonoNum} abonoValido={abonoValido} total={total}
                 cliente={cliente} setCliente={setCliente} contacto={contacto}
-              />
+              />}
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                 <label className="block">
                   <span className={ETIQUETA}>Teléfono de contacto *</span>
@@ -887,12 +936,12 @@ export function Vender() {
 
           {metodo === 'transferencia' && (
             <div className="space-y-2">
-              <AbonoParcial
+              {!abordaPaso && <AbonoParcial
                 esAbono={esAbono} setEsAbono={setEsAbono}
                 montoAbono={montoAbono} setMontoAbono={setMontoAbono}
                 montoAbonoNum={montoAbonoNum} abonoValido={abonoValido} total={total}
                 cliente={cliente} setCliente={setCliente} contacto={contacto}
-              />
+              />}
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                 <label className="block">
                   <span className={ETIQUETA}>Teléfono de contacto *</span>
@@ -958,6 +1007,35 @@ export function Vender() {
             </div>
           )}
 
+          {metodo === 'conductor' && (
+            <div className="space-y-2">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <label className="block">
+                  <span className={ETIQUETA}>Teléfono de contacto *</span>
+                  <input
+                    value={contacto}
+                    onChange={(e) => setContacto(e.target.value)}
+                    className="campo mt-1 rounded-sm"
+                  />
+                  {!contacto.trim() && (
+                    <p className="mt-1 text-xs text-slate-400">Requerido para continuar</p>
+                  )}
+                </label>
+                <div>
+                  <span className={ETIQUETA}>Estatus</span>
+                  <div className="mt-1 rounded-sm border border-slate-300 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600">
+                    Por cobrar por el conductor
+                  </div>
+                </div>
+              </div>
+              <p className="text-xs text-slate-500">
+                El total (${total}) entra hoy a tu corte como efectivo; el conductor lo entrega
+                al regresar. Si el pasajero no se presenta, cancela la reserva desde Viajes
+                (aun con la unidad en ruta) y el monto sale del corte como devolución.
+              </p>
+            </div>
+          )}
+
           {metodo === 'sin_pago' && (
             <div className="space-y-2">
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -996,6 +1074,7 @@ export function Vender() {
                 venta.isPending
                 || !contacto.trim()
                 || (metodo === 'corresponsal' && !sucursalCobroId)
+                || (abordaPaso && !lugarAbordaje.trim())
                 || efectivoIncompleto
                 || (esAbono && (metodo === 'efectivo' || metodo === 'transferencia')
                     && (!abonoValido || montoAbonoNum == null || !cliente))
@@ -1039,6 +1118,12 @@ export function Vender() {
             <p className="text-slate-600">
               El pasajero debe enviar el comprobante al encargado para confirmar el pago.
               El monto entrará al corte al confirmarlo (Caja → «Transferencias por verificar»).
+            </p>
+          )}
+          {metodo === 'conductor' && (
+            <p className="text-slate-600">
+              Reserva con lugar de paso: no se imprimen boletos. El pasajero aparece en el
+              manifiesto con su lugar de abordaje y el monto que cobra el conductor.
             </p>
           )}
           {resultado.comprobanteImpreso && (

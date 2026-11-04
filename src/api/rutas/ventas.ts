@@ -23,7 +23,7 @@ const pagoSchema = {
   type: 'object',
   required: ['metodo', 'monto'],
   properties: {
-    metodo: { type: 'string', enum: ['efectivo', 'transferencia', 'corresponsal'] },
+    metodo: { type: 'string', enum: ['efectivo', 'transferencia', 'corresponsal', 'conductor'] },
     monto: { type: 'number', exclusiveMinimum: 0 },
     esAbono: { type: 'boolean' },
     /** Solo efectivo (0064): con cuánto pagó el pasajero (>= monto). */
@@ -45,6 +45,8 @@ const ventaSchema = {
     contactoTelefono: { type: 'string', minLength: 1, maxLength: 40 },
     clienteId: { type: 'string', format: 'uuid' },
     conConexion: { type: 'boolean' },
+    /** 0079 (L1): lugar de paso en texto libre. */
+    lugarAbordaje: { type: 'string', maxLength: 80 },
     pasajeros: {
       type: 'array',
       minItems: 1,
@@ -156,13 +158,13 @@ export async function rutasVentas(app: FastifyInstance): Promise<void> {
       const b = req.body as {
         salidaId: string; origenOrden: number; destinoOrden: number;
         contactoTelefono: string; clienteId?: string;
-        conConexion?: boolean;
+        conConexion?: boolean; lugarAbordaje?: string;
         pasajeros: Array<{
           asientoNum: number; nombre: string; importe: number;
           categoria?: 'general' | 'inapam' | 'menor'; leaseId?: string;
         }>;
         pago?: {
-          metodo: 'efectivo' | 'transferencia' | 'corresponsal'; monto: number;
+          metodo: 'efectivo' | 'transferencia' | 'corresponsal' | 'conductor'; monto: number;
           esAbono?: boolean; efectivoRecibido?: number; referencia?: string;
           corteCajaId?: string; sucursalCobroId?: string;
         };
@@ -180,6 +182,7 @@ export async function rutasVentas(app: FastifyInstance): Promise<void> {
         ...(b.pago ? { pago: b.pago } : {}),
         conConexion: b.conConexion ?? true,
         ahora: app.ahora(),
+        ...(b.lugarAbordaje ? { lugarAbordaje: b.lugarAbordaje } : {}),
       });
       return reply.status(201).send(r);
     },

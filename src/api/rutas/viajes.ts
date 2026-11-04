@@ -303,7 +303,8 @@ export async function rutasViajes(app: FastifyInstance): Promise<void> {
     async (req) => {
       const { id } = req.params as { id: string };
       const { copia } = req.query as { copia?: CopiaManifiesto };
-      return datosManifiesto(app.db, id, copia ?? 'terminal', app.ahora());
+      // 0081: el manifiesto es el de MI terminal (cada una imprime el suyo).
+      return datosManifiesto(app.db, id, copia ?? 'terminal', app.ahora(), req.sesion.sucursalId!);
     },
   );
 
@@ -422,6 +423,7 @@ export async function rutasViajes(app: FastifyInstance): Promise<void> {
       const { id } = req.params as { id: string };
       const r = await generarManifiestos(app.db, {
         salidaId: id, usuarioId: req.sesion.usuarioId, ahora: app.ahora(),
+        sucursalId: req.sesion.sucursalId!,
       });
       return reply.status(201).send(r);
     },
