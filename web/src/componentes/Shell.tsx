@@ -13,6 +13,7 @@ const NAV_OPERACION: ItemNav[] = [
   { a: '/vender', texto: 'Vender', icono: 'vender' },
   { a: '/caja', texto: 'Caja', icono: 'caja' },
   { a: '/viajes', texto: 'Viajes', icono: 'viajes' },
+  { a: '/paqueteria', texto: 'Paquetería', icono: 'paqueteria' },
   { a: '/verificar', texto: 'Verificar boleto', icono: 'verificar' },
   { a: '/tablero', texto: 'Tablero', icono: 'tablero', permiso: 'dashboard.ver' },
   { a: '/historial', texto: 'Historial de cortes', icono: 'historial', permiso: 'dashboard.ver' },

@@ -84,6 +84,11 @@ export interface MovimientoDetalle {
   ventaId: string | null;
   /** Pasajeros/folios de la venta (abonos incluidos), si `ventaId` no es null. */
   pasajeros: PasajeroBoleto[] | null;
+  /** 0088: el envío, si el movimiento es de paquetería. */
+  envio: {
+    folio: string; descripcion: string; destino: string; destinatario: string;
+    bultos: number; modalidad: 'pagado' | 'por_cobrar';
+  } | null;
 }
 
 /** Movimientos con detalle de pago (0077), para /historial/:id/movimientos. */

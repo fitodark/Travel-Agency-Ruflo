@@ -3,13 +3,22 @@
  *
  * Blueprint v0.2 · docs/architecture/03-auth-impresion-config.md §2.5
  *                  docs/architecture/05-paradas-autorizadas-tarifas.md §2 (D11)
+ *                  docs/architecture/06-lugar-paso-paqueteria.md §1.1 (L8, L9)
  *
- * "Lista única por pasajero" (D11): un solo renglón por boleto con nombre,
- * asiento, "sube en", "baja en" y estatus de pago. SIN importe ni saldo (N-8),
- * sin hora para los descensos, sin ocupación por tramo. Las dos copias
- * (`conductor` / `terminal`) llevan el MISMO contenido; `copia` solo cambia el
- * encabezado y la línea de firma. El checador de cada terminal de ascenso
- * palomea a mano la casilla de sus pasajeros sobre el impreso.
+ * "Lista única por pasajero" (D11): un renglón por boleto con casilla, asiento,
+ * nombre y "baja en". Las dos copias (`conductor` / `terminal`) llevan el MISMO
+ * contenido; `copia` solo cambia el encabezado y la línea de firma.
+ *
+ * 0081 (L8/L9) — manifiesto POR TERMINAL y COMPACTO:
+ *   * fuente B (≈ 4/3 de columnas: 64 en vez de 48 a 80 mm);
+ *   * "sube en" ya no se repite: es la terminal que imprime. Solo aparece si el
+ *     pasajero sube en otro punto que cubre esta terminal (parada sin sistema);
+ *   * lugar de paso: `aborda: X` + `cobrar $Y` cuando lo cobra el conductor.
+ *
+ * 0088 (P12) — segunda sección PAQUETES: los envíos que la unidad se lleva de
+ * esta terminal. Solo folio, descripción, monto (POR COBRAR si aplica) y
+ * destino; sin QR ni numeración (esa va en los tickets de los bultos).
+ * Un jsonb viejo (sin `terminal`) se imprime como antes: con "sube en" siempre.
  *
  * Recibe el jsonb CONGELADO que produce `core.datos_manifiesto` (ver
  * `src/fleet/manifiesto.ts`). No hace E/S ni conoce el transporte: eso permite
@@ -45,12 +54,16 @@ export interface ManifiestoPasajero {
   baja_en_orden: number;
   estatus_pago: 'pagado' | 'pendiente';
   conflicto: boolean;
+  /** 0081: lugar de paso en texto libre (0079). */
+  lugar_abordaje?: string;
+  /** 0081: lo que cobra el conductor al abordar (método `conductor`, 0079). */
+  cobrar?: number;
 }
 
 /**
  * La forma del jsonb de `core.datos_manifiesto`. Las claves van en `snake_case`
  * a propósito: es el blob congelado, se pasa tal cual sale de la base sin mapear.
- * `jsonb_strip_nulls` en la función SQL quita `conductor`/`unidad` si son nulos.
+ * `jsonb_strip_nulls` en la función SQL quita las claves nulas.
  */
 export interface DatosManifiesto {
   salida_id: string;
@@ -63,12 +76,27 @@ export interface DatosManifiesto {
   tipo_unidad: string;
   /** Momento del snapshot (ISO con zona). Las ventas posteriores no salen aquí. */
   generado_en: string;
+  /** 0081: terminal cuyo manifiesto es. Ausente = lista completa (jsonb viejo). */
+  terminal?: string;
+  terminal_orden?: number;
   paradas: ManifiestoParada[];
   /** Lista única, ordenada por punto de ascenso y luego asiento. */
   pasajeros: ManifiestoPasajero[];
+  /** 0088: paquetes que se cargan aquí. Ausente en un jsonb viejo. */
+  paquetes?: ManifiestoPaquete[];
+}
+
+export interface ManifiestoPaquete {
+  folio: string;
+  descripcion: string;
+  monto: number;
+  /** Lo que se cobra en destino (solo por cobrar). */
+  por_cobrar?: number;
+  destino: string;
 }
 
 export interface ConfigManifiesto {
+  /** Columnas de la impresora en fuente A (`config_impresora.ancho_cols`). */
   cols?: number;
   codePage?: CodePageName;
 }
@@ -91,38 +119,48 @@ const fechaHora = (iso: string): string => {
 
 const etiqueta = (label: string, value: string): string => `${label.padEnd(10)} ${value}`;
 
+const mxn = (n: number): string => `$${Number.isInteger(n) ? n : n.toFixed(2)}`;
+
+/** Fuente B: ≈ 4/3 de las columnas de la fuente A (48 → 64 a 80 mm). */
+export const colsFuenteB = (colsA: number): number => Math.floor((colsA * 4) / 3);
+
 /**
  * Renderiza un manifiesto completo a bytes ESC/POS, listo para cualquier
  * transporte. Una llamada, una copia: el spooler encola un `print_job` por copia.
  */
 export function renderManifiesto(m: DatosManifiesto, cfg: ConfigManifiesto = {}): Buffer {
   const doc = new EscPosDocument({
-    ...(cfg.cols !== undefined ? { cols: cfg.cols } : {}),
+    cols: colsFuenteB(cfg.cols ?? 48),
     ...(cfg.codePage !== undefined ? { codePage: cfg.codePage } : {}),
   });
+  doc.font('B');
   const esTerminal = m.copia === 'terminal';
-  const anchoDestino = Math.min(16, Math.floor(doc.cols / 2));
+  const anchoDestino = Math.min(20, Math.floor(doc.cols / 3));
 
-  // ---- Encabezado --------------------------------------------------------
   // `paradas` puede faltar si el jsonb lo generó un nodo en una migración
-  // vieja (< 0072) para una salida sin salida_parada (`sin_paradas` de
-  // `core.materializar_salidas`) — jsonb_strip_nulls borraba la clave entera.
+  // vieja (< 0072) — jsonb_strip_nulls borraba la clave entera.
   const paradas = m.paradas ?? [];
   const origen = paradas[0];
   const destino = paradas[paradas.length - 1];
+  // 0081: con `terminal`, "sube en" se da por hecho salvo otro punto.
+  const porTerminal = m.terminal_orden !== undefined;
+  const mia = porTerminal ? paradas.find((p) => p.orden === m.terminal_orden) : origen;
 
+  // ---- Encabezado --------------------------------------------------------
   doc.align('center').bold(true);
   doc.line('MANIFIESTO DE ABORDAJE');
-  doc.line(`COPIA ${m.copia.toUpperCase()}`);
+  doc.line(`COPIA ${m.copia.toUpperCase()}${m.terminal ? ` - ${m.terminal.toUpperCase()}` : ''}`);
   doc.bold(false).align('left').divider();
 
   if (origen && destino) {
     doc.line(etiqueta('Ruta:', `${origen.punto} -> ${destino.punto}`));
-    doc.line(etiqueta('Salida:', hhmm(origen.hora_paso)));
+    const pasaPor = mia && mia.orden !== origen.orden
+      ? `  (pasa por ${mia.punto} ${hhmm(mia.hora_paso)})`
+      : '';
+    doc.line(etiqueta('Salida:', `${hhmm(origen.hora_paso)}${pasaPor}`));
   }
-  doc.line(etiqueta('Fecha op.:', m.fecha_operacion));
   const unidad = m.unidad ? `${m.unidad} (${m.tipo_unidad})` : m.tipo_unidad;
-  doc.line(etiqueta('Unidad:', unidad));
+  doc.line(etiqueta('Fecha op.:', `${m.fecha_operacion}   Unidad: ${unidad}`));
   doc.line(etiqueta('Conductor:', m.conductor ?? 'sin asignar'));
   doc.line(etiqueta('Generado:', fechaHora(m.generado_en)));
   if (m.estado_salida !== 'programada') {
@@ -134,9 +172,11 @@ export function renderManifiesto(m: DatosManifiesto, cfg: ConfigManifiesto = {})
   let total = 0;
   let conflictos = 0;
   let pendientes = 0;
+  let porCobrar = 0;
+  let pasajerosPorCobrar = 0;
 
   if (m.pasajeros.length === 0) {
-    doc.line('(sin pasajeros en esta salida)');
+    doc.line('(sin pasajeros que aborden aqui)');
   }
 
   for (const p of m.pasajeros) {
@@ -145,8 +185,18 @@ export function renderManifiesto(m: DatosManifiesto, cfg: ConfigManifiesto = {})
     const baja = p.baja_en.length > anchoDestino ? p.baja_en.slice(0, anchoDestino) : p.baja_en;
     // twoCol trunca la ETIQUETA (casilla + asiento + nombre) y conserva el
     // VALOR: el punto de descenso nunca se pierde, el nombre se recorta.
-    doc.twoCol(`[ ] ${asiento} ${p.nombre}`, baja);
-    doc.line(`       sube: ${p.sube_en}`);
+    doc.twoCol(`[ ] ${asiento} ${p.nombre}`, `baja: ${baja}`);
+
+    if (p.lugar_abordaje) {
+      const cobro = p.cobrar != null ? ` - COBRAR ${mxn(p.cobrar)}` : '';
+      doc.bold(true).line(`       aborda: ${p.lugar_abordaje}${cobro}`).bold(false);
+      if (p.cobrar != null) {
+        porCobrar += p.cobrar;
+        pasajerosPorCobrar += 1;
+      }
+    } else if (!porTerminal || p.sube_en_orden !== m.terminal_orden) {
+      doc.line(`       sube: ${p.sube_en}`);
+    }
 
     if (p.estatus_pago === 'pendiente') {
       pendientes += 1;
@@ -158,14 +208,39 @@ export function renderManifiesto(m: DatosManifiesto, cfg: ConfigManifiesto = {})
     }
   }
 
-  // ---- Pie: totales, firma ---------------------------------------------
+  // ---- Pie de pasajeros -------------------------------------------------
   doc.divider();
   doc.bold(true).line(`TOTAL PASAJEROS: ${total}`).bold(false);
+  if (pasajerosPorCobrar > 0) {
+    doc.bold(true)
+      .line(`COBRA EL CONDUCTOR: ${mxn(porCobrar)} (${pasajerosPorCobrar} pasajero${pasajerosPorCobrar === 1 ? '' : 's'})`)
+      .bold(false);
+  }
   if (pendientes > 0) {
     doc.bold(true).line(`PENDIENTES DE PAGO: ${pendientes}`).bold(false);
   }
   if (conflictos > 0) {
     doc.bold(true).line(`BOLETOS EN CONFLICTO: ${conflictos}`).bold(false);
+  }
+
+  // ---- Segunda sección: paquetes (0088) ----------------------------------
+  const paquetes = m.paquetes ?? [];
+  if (paquetes.length > 0) {
+    let porCobrarPaq = 0;
+    doc.divider('=');
+    doc.align('center').bold(true).line('PAQUETES').bold(false).align('left');
+    doc.divider();
+    for (const q of paquetes) {
+      const monto = q.por_cobrar != null ? `POR COBRAR ${mxn(q.por_cobrar)}` : mxn(Number(q.monto));
+      doc.twoCol(`[ ] ${q.folio} ${q.descripcion}`, monto);
+      doc.line(`       destino: ${q.destino}`);
+      if (q.por_cobrar != null) porCobrarPaq += Number(q.por_cobrar);
+    }
+    doc.divider();
+    doc.bold(true).line(`TOTAL PAQUETES: ${paquetes.length}`).bold(false);
+    if (porCobrarPaq > 0) {
+      doc.bold(true).line(`POR COBRAR EN DESTINO: ${mxn(porCobrarPaq)}`).bold(false);
+    }
   }
 
   doc.feed(2);
@@ -175,6 +250,6 @@ export function renderManifiesto(m: DatosManifiesto, cfg: ConfigManifiesto = {})
 
   // Ver nota en boleto.ts: `feed(1)` (antes `feed(3)`) deja ≈4mm de holgura
   // para la cuchilla física — a validar contra la Enduro real.
-  doc.feed(1).cut();
+  doc.font('A').feed(1).cut();
   return doc.build();
 }

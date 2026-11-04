@@ -3696,6 +3696,137 @@ el checklist de Viajes.
 **Estado al cierre de la sesión:** migraciones `0072`–`0075` aplicadas por el
 usuario a LOCAL y NUBE. Sin commit — lo hace el usuario.
 
+## Sesión 77 — 2026-11-03 · Lugar de paso (Fase A) + plan de paquetería
+
+El cliente pidió abordaje en lugar de paso (MOD-1..7) y el módulo de paquetería
+(REQ-1..13). Se validó contra el modelo antes de tocar código: la paquetería ya
+tenía sus costuras desde la Etapa 1 (`04-riesgos-roadmap.md` §1, E1–E5). Dos
+vueltas de preguntas con el PO cerraron las reglas; plan por fases en
+`docs/architecture/06-lugar-paso-paqueteria.md` (A–G, migr. `0079`–`0086`).
+
+**Fase A (migr. `0079`, `0080`):**
+- `core.venta.lugar_abordaje` (texto libre, ≤ 80) + método de pago
+  `conductor`: la reserva telefónica con lugar de paso entra como EFECTIVO al
+  corte de quien reserva (decisión del PO: la caja se descuadra hasta que el
+  conductor entrega), queda saldada y NO imprime boleto. Pago completo en
+  taquilla con lugar de paso ⇒ boleto normal. Sin pago / abono ⇒ rechazo, así
+  que D9 (caducidad) y S8 (abordaje con saldo) no aplican por construcción.
+- `cancelar_boleto`: sin ventana de 1 h para lugar de paso (no-show avisado por
+  el conductor, aun en ruta); la devolución sale del corte abierto que cobró.
+- Backend (`venta.ts`, `/ventas`, `abordaje.ts` expone `lugarAbordaje`) + SPA
+  (casilla y campo en el paso 6 de Vender; "Aborda en" y texto de cancelación
+  en el detalle de Viajes).
+
+**Verificado:** `tsc` limpio (backend + `web/`), 8 pruebas nuevas
+(`tests/ventas/lugar-abordaje.test.ts`). Suite completa: 4 fallas sin relación —
+2 flakes conocidos (`puntos`, `f1-criterios`) y 3 de gastos
+(`tests/api/reportes`, `tests/dashboard/auditoria`) por un egreso de QA real en
+la BD local ("SE COMPRO DETERGENTE", $100, 19 oct) que esas pruebas cuentan
+(rango 2020–2100). No se borró.
+
+**Estado Fase A:** `0079`/`0080` aplicadas a LOCAL y NUBE. Faltan las
+terminales (aplicar `0079` a TODOS los nodos antes de usar `conductor`).
+
+**Fase B (migr. `0081`, `0082`):**
+- Manifiesto POR TERMINAL: `core.terminal_que_cubre` decide en qué manifiesto
+  va cada pasajero (terminal con sucursal más cercana en orden ≤ su ascenso:
+  lugar de paso → origen; parada sin sistema → terminal anterior).
+  `salidas_del_dia` lista también las salidas "de paso" (con `es_origen`,
+  `hora_paso`, `boletos_aqui`); `datos_manifiesto`/`generar_manifiestos` por
+  sucursal. Plantilla en fuente B (64 col.), sin "sube en" repetido, lugar de
+  paso con monto a cobrar.
+- Hallazgo: la venta exigía `programada`, así que en cuanto el origen marcaba
+  EN RUTA ninguna intermedia vendía (rompía L7). `0082`: `core.salida_vendible`
+  — en ruta se vende desde orden > 0 (el tiempo lo cuida `cierre_venta_en`).
+- SPA Viajes: chip "de paso"; acciones de conductor/unidad/estado solo en origen.
+- Paquetería se recorre a `0083`–`0087`.
+
+**Verificado Fase B:** `tsc` limpio, pruebas nuevas en
+`tests/fleet/manifiesto.test.ts`, `tests/printing/manifiesto.test.ts`,
+`tests/ventas/venta-en-ruta.test.ts`; suite completa 667 pass, mismas fallas
+ajenas. `tests/printing/spooler.test.ts` es intermitente en paralelo con
+`tests/fleet/manifiesto.test.ts` (comparten la cola de `print_job`); pasa sola.
+
+**Estado:** `0081`/`0082` solo en LOCAL (el clasificador de permisos bloqueó
+la migración a la nube; la corre el usuario). Sin commit. Falta validar la
+letra en la Enduro.
+
+**Fase B2 — réplica de bajada (migr. `0083`):** al empezar la paquetería salió
+que la nube solo baja configuración: ventas/boletos/pagos de una terminal nunca
+llegan a otra (la decisión abierta "replicación hacia las sucursales"). Rompía
+el manifiesto por terminal, el cobro de reservas de otra sucursal (C5) y la
+entrega en destino. El PO eligió réplica de bajada: `cambio_log.destinatarios`,
+`sync.trg_bajada` en la nube (venta/boleto/pago a las terminales de la salida;
+cliente/corte a todas; menos a quien escribió), pull filtrado por sucursal
+(tolera nube sin la columna), relleno inicial. De paso: `trg_outbox` había
+perdido en 0032 la guarda `replicando()` de 0014 — restaurada (lo que baja no
+sube). `asiento_ocupacion` NO baja (clase D sigue con cupos/leases).
+
+**Fase C — paquetería núcleo (migr. `0084`):** `core.envio` (B),
+`core.pago_envio` y `core.evento_envio` (C), estado por precedencia
+(`core.v_envio_estado`), `core.registrar_envio` (destino terminal con sistema
+posterior, cierre 5 min, folio compartido, pagado/por cobrar, transferencia por
+confirmar), `core.verificar_transferencia_envio`, `v_corte_saldo` ya no cuenta
+la transferencia de paquetería como efectivo, réplica a origen+destino. Backend
+`src/paqueteria/envio.ts` + `/paqueteria`. Paquetería recorrida a `0085`–`0088`.
+
+**Verificado B2+C:** `tsc` limpio; `tests/sync/replica-bajada.test.ts` (5, con
+nube y nodo desechables) y `tests/paqueteria/envio.test.ts` (7); suite completa
+679 pass, mismas fallas ajenas de siempre.
+
+**Estado:** `0081`–`0084` solo en LOCAL — la nube la migra el usuario
+(`0083` debe ir a la nube ANTES que a las terminales). Sin commit.
+
+**Fase D — impresión de paquetería (migr. `0085`):** `print_job` gana
+`envio_id`/`bulto_num` + plantilla `recibo_envio`; `snapshot_envio`,
+`encolar_impresion_envio` (recibo + un ticket por bulto "n/N"),
+`reimprimir_envio`; `registrar_envio` encola al registrar (DROP+CREATE, gana
+`print_jobs`). QR firmado con la clave HMAC del boleto: `DONAJI-ENV` (recibo,
+con monto por cobrar) y `DONAJI-BUL` (bulto). Plantillas
+`src/printing/templates/envio.ts`. La intermitencia de
+`tests/printing/spooler.test.ts` era real: `servicio.test.ts` confirma jobs en
+una sucursal real y `procesarCola` los barría — `procesarCola` gana
+`soloSucursal` y la prueba lo usa (3 corridas seguidas en verde).
+Suite completa 687 pass, mismas fallas ajenas. `0085` solo LOCAL.
+
+**Fase E — recepción y entrega (migr. `0086`):** `despachar_envios` (en ruta;
+`marcar_en_ruta` despacha los del origen, las intermedias a mano),
+`recibir_envio` (solo destino → en sucursal), `entregar_envio` (nombre
+verificado contra la credencial sin guardar su número; por cobrar ⇒ cobro
+completo en el corte del destino, transferencia por confirmar no detiene).
+Rutas `/paqueteria/destino`, `/salida/:id/despachar`, `/:id/recibir`,
+`/:id/entregar`. 5 pruebas nuevas (`tests/paqueteria/entrega.test.ts`); suite
+692 pass, mismas fallas ajenas. `0086` solo LOCAL.
+
+**Fase F — cambios, manifiesto y corte (migr. `0087`, `0088`):**
+`mover_envio` (origen, antes de despachar, reimprime todo), `cancelar_envio`
+(reembolso solo efectivo; pagado por transferencia ⇒ se rechaza —
+interpretación de "reembolso solo en efectivo", a confirmar con el PO; por
+cobrar ⇒ sin dinero). Manifiesto con sección PAQUETES (folio, descripción,
+monto/POR COBRAR, destino). Ingreso de paquetería con descripción + detalle del
+envío en el historial. 4 pruebas nuevas (`tests/paqueteria/cambios.test.ts`);
+suite 696 pass, mismas fallas ajenas. Backend de paquetería completo; falta la
+Fase G (pantallas). `0081`–`0088` solo LOCAL.
+
+**Fase G — SPA de paquetería (sin migración):** página `/paqueteria`
+(`web/src/paginas/Paqueteria.tsx` + `web/src/componentes/paqueteria/`):
+registrar, bandeja por recibir / por entregar, buscar por folio y detalle con
+acciones por rol de sucursal (recibir, entregar con nombre verificado + cobro,
+reimprimir, mover, cancelar, confirmar transferencia). Caja gana la cola de
+transferencias de paquetería; Viajes, "Despachar paquetes" en salidas de paso.
+Backend de apoyo `GET /paqueteria/salidas` y `/transferencias-por-verificar`.
+Prueba HTTP `tests/api/paqueteria.test.ts` (2). Optimización: el pull recuerda
+por conexión que la nube ya tiene `destinatarios` (evita una consulta a
+`information_schema` por ciclo). `tsc` + `vite build` limpios; suite 697 pass,
+mismas fallas ajenas + intermitentes de tiempo/carga (`engine` cadencia,
+`api/sync`) que pasan solas. **No probado en navegador.**
+
+**Estado al cierre:** plan 06 completo (A–G). `0079`/`0080` en LOCAL+NUBE;
+`0081`–`0088` solo LOCAL (la nube la corre el usuario; `0083` antes que las
+terminales). Sin commit. Pendientes: Enduro física (manifiesto fuente B,
+recibo y tickets), confirmar con el PO la cancelación de envíos pagados por
+transferencia (hoy se rechaza).
+
 ---
 
 Los cinco criterios de aceptación verdes contra Supabase real

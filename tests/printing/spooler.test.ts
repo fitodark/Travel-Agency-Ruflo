@@ -15,6 +15,7 @@ import { Client } from 'pg';
 import { resolveConnection } from '../../src/db/connection.js';
 import { generarManifiestos } from '../../src/fleet/manifiesto.js';
 import { procesarCola } from '../../src/printing/spooler.js';
+import { colsFuenteB } from '../../src/printing/templates/manifiesto.js';
 import { registrarVenta } from '../../src/ventas/venta.js';
 import { decodeText } from '../../src/printing/escpos/codepage.js';
 import { stripCommandsRaw } from '../../src/printing/transport/capture.js';
@@ -99,7 +100,7 @@ run('spooler de impresión (PostgreSQL real)', () => {
     await seedImpresora(sucursalId);
     const t = new TransporteFalso();
 
-    const r = await procesarCola(db, { crearTransporte: () => t });
+    const r = await procesarCola(db, { crearTransporte: () => t, soloSucursal: sucursalId });
 
     expect(r.impresos).toBe(2);
     expect(t.writes).toHaveLength(2);
@@ -119,16 +120,16 @@ run('spooler de impresión (PostgreSQL real)', () => {
     await seedImpresora(sucursalId, 32);
     const t = new TransporteFalso();
 
-    await procesarCola(db, { crearTransporte: () => t });
+    await procesarCola(db, { crearTransporte: () => t, soloSucursal: sucursalId });
 
     for (const line of t.papel.split('\n')) {
-      expect(line.length).toBeLessThanOrEqual(32);
+      expect(line.length).toBeLessThanOrEqual(colsFuenteB(32));   // manifiesto en fuente B (0081)
     }
   });
 
   it('deja los jobs en cola si la sucursal no tiene impresora', async () => {
-    const { salidaId } = await prep();
-    const r = await procesarCola(db);
+    const { sucursalId, salidaId } = await prep();
+    const r = await procesarCola(db, { soloSucursal: sucursalId });
 
     expect(r.sinImpresora).toBe(1);
     expect(r.impresos).toBe(0);
@@ -140,7 +141,7 @@ run('spooler de impresión (PostgreSQL real)', () => {
     await seedImpresora(sucursalId);
     const t = new TransporteFalso({ probeOk: false });
 
-    const r = await procesarCola(db, { crearTransporte: () => t });
+    const r = await procesarCola(db, { crearTransporte: () => t, soloSucursal: sucursalId });
 
     expect(r.impresoraFuera).toBe(1);
     expect(t.writes).toHaveLength(0);
@@ -156,7 +157,7 @@ run('spooler de impresión (PostgreSQL real)', () => {
     const { sucursalId, salidaId } = await prep();
     await seedImpresora(sucursalId);
     const t = new TransporteFalso({ fallaEscritura: true });
-    const opts = { crearTransporte: () => t, maxIntentos: 3 };
+    const opts = { crearTransporte: () => t, soloSucursal: sucursalId, maxIntentos: 3 };
 
     let r = await procesarCola(db, opts);
     expect(r.fallidos).toBe(2);
@@ -201,7 +202,7 @@ run('spooler de impresión (PostgreSQL real)', () => {
     expect(venta.printJobs).toBe(1);
 
     const t = new TransporteFalso();
-    const r = await procesarCola(db, { crearTransporte: () => t });
+    const r = await procesarCola(db, { crearTransporte: () => t, soloSucursal: sucursalId });
 
     expect(r.impresos).toBe(1);
     expect(t.writes).toHaveLength(1);
@@ -229,7 +230,7 @@ run('spooler de impresión (PostgreSQL real)', () => {
     );
     const t = new TransporteFalso();
 
-    const r = await procesarCola(db, { crearTransporte: () => t });
+    const r = await procesarCola(db, { crearTransporte: () => t, soloSucursal: sucursalId });
 
     expect(r.reanudados).toBe(1);
     expect(r.impresos).toBe(2);
@@ -240,7 +241,7 @@ run('spooler de impresión (PostgreSQL real)', () => {
     const { sucursalId } = await prep();
     await seedImpresora(sucursalId);
     const t = new TransporteFalso();
-    const opts = { crearTransporte: () => t };
+    const opts = { crearTransporte: () => t, soloSucursal: sucursalId };
 
     await procesarCola(db, opts);
     const r = await procesarCola(db, opts);

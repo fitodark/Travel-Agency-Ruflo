@@ -34,6 +34,7 @@ import {
 import { renderBoleto, type ConfigTicket, type DatosBoleto } from './templates/boleto.js';
 import { renderComprobanteReserva, type DatosComprobante } from './templates/comprobante.js';
 import { renderManifiesto, type DatosManifiesto } from './templates/manifiesto.js';
+import { renderEtiquetaEnvio, renderReciboEnvio, type DatosEnvio } from './templates/envio.js';
 import type { EscPosTransport } from './transport/types.js';
 
 /** Templates que el spooler ya sabe renderizar. */
@@ -42,6 +43,9 @@ export const TEMPLATES_SOPORTADOS = [
   'manifiesto_conductor',
   'manifiesto_terminal',
   'comprobante_reserva',
+  // Paquetería (0085, P7).
+  'recibo_envio',
+  'etiqueta_paquete',
 ] as const;
 
 const CODE_PAGES: readonly string[] = ['CP437', 'CP850', 'CP858'];
@@ -125,6 +129,46 @@ export function snapshotAComprobante(datos: unknown): DatosComprobante {
 }
 
 /**
+ * El snapshot congelado de `core.snapshot_envio` (0085) a la forma que consumen
+ * `renderReciboEnvio` / `renderEtiquetaEnvio`.
+ */
+export function snapshotAEnvio(datos: unknown): DatosEnvio {
+  const d = (datos ?? {}) as Record<string, unknown>;
+  const texto = (v: unknown): string => (v == null ? '' : String(v));
+  const metodo = texto(d['metodo']);
+  const e: DatosEnvio = {
+    folio: texto(d['folio']),
+    remitenteNombre: texto(d['remitente_nombre']),
+    remitenteTelefono: texto(d['remitente_telefono']),
+    destinatarioNombre: texto(d['destinatario_nombre']),
+    destinatarioTelefono: texto(d['destinatario_telefono']),
+    descripcion: texto(d['descripcion']),
+    bultos: Number(d['bultos']),
+    importe: Number(d['importe']),
+    modalidad: d['modalidad'] === 'por_cobrar' ? 'por_cobrar' : 'pagado',
+    estadoPago: (texto(d['estado_pago']) || 'pendiente') as DatosEnvio['estadoPago'],
+    porCobrar: Number(d['por_cobrar'] ?? 0),
+    metodo: metodo === 'efectivo' || metodo === 'transferencia' ? metodo : null,
+    origen: {
+      nombre: texto(d['origen']),
+      direccion: texto(d['origen_direccion']),
+      telefono: texto(d['origen_telefono']),
+    },
+    destino: {
+      nombre: texto(d['destino']),
+      direccion: texto(d['destino_direccion']),
+      telefono: texto(d['destino_telefono']),
+    },
+    fechaHoraSalida: texto(d['fecha_hora_salida']),
+    unidad: texto(d['unidad']),
+    vendedor: texto(d['vendedor']),
+    registradoEn: texto(d['registrado_en']),
+  };
+  if (d['bulto'] != null) e.bulto = Number(d['bulto']);
+  return e;
+}
+
+/**
  * Renderiza el documento de un `print_job` a bytes ESC/POS.
  */
 export function renderPrintJob(
@@ -149,6 +193,16 @@ export function renderPrintJob(
       return renderComprobanteReserva(snapshotAComprobante(datos), {
         ...ctx.ticket, cols: ctx.cols, codePage: ctx.codePage,
       });
+    case 'recibo_envio':
+      return renderReciboEnvio(
+        { ...snapshotAEnvio(datos), reimpreso: esReimpresion },
+        { ...ctx.ticket, cols: ctx.cols, codePage: ctx.codePage },
+      );
+    case 'etiqueta_paquete':
+      return renderEtiquetaEnvio(
+        { ...snapshotAEnvio(datos), reimpreso: esReimpresion },
+        { ...ctx.ticket, cols: ctx.cols, codePage: ctx.codePage },
+      );
     default:
       throw new Error(`El spooler no sabe renderizar la plantilla "${templateKey}"`);
   }
@@ -163,6 +217,12 @@ export interface OpcionesSpooler {
   lote?: number;
   /** Fábrica de transporte. Por defecto la de `config.ts` (tcp/usb reales). */
   crearTransporte?: (cfg: ConfigImpresoraRow) => EscPosTransport;
+  /**
+   * Limita la pasada a UNA sucursal. Sin él se barren todas las que tengan jobs
+   * pendientes (el caso normal de un nodo). Lo usan las pruebas para no imprimir
+   * jobs que otra prueba en paralelo confirmó en la misma base.
+   */
+  soloSucursal?: string;
 }
 
 export interface ResumenSpooler {
@@ -210,8 +270,9 @@ export async function procesarCola(
   const { rows: sucursales } = await db.query<{ sucursal_id: string }>(
     `SELECT DISTINCT sucursal_id
        FROM core.print_job
-      WHERE estado = 'pendiente' AND activo AND template_key = ANY($1)`,
-    [[...TEMPLATES_SOPORTADOS]],
+      WHERE estado = 'pendiente' AND activo AND template_key = ANY($1)
+        AND ($2::uuid IS NULL OR sucursal_id = $2::uuid)`,
+    [[...TEMPLATES_SOPORTADOS], opts.soloSucursal ?? null],
   );
 
   for (const { sucursal_id } of sucursales) {

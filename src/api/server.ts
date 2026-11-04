@@ -23,6 +23,7 @@ import { rutasSync } from './rutas/sync.js';
 import { rutasVentas } from './rutas/ventas.js';
 import { rutasCaja } from './rutas/caja.js';
 import { rutasViajes } from './rutas/viajes.js';
+import { rutasPaqueteria } from './rutas/paqueteria.js';
 import { rutasReportes } from './rutas/reportes.js';
 import { rutasImpresoraLocal } from './rutas/impresora-local.js';
 import type { BaseDeDatos } from './tipos.js';
@@ -99,6 +100,7 @@ export async function construirApp(opts: OpcionesApp): Promise<FastifyInstance> 
   await app.register(rutasVentas, { prefix: '/ventas' });
   await app.register(rutasCaja, { prefix: '/caja' });
   await app.register(rutasViajes, { prefix: '/viajes' });
+  await app.register(rutasPaqueteria, { prefix: '/paqueteria' });
   await app.register(rutasReportes, { prefix: '/reportes' });
   // Fuera de `/admin` a propósito (ver cabecera del archivo): debe funcionar
   // sin `dbNube`, que es justo el escenario que resuelve.

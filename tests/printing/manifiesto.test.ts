@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  colsFuenteB,
   renderManifiesto,
   type ConfigManifiesto,
   type DatosManifiesto,
@@ -119,7 +120,7 @@ describe('manifiesto', () => {
   });
 
   it('lista "sin pasajeros" en vez de un cuerpo vacío', () => {
-    expect(paper({ ...TERMINAL, pasajeros: [] })).toContain('(sin pasajeros en esta salida)');
+    expect(paper({ ...TERMINAL, pasajeros: [] })).toContain('(sin pasajeros que aborden aqui)');
   });
 
   it('cuenta el total de pasajeros', () => {
@@ -144,7 +145,7 @@ describe('manifiesto', () => {
     for (const cols of [32, 48, 64]) {
       const angosto = paper(TERMINAL, { cols });
       for (const line of angosto.split('\n')) {
-        expect(line.length).toBeLessThanOrEqual(cols);
+        expect(line.length).toBeLessThanOrEqual(colsFuenteB(cols));   // fuente B (0081)
       }
     }
   });
@@ -152,5 +153,61 @@ describe('manifiesto', () => {
   it('termina en corte de papel', () => {
     const bytes = renderManifiesto(TERMINAL);
     expect(bytes.subarray(-4)).toEqual(Buffer.from([0x1d, 0x56, 66, 3]));
+  });
+});
+
+describe('manifiesto por terminal y compacto (0081)', () => {
+  const ORIGEN: DatosManifiesto = {
+    ...BASE, copia: 'terminal', terminal: 'Huajuapan', terminal_orden: 0,
+    pasajeros: [
+      {
+        folio: '7K3M9A', asiento: 2, nombre: 'María Muñoz',
+        sube_en: 'Huajuapan', sube_en_orden: 0, baja_en: 'Oaxaca', baja_en_orden: 3,
+        estatus_pago: 'pagado', conflicto: false,
+      },
+      {
+        folio: 'C4D5E6', asiento: 5, nombre: 'Luis Gil',
+        sube_en: 'Huajuapan', sube_en_orden: 0, baja_en: 'Oaxaca', baja_en_orden: 3,
+        estatus_pago: 'pagado', conflicto: false,
+        lugar_abordaje: 'Gasolinera de Chila', cobrar: 450,
+      },
+    ],
+  };
+
+  it('usa la fuente B (ESC M 1) y 64 columnas a 80 mm', () => {
+    const bytes = renderManifiesto(ORIGEN);
+    expect(bytes.includes(Buffer.from([0x1b, 0x4d, 1]))).toBe(true);
+    expect(colsFuenteB(48)).toBe(64);
+  });
+
+  it('no repite "sube en" para quien sube en la terminal que imprime', () => {
+    const p = paper(ORIGEN);
+    expect(p).toContain('COPIA TERMINAL - HUAJUAPAN');
+    expect(p).not.toContain('sube: Huajuapan');
+    expect(p).toContain('baja: Oaxaca');
+  });
+
+  it('lugar de paso: indica dónde aborda y cuánto cobra el conductor', () => {
+    const p = paper(ORIGEN);
+    expect(p).toContain('aborda: Gasolinera de Chila - COBRAR $450');
+    expect(p).toContain('COBRA EL CONDUCTOR: $450 (1 pasajero)');
+  });
+
+  it('sí indica "sube en" si el punto es otro que cubre esta terminal (parada sin sistema)', () => {
+    const p = paper({
+      ...ORIGEN,
+      pasajeros: [{
+        folio: 'Z9Y8X7', asiento: 9, nombre: 'Eva Paz',
+        sube_en: 'Tamazulapan', sube_en_orden: 2, baja_en: 'Oaxaca', baja_en_orden: 3,
+        estatus_pago: 'pagado', conflicto: false,
+      }],
+    });
+    expect(p).toContain('sube: Tamazulapan');
+  });
+
+  it('en una terminal intermedia muestra su hora de paso', () => {
+    const p = paper({ ...ORIGEN, terminal: 'Nochixtlan', terminal_orden: 1, pasajeros: [] });
+    expect(p).toContain('pasa por Nochixtlan 08:30');
+    expect(p).toContain('(sin pasajeros que aborden aqui)');
   });
 });

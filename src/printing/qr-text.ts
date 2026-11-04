@@ -124,3 +124,73 @@ export function verifyQrText(text: string, key: string): QrVerdict {
 
   return valid ? { valid, fields } : { valid, fields, reason: 'firma no coincide' };
 }
+
+// ---------------------------------------------------------------------------
+// Paquetería (0085, P7). Mismo formato y misma clave HMAC que el boleto, con su
+// propio encabezado para que un lector nunca confunda un envío con un boleto:
+//   DONAJI-ENV  → recibo del cliente (datos + cobro)
+//   DONAJI-BUL  → ticket pegado en un bulto (n/N)
+// ---------------------------------------------------------------------------
+
+export interface QrEnvioData {
+  folio: string;
+  remitente: string;
+  destinatario: string;
+  destinatarioTelefono: string;
+  origen: string;
+  destino: string;
+  /** `YYYY-MM-DD HH:mm` de la salida. */
+  fechaHora: string;
+  bultos: number;
+  /** Importe con dos decimales. */
+  importe: string;
+  modalidad: 'pagado' | 'por_cobrar';
+  /** Monto a cobrar en destino, con dos decimales (solo por cobrar). */
+  porCobrar?: string;
+}
+
+export interface QrBultoData {
+  folio: string;
+  bulto: number;
+  bultos: number;
+  destino: string;
+  destinatario: string;
+  porCobrar?: string;
+}
+
+const firmar = (body: string, opts: BuildQrOptions): string => {
+  const includeHmac = opts.includeHmac ?? true;
+  if (!includeHmac) return body;
+  if (!opts.key) throw new Error('QR de envío: falta la clave HMAC (o usa includeHmac:false)');
+  return `${body}|V:${signQr(body, opts.key)}`;
+};
+
+export function buildQrEnvio(d: QrEnvioData, opts: BuildQrOptions = {}): string {
+  const campos = [
+    'DONAJI-ENV',
+    `F:${foldToAscii(d.folio)}`,
+    `R:${foldToAscii(d.remitente)}`,
+    `DE:${foldToAscii(d.destinatario)}`,
+    `DT:${foldToAscii(d.destinatarioTelefono)}`,
+    `O:${foldToAscii(d.origen)}`,
+    `D:${foldToAscii(d.destino)}`,
+    `FH:${d.fechaHora}`,
+    `B:${d.bultos}`,
+    `IMP:${d.importe}`,
+    `M:${d.modalidad === 'pagado' ? 'PAGADO' : 'POR COBRAR'}`,
+  ];
+  if (d.modalidad === 'por_cobrar' && d.porCobrar) campos.push(`PC:${d.porCobrar}`);
+  return firmar(campos.join('|'), opts);
+}
+
+export function buildQrBulto(d: QrBultoData, opts: BuildQrOptions = {}): string {
+  const campos = [
+    'DONAJI-BUL',
+    `F:${foldToAscii(d.folio)}`,
+    `N:${d.bulto}/${d.bultos}`,
+    `D:${foldToAscii(d.destino)}`,
+    `DE:${foldToAscii(d.destinatario)}`,
+  ];
+  if (d.porCobrar) campos.push(`PC:${d.porCobrar}`);
+  return firmar(campos.join('|'), opts);
+}

@@ -48,6 +48,25 @@ export interface PullOptions {
  * Clase A (configuración): la nube gana siempre y el nodo nunca escribe estas tablas, así
  * que no hay conflicto posible — hay un solo escritor por definición.
  */
+/**
+ * ¿La nube ya tiene `cambio_log.destinatarios` (0083)? Se recuerda por conexión
+ * solo cuando es `true`: una vez migrada la columna no desaparece, y así el
+ * ciclo de pull no paga la consulta a `information_schema` cada vez.
+ */
+const nubesConDestinatarios = new WeakSet<Client>();
+async function nubeTieneDestinatarios(cloud: Client): Promise<boolean> {
+  if (nubesConDestinatarios.has(cloud)) return true;
+  const { rows } = await cloud.query<{ existe: boolean }>(
+    `SELECT EXISTS (
+       SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'sync' AND table_name = 'cambio_log'
+          AND column_name = 'destinatarios') AS existe`,
+  );
+  const existe = rows[0]?.existe ?? false;
+  if (existe) nubesConDestinatarios.add(cloud);
+  return existe;
+}
+
 export async function pull(node: Client, cloud: Client, opts: PullOptions = {}): Promise<PullResult> {
   const batchSize = opts.batchSize ?? 500;
   const maxBatches = opts.maxBatches ?? 20;
@@ -77,6 +96,19 @@ export async function pull(node: Client, cloud: Client, opts: PullOptions = {}):
     [cursor],
   );
 
+  // Réplica de bajada (0083): las filas transaccionales del log llevan
+  // `destinatarios` y solo bajan a esas sucursales; la configuración (NULL) baja
+  // a todos. Se detecta la columna para no romper el pull contra una nube que
+  // aún no tiene 0083 (deploy: nube primero, pero un nodo adelantado no debe
+  // quedarse sin configuración).
+  const { rows: sl } = await node.query<{ sucursal: string | null }>(
+    `SELECT sync.sucursal_local() AS sucursal`,
+  );
+  const sucursalLocal = sl[0]?.sucursal ?? null;
+  const filtroDestino = await nubeTieneDestinatarios(cloud)
+    ? `AND (destinatarios IS NULL OR $3::uuid = ANY(destinatarios))`
+    : `AND ($3::uuid IS NULL OR true)`;
+
   for (let i = 0; i < maxBatches; i++) {
     // Solo se leen filas cuya transacción escritora ya no está en vuelo.
     //
@@ -105,9 +137,10 @@ export async function pull(node: Client, cloud: Client, opts: PullOptions = {}):
                     AND backend_xid IS NOT NULL
                     AND pid <> pg_backend_pid()),
                 -1)
+          ${filtroDestino}
         ORDER BY seq
         LIMIT $2`,
-      [cursor, batchSize],
+      [cursor, batchSize, sucursalLocal],
     );
     if (rows.length === 0) break;
 

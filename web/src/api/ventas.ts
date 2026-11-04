@@ -92,7 +92,8 @@ export interface Pasajero {
 }
 
 export interface PagoInput {
-  metodo: 'efectivo' | 'transferencia' | 'corresponsal';
+  /** `conductor` (0079): reserva con lugar de paso, la cobra el conductor al abordar. */
+  metodo: 'efectivo' | 'transferencia' | 'corresponsal' | 'conductor';
   monto: number;
   esAbono?: boolean;
   /** Solo `efectivo` (0064): con cuánto pagó el pasajero (>= `monto`). El backend calcula el cambio. */
@@ -111,6 +112,8 @@ export interface NuevaVenta {
   conConexion?: boolean;
   pasajeros: Pasajero[];
   pago?: PagoInput;
+  /** Lugar de abordaje en texto libre (0079); exige pago completo o `conductor`. */
+  lugarAbordaje?: string;
 }
 
 export interface BoletoEmitido {

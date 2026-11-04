@@ -109,6 +109,8 @@ export interface BoletoPorFolio extends FilaChecklist {
     saldoPendiente: number;
     clienteNombre: string | null;
     contactoTelefono: string;
+    /** Lugar de paso en texto libre (0079); null = sube en el origen. */
+    lugarAbordaje: string | null;
   };
 }
 
@@ -151,7 +153,7 @@ export async function buscarBoletoPorFolio(
     conductor: string | null; hora_salida: Date; origen: string; destino: string;
     venta_id: string; es_reservacion: boolean; importe_total: string;
     pagado: string; saldo_pendiente: string; cliente_nombre: string | null;
-    contacto_telefono: string;
+    contacto_telefono: string; lugar_abordaje: string | null;
   }>(
     `SELECT c.boleto_id, c.folio, c.asiento_num, c.pasajero_nombre, c.tramos::text AS tramos,
             c.conflicto, c.estado_abordaje, c.capturado_en,
@@ -160,7 +162,8 @@ export async function buscarBoletoPorFolio(
             spo.hora_paso_programada AS hora_salida,
             suo.nombre AS origen, sud.nombre AS destino,
             v.id AS venta_id, v.es_reservacion, v.importe_total,
-            vs.pagado, vs.saldo_pendiente, cli.nombre AS cliente_nombre, v.contacto_telefono
+            vs.pagado, vs.saldo_pendiente, cli.nombre AS cliente_nombre, v.contacto_telefono,
+            v.lugar_abordaje
        FROM core.v_checklist_abordaje c
        JOIN core.boleto b          ON b.id = c.boleto_id
        JOIN core.venta v           ON v.id = b.venta_id
@@ -204,6 +207,7 @@ export async function buscarBoletoPorFolio(
       saldoPendiente: Number(r.saldo_pendiente),
       clienteNombre: r.cliente_nombre,
       contactoTelefono: r.contacto_telefono,
+      lugarAbordaje: r.lugar_abordaje,
     },
   };
 }
@@ -413,6 +417,8 @@ export interface DetalleBoleto {
     boletosEnLaVenta: number;
     contactoTelefono: string;
     clienteNombre: string | null;
+    /** Lugar de paso en texto libre (0079); null = sube en el origen. */
+    lugarAbordaje: string | null;
   };
   vendedor: { nombre: string; rol: string };
   sucursalVenta: string;
@@ -440,6 +446,7 @@ export async function detalleBoleto(
     vendido_en: Date;
     venta_id: string; es_reservacion: boolean; importe_total: string;
     contacto_telefono: string; boletos_en_venta: string; cliente_nombre: string | null;
+    lugar_abordaje: string | null;
     vendedor_nombre: string; vendedor_rol: string; sucursal_venta: string;
     salida_id: string; fecha_operacion: string; salida_estado: string;
     conductor: string | null;
@@ -449,6 +456,7 @@ export async function detalleBoleto(
             b.tramos::text AS tramos, b.estado, b.importe, b.impreso_en,
             b.creado_en AS vendido_en,
             v.id AS venta_id, v.es_reservacion, v.importe_total, v.contacto_telefono,
+            v.lugar_abordaje,
             (SELECT count(*) FROM core.boleto bb
               WHERE bb.venta_id = v.id AND bb.activo) AS boletos_en_venta,
             cli.nombre AS cliente_nombre,
@@ -495,6 +503,7 @@ export async function detalleBoleto(
       boletosEnLaVenta: Number(r.boletos_en_venta),
       contactoTelefono: r.contacto_telefono,
       clienteNombre: r.cliente_nombre,
+      lugarAbordaje: r.lugar_abordaje,
     },
     vendedor: { nombre: r.vendedor_nombre, rol: r.vendedor_rol },
     sucursalVenta: r.sucursal_venta,

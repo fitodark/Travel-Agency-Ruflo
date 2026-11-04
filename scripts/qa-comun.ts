@@ -22,6 +22,10 @@ export const CODIGOS_REALES = ['1', '2', '3', '4'] as const;
 export const TABLAS_A_BARRER: readonly string[] = [
   'core.print_job',
   'core.movimiento_caja',
+  // Paquetería (0084): hijos de salida / corte.
+  'core.evento_envio',
+  'core.pago_envio',
+  'core.envio',
   'core.pago',
   'core.boleto',
   'core.venta',

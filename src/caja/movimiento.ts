@@ -98,6 +98,12 @@ export async function movimientosDeCorte(
 
 export interface PasajeroBoleto { folio: string; pasajero: string; importe: number }
 
+/** 0088: el envío detrás de un ingreso o reembolso de paquetería. */
+export interface EnvioMovimiento {
+  folio: string; descripcion: string; destino: string; destinatario: string;
+  bultos: number; modalidad: 'pagado' | 'por_cobrar';
+}
+
 export interface MovimientoDetalle {
   id: string;
   corteCajaId: string;
@@ -117,6 +123,8 @@ export interface MovimientoDetalle {
   ventaId: string | null;
   /** Pasajeros/folios de la venta (abonos incluidos), si `ventaId` no es null. */
   pasajeros: PasajeroBoleto[] | null;
+  /** 0088: el envío, si el movimiento es de paquetería. */
+  envio: EnvioMovimiento | null;
 }
 
 interface FilaMovimientoDetalle {
@@ -136,6 +144,7 @@ interface FilaMovimientoDetalle {
   es_abono: boolean | null;
   venta_id: string | null;
   pasajeros: PasajeroBoleto[] | null;
+  envio: EnvioMovimiento | null;
 }
 
 /**
@@ -151,7 +160,7 @@ export async function movimientosCorteDetalle(
   const { rows } = await db.query<FilaMovimientoDetalle>(
     `SELECT id, corte_caja_id, tipo, origen_tipo, origen_id, descripcion, monto,
             usuario_id, usuario, registrado_en, activo, metodo_pago,
-            referencia_transferencia, es_abono, venta_id, pasajeros
+            referencia_transferencia, es_abono, venta_id, pasajeros, envio
        FROM core.movimientos_corte_detalle($1::uuid, true)`,
     [corteId],
   );
@@ -172,5 +181,6 @@ export async function movimientosCorteDetalle(
     esAbono: r.es_abono,
     ventaId: r.venta_id,
     pasajeros: r.pasajeros,
+    envio: r.envio,
   }));
 }
