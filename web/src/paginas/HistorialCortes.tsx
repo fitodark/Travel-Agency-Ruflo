@@ -3,10 +3,9 @@ import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { cortesUsuariosVisibles, historialCortes, type CorteHistorial } from '../api/caja';
 import { useSesion } from '../auth/sesion';
-import { fechaHora } from '../lib/fechas';
+import { fechaHora, hoyLocal } from '../lib/fechas';
 
 const dinero = (n: number | null) => (n === null ? '—' : `$${n}`);
-const hoy = (): string => new Date().toISOString().slice(0, 10);
 const TAMANOS = [20, 50, 100] as const;
 
 interface Filtros {
@@ -18,7 +17,7 @@ interface Filtros {
 }
 
 const filtrosIniciales = (): Filtros => ({
-  desde: hoy(), hasta: hoy(), estado: '', sucursalId: '', usuarioAperturaId: '',
+  desde: hoyLocal(), hasta: hoyLocal(), estado: '', sucursalId: '', usuarioAperturaId: '',
 });
 
 /**

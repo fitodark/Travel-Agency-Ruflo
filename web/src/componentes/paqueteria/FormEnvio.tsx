@@ -2,7 +2,7 @@
  * Registrar un envío (REQ-1..REQ-7): destino, salida, remitente, destinatario,
  * descripción, bultos, importe y si se paga aquí o se cobra en destino.
  */
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { listarSucursales } from '../../api/catalogos';
 import {
@@ -10,9 +10,9 @@ import {
 } from '../../api/paqueteria';
 import { ErrorApi } from '../../api/cliente';
 import { useSesion } from '../../auth/sesion';
-import { hora } from '../../lib/fechas';
+import { hora, hoyLocal } from '../../lib/fechas';
 import { Aviso, Boton, Tarjeta } from '../ui';
-import { aPago, cobroInicial, CobroEnvio, cobroValido, ETIQUETA, hoyIso, mxn, type EstadoCobro } from './comun';
+import { aPago, cobroInicial, CobroEnvio, cobroValido, ETIQUETA, mxn, type EstadoCobro } from './comun';
 
 const vacio = {
   remitenteNombre: '', remitenteTelefono: '',
@@ -22,7 +22,7 @@ const vacio = {
 
 export function FormEnvio({ onRegistrado }: { onRegistrado: (folio: string) => void }) {
   const { sesion } = useSesion();
-  const [fecha, setFecha] = useState(hoyIso());
+  const [fecha, setFecha] = useState(hoyLocal);
   const [destinoId, setDestinoId] = useState('');
   const [salidaId, setSalidaId] = useState('');
   const [d, setD] = useState(vacio);
@@ -37,6 +37,14 @@ export function FormEnvio({ onRegistrado }: { onRegistrado: (folio: string) => v
     queryFn: () => salidasParaEnvio(fecha, destinoId),
     enabled: !!destinoId,
   });
+  // Solo las que aún reciben envíos: las que ya pasaron (o cerraron registro)
+  // no se listan. Vienen ordenadas por hora de paso por esta terminal.
+  const abiertas = useMemo(() => (salidas.data ?? []).filter((s) => s.abierta), [salidas.data]);
+
+  // Por defecto, la más próxima; si la elegida deja de estar disponible, la siguiente.
+  useEffect(() => {
+    if (!abiertas.some((s) => s.salidaId === salidaId)) setSalidaId(abiertas[0]?.salidaId ?? '');
+  }, [abiertas, salidaId]);
 
   const importe = Number(d.importe);
   const bultos = Number(d.bultos);
@@ -67,12 +75,23 @@ export function FormEnvio({ onRegistrado }: { onRegistrado: (folio: string) => v
     setResultado(null); registrar.reset();
   };
 
-  const campo = (k: keyof typeof vacio, etiqueta: string, extra: Record<string, unknown> = {}) => (
+  const campo = (
+    k: keyof typeof vacio, etiqueta: string, extra: Record<string, unknown> = {}, mayusculas = false,
+  ) => (
     <label className="block">
       <span className={ETIQUETA}>{etiqueta} *</span>
       <input
-        value={d[k]} onChange={(e) => setD({ ...d, [k]: e.target.value })}
-        className="campo rounded-sm" {...extra}
+        value={d[k]}
+        onChange={(e) => {
+          if (!mayusculas) { setD({ ...d, [k]: e.target.value }); return; }
+          // Máscara de mayúsculas (con acentos y Ñ). Se conserva el cursor para
+          // poder corregir a media palabra sin que salte al final.
+          const el = e.target;
+          const { selectionStart: ini, selectionEnd: fin } = el;
+          setD({ ...d, [k]: el.value.toLocaleUpperCase('es-MX') });
+          requestAnimationFrame(() => { if (ini !== null && fin !== null) el.setSelectionRange(ini, fin); });
+        }}
+        className={`campo rounded-sm ${mayusculas ? 'uppercase' : ''}`} {...extra}
       />
     </label>
   );
@@ -97,7 +116,8 @@ export function FormEnvio({ onRegistrado }: { onRegistrado: (folio: string) => v
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <label className="block">
             <span className={ETIQUETA}>Fecha</span>
-            <input type="date" value={fecha} onChange={(e) => { setFecha(e.target.value); setSalidaId(''); }}
+            <input type="date" value={fecha} min={hoyLocal()} required
+                   onChange={(e) => { setFecha(e.target.value || hoyLocal()); setSalidaId(''); }}
                    className="campo rounded-sm" />
           </label>
           <label className="block sm:col-span-2">
@@ -111,34 +131,30 @@ export function FormEnvio({ onRegistrado }: { onRegistrado: (folio: string) => v
         </div>
 
         {destinoId && (
-          <div>
+          <label className="block">
             <span className={ETIQUETA}>Salida *</span>
-            {salidas.data?.length === 0 && (
-              <p className="text-slate-500">No hay salidas de esta fecha que pasen por aquí y lleguen a ese destino.</p>
+            {salidas.isLoading ? (
+              <p className="text-slate-400">Cargando salidas…</p>
+            ) : abiertas.length === 0 ? (
+              <p className="text-slate-500">
+                No quedan salidas disponibles esta fecha que pasen por aquí y lleguen a ese destino.
+              </p>
+            ) : (
+              <select value={salidaId} onChange={(e) => setSalidaId(e.target.value)} className="campo rounded-sm">
+                {abiertas.map((s) => (
+                  <option key={s.salidaId} value={s.salidaId}>
+                    {hora(s.horaPaso)} · {s.ruta} · {s.unidad ?? 'sin unidad'}
+                  </option>
+                ))}
+              </select>
             )}
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-              {salidas.data?.map((s) => (
-                <button
-                  key={s.salidaId} type="button" disabled={!s.abierta}
-                  onClick={() => setSalidaId(s.salidaId)}
-                  className={`rounded-sm border p-2 text-left disabled:opacity-50 ${
-                    salidaId === s.salidaId ? 'border-brand-600 bg-brand-50' : 'border-slate-300 bg-white'
-                  }`}
-                >
-                  <span className="font-mono font-semibold">{hora(s.horaPaso)}</span> · {s.ruta}
-                  <span className="block text-xs text-slate-500">
-                    {s.unidad ?? 'sin unidad'}{s.abierta ? '' : ' · registro cerrado'}
-                  </span>
-                </button>
-              ))}
-            </div>
-          </div>
+          </label>
         )}
 
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          {campo('remitenteNombre', 'Nombre de quien envía', { maxLength: 120 })}
+          {campo('remitenteNombre', 'Nombre de quien envía', { maxLength: 120 }, true)}
           {campo('remitenteTelefono', 'Celular de quien envía', { maxLength: 40, inputMode: 'tel' })}
-          {campo('destinatarioNombre', 'Nombre completo de quien recibe', { maxLength: 120 })}
+          {campo('destinatarioNombre', 'Nombre completo de quien recibe', { maxLength: 120 }, true)}
           {campo('destinatarioTelefono', 'Celular de quien recibe', { maxLength: 40, inputMode: 'tel' })}
         </div>
         {campo('descripcion', 'Descripción breve del envío', { maxLength: 200, placeholder: 'p. ej. 5 cajas grandes de ropa' })}
