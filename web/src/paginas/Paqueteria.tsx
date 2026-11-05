@@ -1,6 +1,7 @@
 /**
  * Paquetería (Fase G): registrar envíos, la bandeja del destino (por recibir /
- * por entregar) y la consulta por folio con sus acciones.
+ * por entregar, esta con historial de entregados) y la consulta por folio con
+ * sus acciones.
  * docs/architecture/06-lugar-paso-paqueteria.md §1.2
  */
 import { useState } from 'react';
@@ -8,6 +9,7 @@ import { useQuery } from '@tanstack/react-query';
 import { enviosDestino, ESTADO_ENVIO, type Envio } from '../api/paqueteria';
 import { FormEnvio } from '../componentes/paqueteria/FormEnvio';
 import { DetalleEnvio } from '../componentes/paqueteria/DetalleEnvio';
+import { HistorialEntregas } from '../componentes/paqueteria/HistorialEntregas';
 import { mxn } from '../componentes/paqueteria/comun';
 import { EncabezadoPagina, Tabla } from '../componentes/ui';
 import { fecha } from '../lib/fechas';
@@ -56,20 +58,21 @@ export function Paqueteria() {
       </div>
 
       {pestana === 'registrar' && <FormEnvio onRegistrado={() => { /* el formulario muestra el resultado */ }} />}
-      {pestana !== 'registrar' && <Bandeja estado={pestana} onAbrir={setAbierto} />}
+      {pestana === 'por_recibir' && <Bandeja estado={pestana} onAbrir={setAbierto} />}
+      {pestana === 'por_entregar' && <HistorialEntregas onAbrir={setAbierto} />}
 
       {abierto && <DetalleEnvio folio={abierto} onCerrar={() => setAbierto(null)} />}
     </div>
   );
 }
 
-function Bandeja({ estado, onAbrir }: { estado: 'por_recibir' | 'por_entregar'; onAbrir: (folio: string) => void }) {
+function Bandeja({ estado, onAbrir }: { estado: 'por_recibir'; onAbrir: (folio: string) => void }) {
   const q = useQuery({ queryKey: ['paqueteria', 'destino', estado], queryFn: () => enviosDestino(estado) });
   return (
     <Tabla<Envio>
       filas={q.data}
       claveFila={(e) => e.envioId}
-      vacio={estado === 'por_recibir' ? 'No hay paquetes en camino a esta sucursal.' : 'No hay paquetes esperando a que los recojan.'}
+      vacio="No hay paquetes en camino a esta sucursal."
       cols={[
         { clave: 'folio', th: 'Folio', td: (e) => (
           <button className="font-mono font-semibold text-brand-700 underline" onClick={() => onAbrir(e.folio)}>{e.folio}</button>

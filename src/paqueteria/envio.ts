@@ -108,7 +108,7 @@ export interface Envio {
   pagoPorConfirmarId: string | null;
 }
 
-const SELECT_ENVIO = `
+export const SELECT_ENVIO = `
   SELECT e.id AS envio_id, e.folio, e.salida_id, s.fecha_operacion::text AS fecha_operacion,
          so.nombre AS origen, sd.nombre AS destino,
          e.sucursal_origen_id, e.sucursal_destino_id,
@@ -126,7 +126,7 @@ const SELECT_ENVIO = `
     JOIN core.sucursal sd ON sd.id = e.sucursal_destino_id
     JOIN core.usuario u   ON u.id  = e.usuario_id`;
 
-interface FilaEnvio {
+export interface FilaEnvio {
   envio_id: string; folio: string; salida_id: string; fecha_operacion: string;
   origen: string; destino: string; sucursal_origen_id: string; sucursal_destino_id: string;
   remitente_nombre: string; remitente_telefono: string;
@@ -137,7 +137,7 @@ interface FilaEnvio {
   registrado_en: Date; registrado_por: string; pago_por_confirmar_id: string | null;
 }
 
-const mapear = (r: FilaEnvio): Envio => ({
+export const mapear = (r: FilaEnvio): Envio => ({
   envioId: r.envio_id,
   folio: r.folio,
   salidaId: r.salida_id,
@@ -224,6 +224,17 @@ export async function despacharEnvios(
     [a.salidaId, a.sucursalId, a.usuarioId, a.ahora ?? new Date()],
   );
   return { despachados: Number(rows[0]!.n) };
+}
+
+/** Pasa a en ruta UN envío registrado, desde su terminal de origen (0089). */
+export async function despacharEnvio(
+  db: Consultable, a: { envioId: string; sucursalId: string; usuarioId: string; ahora?: Date },
+): Promise<{ envioId: string; estado: EstadoEnvio }> {
+  const { rows } = await db.query<{ envio_id: string; estado: EstadoEnvio }>(
+    `SELECT envio_id, estado FROM core.despachar_envio($1::uuid, $2::uuid, $3::uuid, $4::timestamptz)`,
+    [a.envioId, a.sucursalId, a.usuarioId, a.ahora ?? new Date()],
+  );
+  return { envioId: rows[0]!.envio_id, estado: rows[0]!.estado };
 }
 
 export interface EstadoTrasEvento {

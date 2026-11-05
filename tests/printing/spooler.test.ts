@@ -32,6 +32,7 @@ class TransporteFalso implements EscPosTransport {
   readonly label = 'transporte falso';
   readonly writes: Buffer[] = [];
   aperturas = 0;
+  cierres = 0;
 
   constructor(private readonly opts: { probeOk?: boolean; fallaEscritura?: boolean } = {}) {}
 
@@ -43,7 +44,7 @@ class TransporteFalso implements EscPosTransport {
     if (this.opts.fallaEscritura) throw new Error('impresora atascada');
     this.writes.push(Buffer.from(bytes));
   }
-  async close(): Promise<void> {}
+  async close(): Promise<void> { this.cierres += 1; }
 
   get papel(): string {
     return decodeText(stripCommandsRaw(Buffer.concat(this.writes)));
@@ -105,6 +106,10 @@ run('spooler de impresión (PostgreSQL real)', () => {
     expect(r.impresos).toBe(2);
     expect(t.writes).toHaveLength(2);
     expect(await estados(salidaId)).toEqual({ impreso: 2 });
+    // Una sola conexión para todo el lote: en ráfaga, la Enduro tiraba los
+    // tickets que llegaban por conexiones nuevas mientras imprimía el primero.
+    expect(t.aperturas).toBe(1);
+    expect(t.cierres).toBe(1);
 
     const { rows } = await db.query<{ impreso_en: Date | null }>(
       `SELECT impreso_en FROM core.print_job WHERE datos->>'salida_id' = $1`, [salidaId],
@@ -162,6 +167,9 @@ run('spooler de impresión (PostgreSQL real)', () => {
     let r = await procesarCola(db, opts);
     expect(r.fallidos).toBe(2);
     expect(await estados(salidaId)).toEqual({ pendiente: 2 });
+    // Tras cada fallo la conexión se cierra y el siguiente job reabre una limpia.
+    expect(t.aperturas).toBe(2);
+    expect(t.cierres).toBe(2);
 
     r = await procesarCola(db, opts);
     expect(r.fallidos).toBe(2);

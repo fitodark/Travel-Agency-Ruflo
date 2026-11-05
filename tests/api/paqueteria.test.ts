@@ -96,6 +96,33 @@ run('API · /paqueteria (PostgreSQL real)', () => {
     });
     expect(entregar.statusCode).toBe(200);
     expect(entregar.json()).toMatchObject({ estado: 'entregado', estadoPago: 'pagado' });
+
+    // Ya entregado, sigue en el historial de «Por entregar» (paginado + filtros).
+    const historial = await app.inject({
+      method: 'GET', headers: bearer(tDestino),
+      url: `/paqueteria/destino/historial?vista=entregados&destinatario=carlos&porPagina=20`,
+    });
+    expect(historial.statusCode).toBe(200);
+    expect(historial.json()).toMatchObject({ total: 1, pagina: 1, porPagina: 20 });
+    expect(historial.json().filas[0]).toMatchObject({ folio, estado: 'entregado' });
+    expect(historial.json().filas[0].entregadoEn).toBeTruthy();
+  });
+
+  it('un envío pasa a en ruta desde su origen (y el destino no puede)', async () => {
+    const { fx, tOrigen, tDestino } = await preparar();
+    const crear = await app.inject({
+      method: 'POST', url: '/paqueteria', headers: bearer(tOrigen),
+      payload: {
+        salidaId: fx.salidaId, sucursalDestinoId: fx.sucursales[3],
+        remitenteNombre: 'Rosa', remitenteTelefono: '953', destinatarioNombre: 'Carlos',
+        destinatarioTelefono: '55', descripcion: 'Sobre', bultos: 1, importe: 100, modalidad: 'por_cobrar',
+      },
+    });
+    const { envioId } = crear.json();
+    expect(await rechazada({ method: 'POST', url: `/paqueteria/${envioId}/en-ruta`, headers: bearer(tDestino) })).toBe(422);
+    const r = await app.inject({ method: 'POST', url: `/paqueteria/${envioId}/en-ruta`, headers: bearer(tOrigen) });
+    expect(r.statusCode).toBe(200);
+    expect(r.json()).toMatchObject({ envioId, estado: 'en_ruta' });
   });
 
   it('el origen no puede recibir ni el destino cancelar (422)', async () => {
