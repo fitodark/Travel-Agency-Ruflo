@@ -5,13 +5,12 @@ import {
   type Rango, type Severidad,
 } from '../api/reportes';
 import { useSesion } from '../auth/sesion';
-import { fechaHora } from '../lib/fechas';
+import { fechaHora, isoLocal } from '../lib/fechas';
 
-const iso = (d: Date): string => d.toISOString().slice(0, 10);
 const rangoInicial = (): Rango => {
   const hasta = new Date();
   const desde = new Date(hasta.getTime() - 29 * 86_400_000);
-  return { desde: iso(desde), hasta: iso(hasta) };
+  return { desde: isoLocal(desde), hasta: isoLocal(hasta) };
 };
 
 const money = (n: number): string =>

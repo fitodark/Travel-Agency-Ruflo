@@ -8,7 +8,6 @@ export const ETIQUETA = 'mb-1 block text-xs font-medium uppercase tracking-wide 
 export const mxn = (n: number): string =>
   n.toLocaleString('es-MX', { style: 'currency', currency: 'MXN' });
 
-export const hoyIso = (): string => new Date().toISOString().slice(0, 10);
 
 export interface EstadoCobro {
   metodo: 'efectivo' | 'transferencia';

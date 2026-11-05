@@ -17,13 +17,12 @@ const CATEGORIAS: { valor: CategoriaPasajero; etiqueta: string }[] = [
   { valor: 'inapam', etiqueta: 'INAPAM' },
   { valor: 'menor', etiqueta: 'Menor' },
 ];
-import { fecha as soloFecha, hora } from '../lib/fechas';
+import { fecha as soloFecha, hora, hoyLocal } from '../lib/fechas';
 import { formatoAsiento } from '../lib/asientos';
 import './Vender.css';
 
 type Paso = 1 | 2 | 3 | 4 | 5 | 6 | 'listo';
 
-const hoy = new Date().toISOString().slice(0, 10);
 
 /** Estilo compartido de las etiquetas de campo (arriba del input/select). */
 const ETIQUETA = 'mb-1 block text-xs font-medium uppercase tracking-wide text-slate-500';
@@ -159,7 +158,7 @@ export function Vender() {
   );
 
   const [paso, setPaso] = useState<Paso>(1);
-  const [fecha, setFecha] = useState(hoy);
+  const [fecha, setFecha] = useState(hoyLocal);
   const [origen, setOrigen] = useState('');
   const [destino, setDestino] = useState('');
   const [personas, setPersonas] = useState(1);
@@ -336,7 +335,7 @@ export function Vender() {
   // venta nunca se registró, nada entra al corte de caja.
   const cancelarVenta = () => {
     reiniciar();
-    setFecha(hoy);
+    setFecha(hoyLocal());
     setOrigen(origenPorDefecto);
     setDestino('');
     setPersonas(1);
@@ -565,15 +564,23 @@ export function Vender() {
                   {s.unidadNumeroEconomico ? ` · Unidad ${s.unidadNumeroEconomico}` : ''}
                 </div>
                 <div className="mt-3 flex items-center justify-between border-t border-slate-100 pt-2 text-xs">
+                  {/* Las que ya no se pueden vender se muestran igual, solo como
+                      referencia del día, con la razón (QA, 4 nov). */}
                   <span className="text-slate-500">
-                    {s.seleccionable ? `Quedan ${s.disponibles} asientos libres` : 'No seleccionable'}
+                    {s.seleccionable
+                      ? `Quedan ${s.disponibles} asientos libres`
+                      : new Date(s.cierreVentaEn) <= new Date()
+                        ? 'Ya no está disponible'
+                        : `Solo quedan ${s.disponibles} asiento(s) libres`}
                   </span>
                   <span
                     className={`rounded-sm px-2 py-1 text-xs font-medium ${
                       s.seleccionable ? 'bg-brand-600 text-white' : 'bg-slate-200 text-slate-400'
                     }`}
                   >
-                    {s.seleccionable ? 'Seleccionar' : 'Sin lugar'}
+                    {s.seleccionable
+                      ? 'Seleccionar'
+                      : new Date(s.cierreVentaEn) <= new Date() ? 'Venta cerrada' : 'Sin lugar'}
                   </span>
                 </div>
               </button>

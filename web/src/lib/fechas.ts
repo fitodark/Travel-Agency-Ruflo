@@ -39,3 +39,18 @@ export function fechaHora(valor: string | Date | null | undefined): string {
   const d = new Date(valor);
   return `${d.toLocaleDateString('es-MX')}, ${d.toLocaleTimeString('es-MX', OPCIONES_HORA)}`;
 }
+
+/**
+ * Hoy como `aaaa-mm-dd` en la hora LOCAL del equipo. No usar
+ * `toISOString().slice(0, 10)`: ese es el día en UTC, que en México ya es
+ * «mañana» desde las 18:00.
+ */
+export function hoyLocal(): string {
+  return isoLocal(new Date());
+}
+
+/** Un `Date` como `aaaa-mm-dd` en la hora LOCAL del equipo (ver `hoyLocal`). */
+export function isoLocal(d: Date): string {
+  const dos = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${dos(d.getMonth() + 1)}-${dos(d.getDate())}`;
+}

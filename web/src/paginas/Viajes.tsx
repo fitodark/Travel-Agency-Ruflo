@@ -11,13 +11,12 @@ import {
   type BoletoPorFolio, type ManifiestosEncolados, type SalidaDelDia,
 } from '../api/viajes';
 import { Modal } from '../componentes/ui';
-import { fechaHora, hora } from '../lib/fechas';
+import { fechaHora, hora, hoyLocal } from '../lib/fechas';
 import { PaquetesDelViaje } from '../componentes/paqueteria/PaquetesDelViaje';
 
 const mxn = (n: number): string =>
   n.toLocaleString('es-MX', { style: 'currency', currency: 'MXN' });
 
-const hoyIso = (): string => new Date().toISOString().slice(0, 10);
 
 const CHIP: Record<string, string> = {
   programada: 'bg-slate-100 text-slate-600',
@@ -27,7 +26,7 @@ const CHIP: Record<string, string> = {
 };
 
 export function Viajes() {
-  const [fecha, setFecha] = useState(hoyIso());
+  const [fecha, setFecha] = useState(hoyLocal);
   const [abierta, setAbierta] = useState<string | null>(null);
 
   const salidas = useQuery({
@@ -936,7 +935,7 @@ function ReubicarBoleto({
   onConfirmarVenta: (d: DatosReubicarVenta) => void;
 }) {
   const [abierto, setAbierto] = useState(false);
-  const [fecha, setFecha] = useState(hoyIso());
+  const [fecha, setFecha] = useState(hoyLocal);
   const [origen, setOrigen] = useState('');
   const [destino, setDestino] = useState('');
   const [salida, setSalida] = useState<SalidaDisponible | null>(null);
