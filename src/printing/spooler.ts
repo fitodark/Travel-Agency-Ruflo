@@ -308,30 +308,52 @@ export async function procesarCola(
     // Se reclama el lote entero de una vez: un job que falla vuelve a
     // `pendiente`, pero no se vuelve a tomar en esta misma pasada — así un fallo
     // consume un intento por pasada, no todos de golpe.
-    for (const job of await reclamarLote(db, sucursal_id, lote)) {
-      await imprimirJob(db, job, transporte, ctx, ahora(), maxIntentos, r);
+    //
+    // Todo el lote va por UNA sola conexión. Abrir una por ticket los mandaba en
+    // ráfaga (recibo + 5 etiquetas en ~400 ms) y la Enduro, ocupada imprimiendo
+    // el primero, descartaba los siguientes aunque el socket los aceptara. En una
+    // sola conexión el control de flujo de TCP deja que la impresora marque el
+    // ritmo (verificado en la Enduro física, folio 100010).
+    let abierto = false;
+    try {
+      for (const job of await reclamarLote(db, sucursal_id, lote)) {
+        abierto = await imprimirJob(db, job, transporte, abierto, ctx, ahora(), maxIntentos, r);
+      }
+    } finally {
+      if (abierto) await transporte.close().catch(() => { /* ya no hay a quién avisar */ });
     }
   }
 
   return r;
 }
 
+/**
+ * Imprime un job sobre la conexión compartida del lote, abriéndola si hace
+ * falta. Devuelve si la conexión queda abierta: tras un fallo se cierra para
+ * que el siguiente job empiece con una limpia.
+ */
 async function imprimirJob(
   db: Client,
   job: JobReclamado,
   transporte: EscPosTransport,
+  abierto: boolean,
   ctx: ContextoImpresion,
   impresoEn: Date,
   maxIntentos: number,
   r: ResumenSpooler,
-): Promise<void> {
+): Promise<boolean> {
   try {
     const bytes = renderPrintJob(job.template_key, job.datos, ctx, job.es_reimpresion);
-    await transporte.open();
     try {
+      if (!abierto) {
+        await transporte.open();
+        abierto = true;
+      }
       await transporte.write(bytes);
-    } finally {
-      await transporte.close();
+    } catch (err) {
+      if (abierto) await transporte.close().catch(() => { /* el error que importa es err */ });
+      abierto = false;
+      throw err;
     }
     await db.query(
       `UPDATE core.print_job
@@ -352,6 +374,7 @@ async function imprimirJob(
     if (agotado) r.revisionManual += 1;
     else r.fallidos += 1;
   }
+  return abierto;
 }
 
 async function reclamarLote(

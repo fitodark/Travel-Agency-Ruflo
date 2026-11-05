@@ -9,11 +9,12 @@
 
 import type { FastifyInstance } from 'fastify';
 import {
-  buscarEnvioPorFolio, despacharEnvios, entregarEnvio, enviosDeSalida, enviosParaMiSucursal,
+  buscarEnvioPorFolio, despacharEnvio, despacharEnvios, entregarEnvio, enviosDeSalida, enviosParaMiSucursal,
   cancelarEnvio, moverEnvio, salidasParaEnvio, transferenciasEnvioPorVerificar,
   recibirEnvio, registrarEnvio, reimprimirEnvio, verificarTransferenciaEnvio, type EstadoEnvio,
   type RegistrarEnvioArgs,
 } from '../../paqueteria/envio.js';
+import { historialEntregas, type FiltrosEntregas } from '../../paqueteria/bandeja.js';
 import { noEncontrado } from '../errores.js';
 import { exige } from '../autenticar.js';
 
@@ -185,6 +186,52 @@ export async function rutasPaqueteria(app: FastifyInstance): Promise<void> {
         : estado === 'por_recibir' ? ['registrado', 'en_ruta']
           : ['registrado', 'en_ruta', 'en_sucursal'];
       return enviosParaMiSucursal(app.db, req.sesion.sucursalId!, estados);
+    },
+  );
+
+  // «Por entregar» con historial: pendientes de recoger + entregados, paginado
+  // 20/50/100 y filtrado por fecha de entrega, remitente, destinatario y folio.
+  app.get(
+    '/destino/historial',
+    {
+      schema: {
+        querystring: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            vista: { type: 'string', enum: ['por_entregar', 'entregados', 'todos'] },
+            entregaDesde: { type: 'string', format: 'date' },
+            entregaHasta: { type: 'string', format: 'date' },
+            remitente: { type: 'string', maxLength: 120 },
+            destinatario: { type: 'string', maxLength: 120 },
+            folio: { type: 'string', maxLength: 20 },
+            pagina: { type: 'integer', minimum: 1 },
+            porPagina: { type: 'integer', minimum: 1, maximum: 100 },
+          },
+        },
+      },
+    },
+    async (req) => {
+      const q = req.query as FiltrosEntregas & { pagina?: number; porPagina?: number };
+      const porPagina = q.porPagina ?? 20;
+      const pagina = q.pagina ?? 1;
+      const { pagina: _p, porPagina: _pp, ...filtros } = q;
+      const { filas, total } = await historialEntregas(app.db, req.sesion.sucursalId!, filtros, {
+        limite: porPagina, offset: (pagina - 1) * porPagina,
+      });
+      return { filas, total, pagina, porPagina };
+    },
+  );
+
+  // Un solo envío a «en ruta», desde su terminal de origen (0089).
+  app.post(
+    '/:envioId/en-ruta',
+    { preHandler: exige({ permiso: 'venta.crear' }), schema: { params: envioParam } },
+    async (req) => {
+      const { envioId } = req.params as { envioId: string };
+      return despacharEnvio(app.db, {
+        envioId, sucursalId: req.sesion.sucursalId!, usuarioId: req.sesion.usuarioId, ahora: app.ahora(),
+      });
     },
   );
 

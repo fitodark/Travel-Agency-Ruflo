@@ -12,7 +12,7 @@ import {
 } from '../api/viajes';
 import { Modal } from '../componentes/ui';
 import { fechaHora, hora } from '../lib/fechas';
-import { despacharEnvios } from '../api/paqueteria';
+import { PaquetesDelViaje } from '../componentes/paqueteria/PaquetesDelViaje';
 
 const mxn = (n: number): string =>
   n.toLocaleString('es-MX', { style: 'currency', currency: 'MXN' });
@@ -283,6 +283,8 @@ function DetalleViaje({
   const invalidar = () => {
     setError(null);
     void qc.invalidateQueries({ queryKey: ['viajes'] });
+    // Marcar el viaje en ruta despacha los paquetes del origen (0086).
+    void qc.invalidateQueries({ queryKey: ['paqueteria'] });
   };
   const alError = (e: unknown) =>
     setError(e instanceof ErrorApi ? e.message : 'Operación fallida.');
@@ -364,13 +366,6 @@ function DetalleViaje({
     onSuccess: invalidar,
     onError: alError,
   });
-  // Paquetería (0086): una terminal intermedia despacha sus paquetes; el origen
-  // lo hace solo al marcar en ruta.
-  const despachar = useMutation({
-    mutationFn: () => despacharEnvios(salida.salidaId),
-    onError: alError,
-  });
-
   return (
     <div className="border-t px-4 py-3 space-y-3">
       {error && <p className="text-sm text-red-600">{error}</p>}
@@ -381,24 +376,6 @@ function DetalleViaje({
           las {hora(salida.horaPaso)}. Imprime aquí el manifiesto de quienes suben en esta terminal;
           conductor, unidad y estado del viaje los maneja la terminal de origen.
         </p>
-      )}
-
-      {!salida.esOrigen && salida.estado !== 'finalizada' && salida.estado !== 'cancelada' && (
-        <div className="flex flex-wrap items-center gap-2 text-sm">
-          <button
-            onClick={() => despachar.mutate()}
-            disabled={despachar.isPending}
-            className="rounded border px-3 py-1.5 text-sm disabled:opacity-50"
-          >
-            Despachar paquetes
-          </button>
-          <span className="text-xs text-slate-500">
-            Al subirlos a la unidad: pasan a «en ruta» los paquetes que salen de aquí.
-          </span>
-          {despachar.data && (
-            <span className="text-xs text-green-700">{despachar.data.despachados} paquete(s) despachado(s).</span>
-          )}
-        </div>
       )}
 
       {salida.esOrigen && salida.estado === 'programada' && (
@@ -580,6 +557,8 @@ function DetalleViaje({
           terminal ({manifiestos.terminal.pasajeros} pas.).
         </p>
       )}
+
+      <PaquetesDelViaje salida={salida} />
 
       <table className="w-full text-sm">
         <thead className="text-left text-slate-500">

@@ -1,7 +1,8 @@
 /**
  * Detalle de un envío (consulta por folio, REQ-10) con las acciones que le
  * tocan a MI sucursal:
- *   * origen: reimprimir, mover de salida y cancelar (antes de despachar);
+ *   * origen: marcar en ruta (0089), reimprimir, mover de salida y cancelar
+ *     (antes de despachar);
  *   * destino: recibir (en sucursal) y entregar (nombre verificado + cobro si
  *     es por cobrar);
  *   * cualquiera con permiso: confirmar una transferencia pendiente.
@@ -10,7 +11,7 @@ import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   buscarEnvio, cancelarEnvio, confirmarTransferenciaEnvio, entregarEnvio, ESTADO_ENVIO,
-  ESTADO_PAGO_ENVIO, moverEnvio, recibirEnvio, reimprimirEnvio, salidasParaEnvio, type Envio,
+  ESTADO_PAGO_ENVIO, marcarEnvioEnRuta, moverEnvio, recibirEnvio, reimprimirEnvio, salidasParaEnvio, type Envio,
 } from '../../api/paqueteria';
 import { ErrorApi } from '../../api/cliente';
 import { useSesion } from '../../auth/sesion';
@@ -45,10 +46,15 @@ export function DetalleEnvio({ folio, onCerrar }: { folio: string; onCerrar: () 
     onSuccess: () => refrescar('Transferencia confirmada: ya suma al corte.'),
   });
 
+  const enRuta = useMutation({
+    mutationFn: (id: string) => marcarEnvioEnRuta(id),
+    onSuccess: () => refrescar('Paquete en ruta: ya va en la unidad.'),
+  });
+
   const e = q.data;
   const soyOrigen = !!e && e.sucursalOrigenId === sesion?.sucursalId;
   const soyDestino = !!e && e.sucursalDestinoId === sesion?.sucursalId;
-  const errorAccion = recibir.error ?? confirmar.error;
+  const errorAccion = recibir.error ?? confirmar.error ?? enRuta.error;
 
   return (
     <Modal titulo={`Envío ${folio}`} onCerrar={onCerrar}>
@@ -90,6 +96,9 @@ export function DetalleEnvio({ folio, onCerrar }: { folio: string; onCerrar: () 
             )}
             {soyOrigen && e.estado === 'registrado' && (
               <>
+                <Boton onClick={() => enRuta.mutate(e.envioId)} disabled={enRuta.isPending}>
+                  {enRuta.isPending ? 'Marcando…' : 'Marcar en ruta'}
+                </Boton>
                 <BotonSutil onClick={() => setAccion('mover')}>Mover de salida</BotonSutil>
                 <BotonSutil className="text-red-600" onClick={() => setAccion('cancelar')}>Cancelar envío</BotonSutil>
               </>

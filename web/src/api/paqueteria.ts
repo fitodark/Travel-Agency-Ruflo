@@ -99,6 +99,35 @@ export const enviosDestino = (estado: 'por_recibir' | 'por_entregar') =>
 
 export const enviosDeSalida = (salidaId: string) => api<Envio[]>(`/paqueteria/salida/${salidaId}`);
 
+export type VistaEntregas = 'por_entregar' | 'entregados' | 'todos';
+
+export interface FiltrosEntregas {
+  vista?: VistaEntregas;
+  entregaDesde?: string;
+  entregaHasta?: string;
+  remitente?: string;
+  destinatario?: string;
+  folio?: string;
+}
+
+export interface EnvioEntregas extends Envio {
+  entregadoEn: string | null;
+  entregadoPor: string | null;
+}
+
+/** «Por entregar» con historial: pendientes + entregados, paginado. */
+export const historialEntregas = (f: FiltrosEntregas & { pagina: number; porPagina: number }) => {
+  const qs = new URLSearchParams();
+  for (const [k, v] of Object.entries(f)) if (v !== undefined && v !== '') qs.set(k, String(v));
+  return api<{ filas: EnvioEntregas[]; total: number; pagina: number; porPagina: number }>(
+    `/paqueteria/destino/historial?${qs.toString()}`,
+  );
+};
+
+/** Un solo envío a «en ruta», desde su terminal de origen (0089). */
+export const marcarEnvioEnRuta = (envioId: string) =>
+  post<{ envioId: string; estado: EstadoEnvio }>(`/paqueteria/${envioId}/en-ruta`);
+
 export const despacharEnvios = (salidaId: string) =>
   post<{ despachados: number }>(`/paqueteria/salida/${salidaId}/despachar`);
 
